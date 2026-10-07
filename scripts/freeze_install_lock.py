@@ -24,7 +24,7 @@ def freeze(wheelhouse, backend_sha, frontend_sha, output):
     root = Path(__file__).resolve().parents[1]
     expected = {canonical(name): version for name, version in
                 (line.split('==') for line in (root / 'requirements.lock.txt').read_text().splitlines() if line)}
-    expected.update({'auto-g16': '2.7.0+readonly.1', 'autog-frontend-readonly': tomllib.loads((root / 'pyproject.toml').read_text())['project']['version']})
+    expected.update({'auto-g16': '2.7.0', 'autog-frontend-readonly': tomllib.loads((root / 'pyproject.toml').read_text())['project']['version']})
     pins = {'auto-g16': backend_sha, 'autog-frontend-readonly': frontend_sha}
     found = {}
     for wheel in sorted(wheelhouse.glob('*.whl')):

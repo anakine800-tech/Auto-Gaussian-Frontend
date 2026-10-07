@@ -62,15 +62,20 @@ export function parseDTO<K extends keyof KindMap>(value: unknown, kind: K): Kind
 // Idle HTTP/1 connections also count against the local server's finite limit.
 let activeQueries=0;
 const queryWaiters:Array<()=>void>=[];
-export async function requestJSON(path: string, token: string, signal: AbortSignal): Promise<unknown> {
+export async function requestJSON(path: string, token: string, signal: AbortSignal, policy: 'ordinary'|'native-scientific-read' = 'ordinary'): Promise<unknown> {
   if(activeQueries>=2)await new Promise<void>(resolve=>queryWaiters.push(resolve));else activeQueries++;
   const release=()=>{const next=queryWaiters.shift();if(next)next();else activeQueries--;};
   if(signal.aborted){release();throw new DOMException('Aborted','AbortError');}
   // Navigation abandons the consumer, not the in-flight HTTP slot: a canceled
   // browser fetch can still be executing on the local server. Drain that read
   // before releasing the shared budget, bounded by a transport deadline.
-  const transport=new AbortController();const deadline=setTimeout(()=>transport.abort(),15000);
-  const pending=fetchJSON(path,token,transport.signal).finally(()=>{clearTimeout(deadline);release();});
+  const milliseconds=policy==='native-scientific-read'?120000:15000;
+  const transport=new AbortController();let timedOut=false;
+  const deadline=setTimeout(()=>{timedOut=true;transport.abort();},milliseconds);
+  const pending=fetchJSON(path,token,transport.signal).catch(error=>{
+    if(timedOut)throw new Error(`读取超时（${milliseconds/1000} 秒）。可稍后手动重试。`);
+    throw error;
+  }).finally(()=>{clearTimeout(deadline);release();});
   let cancel=()=>{};
   const abandoned=new Promise<never>((_resolve,reject)=>{cancel=()=>reject(new DOMException('Aborted','AbortError'));signal.addEventListener('abort',cancel,{once:true});});
   try{return await Promise.race([pending,abandoned]);}finally{signal.removeEventListener('abort',cancel);}

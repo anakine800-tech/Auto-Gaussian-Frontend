@@ -14,6 +14,8 @@ def main() -> None:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--database", type=Path, help="Canonical absolute Core database path")
     source.add_argument("--profile", type=Path, help="Explicit local source profile, no credentials")
+    parser.add_argument("--native-sources", type=Path, help="Explicit pinned native source registry")
+    parser.add_argument("--native-sources-sha256", help="SHA-256 of the native source registry")
     parser.add_argument("--port", default=8765, type=int)
     parser.add_argument("--archive-index", type=Path, help="Canonical absolute offline legacy archive index")
     parser.add_argument("--archive-sha256", help="Pinned SHA-256 of the offline archive index")
@@ -48,6 +50,15 @@ def main() -> None:
             parser.error('invalid local source profile')
     if not args.database.is_absolute() or type(args.port) is not int or not 1024 <= args.port <= 65535:
         parser.error("use an absolute database path and a port between 1024 and 65535")
+    if bool(args.native_sources) != bool(args.native_sources_sha256):
+        parser.error('--native-sources and --native-sources-sha256 are required together')
+    native_sources = None
+    if args.native_sources:
+        from .native_sources import load_native_sources
+        try:
+            native_sources = load_native_sources(args.native_sources, args.native_sources_sha256)
+        except (OSError, ValueError, KeyError, TypeError):
+            parser.error('invalid pinned native source registration')
     try:
         from .api import create_app
     except ModuleNotFoundError:
@@ -81,7 +92,7 @@ def main() -> None:
                          ui_directory=(Path(__file__).resolve().parent / "ui") if args.ui else args.ui_directory,
                          archive_index=args.archive_index, archive_sha256=args.archive_sha256,
                          evidence_catalog=args.evidence_catalog, evidence_sha256=args.evidence_sha256,
-                         mode_review_directory=args.mode_review_directory,library_manager=library_manager,monitor=monitor,task_queue=task_queue)
+                         native_sources=native_sources,mode_review_directory=args.mode_review_directory,library_manager=library_manager,monitor=monitor,task_queue=task_queue)
     except ValueError as error:
         parser.error(str(error))
     if args.copy_token:
