@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           repository: anakine800-tech/Auto-Gaussian
-          ref: e0d239e41529649e25610eef6312d69714cf44e5
+          ref: 41e2e7300abaf92d10a67d4f65e10842417bee0f
           path: .ci/backend
           persist-credentials: false
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
@@ -26,7 +26,7 @@ jobs:
           python-version: '3.13.13'
       - name: Verify source identity and install exact dependency versions
         run: |
-          test "$(git -C .ci/backend rev-parse HEAD)" = e0d239e41529649e25610eef6312d69714cf44e5
+          test "$(git -C .ci/backend rev-parse HEAD)" = 41e2e7300abaf92d10a67d4f65e10842417bee0f
           python -m pip install setuptools==82.0.1
           python -m pip install -r requirements.lock.txt
           python -m pip install --no-deps --no-build-isolation ./.ci/backend
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           repository: anakine800-tech/Auto-Gaussian
-          ref: e0d239e41529649e25610eef6312d69714cf44e5
+          ref: 41e2e7300abaf92d10a67d4f65e10842417bee0f
           path: .ci/backend
           persist-credentials: false
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
@@ -54,7 +54,7 @@ jobs:
           node-version: '24.19.0'
       - name: Provision exact dependency versions
         run: |
-          test "$(git -C .ci/backend rev-parse HEAD)" = e0d239e41529649e25610eef6312d69714cf44e5
+          test "$(git -C .ci/backend rev-parse HEAD)" = 41e2e7300abaf92d10a67d4f65e10842417bee0f
           python -m pip install setuptools==82.0.1
           python -m pip install -r requirements.lock.txt
           python -m pip install --no-deps --no-build-isolation ./.ci/backend
