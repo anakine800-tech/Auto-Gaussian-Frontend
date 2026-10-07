@@ -131,7 +131,7 @@ class ReadOnlyBoundary:
 def create_app(database: str | Path, *, token: str = "", local_no_token: bool = False, max_response_bytes: int = 4 * 1024 * 1024,
                ui_directory: Path | None = None, archive_index: Path | None = None,
                archive_sha256: str | None = None, evidence_catalog: Path | None = None,
-               evidence_sha256: str | None = None, mode_review_directory: Path | None = None, library_manager=None, monitor=None, task_queue=None) -> FastAPI:
+               evidence_sha256: str | None = None, mode_review_directory: Path | None = None, library_manager=None, monitor=None, task_queue=None, native_sources=None) -> FastAPI:
     """No database I/O at construction. An optional trusted UI bundle is read once."""
     if QUERY_SCHEMA != "auto-g16-query/1":
         raise ValueError("unsupported query contract")
@@ -279,6 +279,26 @@ def create_app(database: str | Path, *, token: str = "", local_no_token: bool = 
     def archive_workflow(identity: str):return invoke(detail_query.get_workflow,identity)
     @app.get('/api/archives/{identity}/conditions')
     def archive_conditions(identity: str):return invoke(detail_query.get_conditions,identity)
+
+    if native_sources is not None:
+        from auto_g16.query import NativeQueryService
+        native_query = NativeQueryService(tuple(native_sources))
+
+        @app.get('/api/v1/native/sources')
+        def native_sources_list():
+            return invoke(native_query.list_sources)
+
+        @app.get('/api/v1/native/projects')
+        def native_projects():
+            return invoke(native_query.list_projects)
+
+        @app.get('/api/v1/native/sources/{source_id}/projects/{project_id}/attempts')
+        def native_attempts(source_id: str, project_id: str):
+            return invoke(native_query.list_attempts, source_id, project_id)
+
+        @app.get('/api/v1/native/sources/{source_id}/attempts/{attempt_id}')
+        def native_attempt(source_id: str, attempt_id: str):
+            return invoke(native_query.get_attempt, source_id, attempt_id)
 
     @app.get("/api/projects")
     def projects():
