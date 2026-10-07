@@ -21,7 +21,62 @@ function FrequencySummary({item}:{item:NativeAttempt}) {
  const count=(key:string)=>p[key]===null?'未知 / unavailable':String(p[key]);
  return <div className="native-frequency-summary"><h3>Opt → Freq</h3><p>频率单位：cm^-1 · 模式数：{count('frequency_count')} · 负频：{count('imaginary_frequency_count')} · 零频：{count('zero_frequency_count')}</p><p>Opt Attempt：{String(p.optimization_attempt_id)} → Freq Attempt：{String(p.frequency_attempt_id)}</p><p>解析版本：{String(p.parser_version)}。两阶段机器证据不代表人工科学验收或热力学验收。</p></div>;
 }
-function Summary({item}:{item:NativeAttempt}){return <><p className="native-path">{item.source_id} / {item.project_id} → {item.workflow_run_id} → {item.task_id} → {item.attempt_id}</p><div className="native-grid"><div><h3>执行代际</h3><Value fact={item.generation}/></div><div><h3>程序</h3><Value fact={item.program}/></div>{Object.entries(item.axes).map(([key,fact])=><div key={key}><h3>{names[key]}</h3><Value fact={fact}/></div>)}</div><FrequencySummary item={item}/><p>事实可用性：{item.availability} {item.reason&&`· ${item.reason}`}</p><div className="native-grid">{Object.entries(item.facts).map(([key,fact])=><div key={key}><h3>{names[key]}</h3><Value fact={fact}/></div>)}</div></>}
+const thermalLabels = {
+ zero_point_correction_hartree:'零点能校正', thermal_correction_energy_hartree:'热能校正',
+ thermal_correction_enthalpy_hartree:'热焓校正', thermal_correction_gibbs_hartree:'热自由能校正',
+ sum_electronic_zpe_hartree:'电子能与零点能之和', sum_electronic_enthalpy_hartree:'电子能与热焓校正之和',
+ sum_electronic_gibbs_hartree:'电子能与热自由能校正之和',
+};
+type ThermalItem = {value_hartree:number; source_span:Record<string,unknown>};
+function record(value:unknown):value is Record<string,unknown>{return !!value && typeof value==='object' && !Array.isArray(value)}
+function exactKeys(value:Record<string,unknown>,keys:string[]){return Object.keys(value).length===keys.length&&keys.every(k=>Object.hasOwn(value,k))}
+function thermalReport(item:NativeAttempt):Record<string,ThermalItem>|null {
+ const f=item.facts.thermochemistry;
+ if(!record(f)||!exactKeys(f,['availability','reason','source','value','unit'])||f.unit!=='hartree')throw Error('invalid');
+ if(f.availability==='missing'||f.availability==='unavailable'){
+  if(f.value!==null||f.source!==null||f.reason!==(f.availability==='missing'?'thermochemistry-not-recorded':'thermochemistry-unavailable'))throw Error('invalid');
+  return null;
+ }
+ const provenance=record(item.provenance)?item.provenance.parsed_result:null;
+ const p=record(provenance)?provenance:null;
+ const log=p&&record(p.log)?p.log:null;
+ const id=(v:unknown)=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(v);
+ if(f.availability!=='available'||f.reason!==null||!record(f.value)||!Object.keys(f.value).length||
+    !p||!id(p.parsed_result_id)||p.parser_version!=='1.2.0'||f.source!==`Result:${p.parsed_result_id}`||
+    !log||log.portable_name!=='gaussian.log'||typeof log.sha256!=='string'||!/^[a-f0-9]{64}$/.test(log.sha256)||
+    !Number.isSafeInteger(log.size_bytes)||Number(log.size_bytes)<=0)throw Error('invalid');
+ let envelope:unknown;
+ for(const [key,value] of Object.entries(f.value)){
+  if(!Object.hasOwn(thermalLabels,key)||!record(value)||!exactKeys(value,['value_hartree','source_span'])||
+     typeof value.value_hartree!=='number'||!Number.isFinite(value.value_hartree)||!record(value.source_span))throw Error('invalid');
+  const span=value.source_span;
+  if(!exactKeys(span,['artifact_kind','envelope_observation_id','logical_name','sha256','size_bytes','start','end'])||
+     span.artifact_kind!=='gaussian-log'||!id(span.envelope_observation_id)||span.logical_name!==log.portable_name||
+     span.sha256!==log.sha256||span.size_bytes!==log.size_bytes||!Number.isSafeInteger(span.start)||!Number.isSafeInteger(span.end)||
+     Number(span.start)<0||Number(span.start)>=Number(span.end)||Number(span.end)>Number(log.size_bytes)||
+     (envelope!==undefined&&envelope!==span.envelope_observation_id))throw Error('invalid');
+  envelope=span.envelope_observation_id;
+ }
+ return f.value as Record<string,ThermalItem>;
+}
+function ThermochemistrySummary({item}:{item:NativeAttempt}) {
+ const f=item.facts.thermochemistry;
+ let values:Record<string,ThermalItem>|null=null;
+ let invalid=false;
+ if(f!==undefined){try{values=thermalReport(item)}catch{invalid=true}}
+ return <section className="native-thermochemistry"><h3>Gaussian热化学原始报告</h3>
+  <p>这些是 Gaussian 原始报告值，未绑定本页的可比较热化学条件，未作 qRRHO、集合布居或科学验收。</p>
+  {f===undefined?<p>热化学读取未连接（unavailable）</p>:invalid?<p role="alert">invalid-thermochemistry-fact</p>:<>
+   {f.availability==='unavailable'?<p>不可用 (unavailable) · thermochemistry-unavailable</p>:<>
+    {f.availability==='missing'&&<p>缺失 (missing) · thermochemistry-not-recorded</p>}
+    <table><caption>Gaussian 原始热化学值 · hartree</caption><thead><tr><th scope="col">报告项</th><th scope="col">数值</th><th scope="col">单位</th></tr></thead>
+     <tbody>{Object.entries(thermalLabels).map(([key,label])=><tr key={key}><th scope="row">{label}</th><td>{values?.[key]?String(values[key].value_hartree):'缺失 (missing)'}</td><td>hartree</td></tr>)}</tbody></table>
+   </>}
+   {values&&<details><summary>热化学来源与字节位置</summary><p>{f.source} · 解析版本：1.2.0</p><pre>{JSON.stringify(Object.fromEntries(Object.entries(values).map(([k,v])=>[k,v.source_span])),null,2)}</pre></details>}
+  </>}
+ </section>;
+}
+function Summary({item}:{item:NativeAttempt}){return <><p className="native-path">{item.source_id} / {item.project_id} → {item.workflow_run_id} → {item.task_id} → {item.attempt_id}</p><div className="native-grid"><div><h3>执行代际</h3><Value fact={item.generation}/></div><div><h3>程序</h3><Value fact={item.program}/></div>{Object.entries(item.axes).map(([key,fact])=><div key={key}><h3>{names[key]}</h3><Value fact={fact}/></div>)}</div><FrequencySummary item={item}/><p>事实可用性：{item.availability} {item.reason&&`· ${item.reason}`}</p><div className="native-grid">{Object.entries(item.facts).filter(([key])=>key!=='thermochemistry').map(([key,fact])=><div key={key}><h3>{names[key]}</h3><Value fact={fact}/></div>)}</div><ThermochemistrySummary item={item}/></>}
 function nativeRoute(hash:string){
  try {
   if(hash==='#/native')return {source:'',group:'',identity:'',kind:'projects'};
