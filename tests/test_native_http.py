@@ -24,6 +24,8 @@ class NativeHTTPTests(unittest.TestCase):
         detail=self.client.get('/api/v1/native/sources/one/attempts/attempt').json()['data']
         self.assertEqual(rows,[detail]);self.assertEqual(self.client.get('/api/projects').json()['schema'],'auto-g16-query/1')
         self.assertNotIn(str(self.path),p.text)
+        self.assertEqual(detail['facts']['thermochemistry'],dict(availability='unavailable',reason='thermochemistry-unavailable',source=None,value=None,unit='hartree'))
+        self.assertNotIn(str(self.path),str(rows))
 
     def test_denied_methods_paths_query_origin_and_missing(self):
         cases=[('post','/api/v1/native/projects',405,{}),('get','/api/v1/native/projects?path=private',400,{}),('get','/api/v1/native/sources/no/attempts/attempt',404,{}),('get','/api/v1/native/projects',403,{'origin':'https://evil.invalid'})]
