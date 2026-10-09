@@ -22,16 +22,18 @@ def load_native_sources(path: Path, digest: str) -> tuple[NativeSource, ...]:
     """Reuse the existing bounded no-follow reader; never open a business store."""
     data = json.loads(read_pinned(path, digest, limit=256 * 1024), object_pairs_hook=_object)
     if (type(data) is not dict or set(data) != {'schema', 'sources'}
-            or data['schema'] not in {'autog-native-source-registration/1', 'autog-native-source-registration/2', 'autog-native-source-registration/3'}
+            or data['schema'] not in {'autog-native-source-registration/1', 'autog-native-source-registration/2', 'autog-native-source-registration/3', 'autog-native-source-registration/4'}
             or type(data['sources']) is not list or not 1 <= len(data['sources']) <= 32):
         raise ValueError('invalid native registry')
     sources = []
     for entry in data['sources']:
         keys = {'source_id', 'database', 'snapshots'}
-        if data['schema'] in {'autog-native-source-registration/2', 'autog-native-source-registration/3'}:
+        if data['schema'] != 'autog-native-source-registration/1':
             keys.add('opt_readout')
-        if data['schema'] == 'autog-native-source-registration/3':
+        if data['schema'] in {'autog-native-source-registration/3', 'autog-native-source-registration/4'}:
             keys.add('freq_readout')
+        if data['schema'] == 'autog-native-source-registration/4':
+            keys.add('thermodynamic_readout')
         if (type(entry) is not dict or set(entry) != keys
                 or type(entry['database']) is not str or type(entry['snapshots']) is not list
                 or len(entry['snapshots']) > 64):
@@ -59,8 +61,21 @@ def load_native_sources(path: Path, digest: str) -> tuple[NativeSource, ...]:
                 raise ValueError('invalid Freq readout descriptor')
             content = read_pinned(Path(descriptor['path']), descriptor['sha256'], limit=2 * 1024 * 1024)
             freq_readout = load_freq_readout(content, descriptor['sha256'])
+        extra = {}
+        if data['schema'] == 'autog-native-source-registration/4':
+            thermodynamic_readout = None
+            descriptor = entry['thermodynamic_readout']
+            if descriptor is not None:
+                if (type(descriptor) is not dict or set(descriptor) != {'path', 'sha256'}
+                        or type(descriptor['path']) is not str or type(descriptor['sha256']) is not str):
+                    raise ValueError('invalid thermodynamic readout descriptor')
+                from auto_g16.conformer.thermochemistry_readonly import load_native_thermodynamic_readout
+                content = read_pinned(Path(descriptor['path']), descriptor['sha256'], limit=1024 * 1024)
+                thermodynamic_readout = load_native_thermodynamic_readout(content, descriptor['sha256'])
+            extra['thermodynamic_readout'] = thermodynamic_readout
         sources.append(NativeSource(source_id=entry['source_id'], database=Path(entry['database']),
-                                    snapshots=tuple(snapshots), opt_readout=opt_readout, freq_readout=freq_readout))
+                                    snapshots=tuple(snapshots), opt_readout=opt_readout,
+                                    freq_readout=freq_readout, **extra))
     result = tuple(sources)
     NativeQueryService(result)  # Owning validation rejects duplicate aliases and database paths.
     return result

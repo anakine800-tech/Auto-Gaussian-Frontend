@@ -300,6 +300,11 @@ def create_app(database: str | Path, *, token: str = "", local_no_token: bool = 
         def native_attempt(source_id: str, attempt_id: str):
             return invoke(native_query.get_attempt, source_id, attempt_id)
 
+        @app.get('/api/v1/native/sources/{source_id}/attempts/{attempt_id}/thermodynamics')
+        def native_thermodynamics(source_id: str, attempt_id: str):
+            return invoke(lambda source, attempt: native_query.get_thermodynamics(source, attempt),
+                          source_id, attempt_id)
+
     @app.get("/api/projects")
     def projects():
         return invoke(query.list_projects)
