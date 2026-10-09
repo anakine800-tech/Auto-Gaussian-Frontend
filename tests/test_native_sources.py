@@ -65,6 +65,75 @@ class NativeRegistrationTests(unittest.TestCase):
         entry['freq_readout'] = {'path':str(candidate),'sha256':hashlib.sha256(b'{}').hexdigest()}
         with self.assertRaises(ValueError): load_native_sources(self.path, self.write())
 
+    def v4(self):
+        self.data['schema'] = 'autog-native-source-registration/4'
+        self.data['sources'][0].update(opt_readout=None, freq_readout=None, thermodynamic_readout=None)
+        return self.data['sources'][0]
+
+    def test_v4_null_registration_does_not_read_results(self):
+        self.v4()
+        with patch('auto_g16.conformer.thermochemistry_readonly.NativeThermodynamicReadout.read',
+                   side_effect=AssertionError('startup read forbidden')):
+            source = load_native_sources(self.path, self.write())[0]
+        self.assertIsNone(source.thermodynamic_readout)
+        self.assertFalse(source.database.exists())
+
+    def test_v4_closed_fields_and_prior_versions_remain_closed(self):
+        for version in range(1, 5):
+            self.data['schema'] = f'autog-native-source-registration/{version}'
+            entry = self.data['sources'][0]
+            entry.clear()
+            entry.update(source_id='one', database=str(self.root / 'absent.sqlite3'), snapshots=[])
+            if version >= 2: entry['opt_readout'] = None
+            if version >= 3: entry['freq_readout'] = None
+            if version == 4: entry['thermodynamic_readout'] = None
+            for key in list(entry):
+                value = entry.pop(key)
+                with self.subTest(version=version, missing=key), self.assertRaises(ValueError):
+                    load_native_sources(self.path, self.write())
+                entry[key] = value
+            entry['unknown' if version == 4 else 'thermodynamic_readout'] = None
+            with self.subTest(version=version, extra=True), self.assertRaises(ValueError):
+                load_native_sources(self.path, self.write())
+
+    def test_v4_descriptor_is_pinned_bounded_and_delegated_without_read(self):
+        entry = self.v4()
+        registration = self.root / 'thermodynamics.json'
+        raw = b'{"synthetic":"registration"}'
+        registration.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        entry['thermodynamic_readout'] = {'path': str(registration), 'sha256': digest}
+        # This test isolates descriptor wiring. Exact source ownership is tested
+        # with real NativeSource by the backend and cross-repository fixture.
+        reader = object()
+        with patch('auto_g16.conformer.thermochemistry_readonly.load_native_thermodynamic_readout', return_value=reader) as loader, \
+                patch('autog_frontend.native_sources.NativeSource') as source, \
+                patch('autog_frontend.native_sources.NativeQueryService'), \
+                patch('autog_frontend.native_sources.read_pinned', wraps=__import__('autog_frontend.archive', fromlist=['read_pinned']).read_pinned) as pinned:
+            load_native_sources(self.path, self.write())
+            loader.assert_called_once_with(raw, digest)
+            self.assertIs(source.call_args.kwargs['thermodynamic_readout'], reader)
+            self.assertEqual(pinned.call_args.kwargs['limit'], 1024 * 1024)
+
+    def test_v4_bad_descriptors_duplicate_json_hash_and_size_reject(self):
+        entry = self.v4()
+        registration = self.root / 'thermodynamics.json'
+        registration.write_bytes(b'{}')
+        for descriptor in ({}, [], {'path': str(registration), 'sha256': '0'*64},
+                           {'path': 3, 'sha256': '0'*64},
+                           {'path': str(registration), 'sha256': '0'*64, 'latest': True},
+                           {'path': str(registration), 'sha256': hashlib.sha256(b'{}').hexdigest()}):
+            entry['thermodynamic_readout'] = descriptor
+            with self.subTest(descriptor=descriptor), self.assertRaises(ValueError):
+                load_native_sources(self.path, self.write())
+        registration.write_bytes(b'x' * (1024 * 1024 + 1))
+        entry['thermodynamic_readout'] = {'path': str(registration), 'sha256': hashlib.sha256(registration.read_bytes()).hexdigest()}
+        with self.assertRaises(ValueError): load_native_sources(self.path, self.write())
+        entry['thermodynamic_readout'] = None
+        raw = json.dumps(self.data).replace('"thermodynamic_readout": null', '"thermodynamic_readout": null, "thermodynamic_readout": null').encode()
+        self.path.write_bytes(raw)
+        with self.assertRaises(ValueError): load_native_sources(self.path, hashlib.sha256(raw).hexdigest())
+
     def test_duplicate_alias_path_and_unknown_fields_reject(self):
         for change in ('alias', 'path', 'unknown', 'relative'):
             with self.subTest(change=change):
