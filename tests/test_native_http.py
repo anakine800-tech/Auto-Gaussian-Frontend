@@ -121,6 +121,14 @@ class NativeThermodynamicsIntegrationTests(unittest.TestCase):
         if fixture_root not in tests.__path__:
             tests.__path__.append(fixture_root)
             cls.addClassCleanup(tests.__path__.remove, fixture_root)
+        # Fixtures also import backend script helpers. Extend only that namespace;
+        # never add the backend root to sys.path and shadow the installed owner.
+        import scripts
+        backend_scripts = str(checkout / 'scripts')
+        original_scripts_path = scripts.__path__
+        if backend_scripts not in original_scripts_path:
+            scripts.__path__ = [*original_scripts_path, backend_scripts]
+            cls.addClassCleanup(setattr, scripts, '__path__', original_scripts_path)
         from tests.v31.conformer.test_thermochemistry_readonly import PairReadbackTests, no_computation
         from tests.v31.conformer.test_successor_freq import inert_thermo_owners
         cls.no_computation = staticmethod(no_computation)
