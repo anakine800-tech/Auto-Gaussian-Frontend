@@ -38,7 +38,7 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
                 return JSONResponse({'detail': 'Local same-origin access only'}, status_code=403)
             if request.method not in ('GET', 'HEAD'):
                 if request.method != 'POST' or actions is None:
-                    return JSONResponse({'detail': 'Method disabled'}, status_code=405)
+                    return JSONResponse({'detail': 'Study viewer is read-only'}, status_code=405)
                 if not secrets.compare_digest(request.headers.get('x-ag-token', '').encode(), actions.token.encode()):
                     return JSONResponse({'detail': 'Invalid action token'}, status_code=403)
             response = await call_next(request)

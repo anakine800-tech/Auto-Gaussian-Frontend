@@ -152,6 +152,10 @@ class ActionsTests(unittest.TestCase):
         self.control(stdout='{}')
         self.assertEqual(self.post(attempt=special).status_code,200)
         self.assertEqual(self.calls()[-1],['status','--json',special])
+        (original/'inputs/butane.gjf').write_bytes(b'\xff')
+        self.assertIsNone(self.client.get('/api/actions/butane-demo/prepared').json()['source'])
+        self.assertEqual(self.post().status_code,200)
+        self.assertEqual(self.prepare().status_code,409)
 
     def test_concurrent_request_gets_409(self):
         self.control(delay=.4,stdout='{}')

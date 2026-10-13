@@ -88,7 +88,11 @@ class Actions:
         source = None
         if (status.get('state') not in ('unknown', 'failed_presubmit')
                 and manifest.get('template') == 'gaussian' and len(inputs) == 1 and not inputs[0]['error']):
-            source = self.store.input_file(study, attempt, inputs[0]['name'])['text']
+            try:
+                source = self.store.input_file(study, attempt, inputs[0]['name'])['text']
+            except StudyError:
+                # A damaged input disables editing, not status/fetch/cancel.
+                pass
         return dict(state=status.get('state'), can_cancel=status.get('state') in ('submitted', 'running') or residue,
                     source=source, tiers=self.tiers, manifest=manifest)
 
