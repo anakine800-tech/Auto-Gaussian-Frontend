@@ -1,14 +1,13 @@
-"""Offline Gaussian Cartesian-mode sidecar, plus pure read-only validation.
+"""Pure Gaussian Cartesian displacement decoding, reused from the former viewer.
 
-The builder reads only explicit bytes and a public detail DTO. GET validates a
-pinned sidecar; it never invokes this builder, a chemistry parser or a process.
+The study adapter supplies geometry/frequency byte spans directly from the log.
+No sidecars, imports from the calculation package, processes, or file writes.
 """
 import hashlib
 import math
 import re
-from .parser_contract import qualified_parser
 
-SCHEMA = 'auto-g16-vibration-modes/1'
+SCHEMA = 'ag-viewer-vibrations/1'
 DECODER = {'name': 'autog-gaussian-cartesian-display-modes', 'version': '1.1.0'}
 DECODERS = (DECODER, {'name': DECODER['name'], 'version': '1.0.0'})
 CONVENTION = 'gaussian-printed-normalized-cartesian-displacements'
@@ -96,7 +95,6 @@ def build_modes(detail, raw):
     """
     require(detail.get('result', {}).get('availability') == 'available', 'qualified-result-required')
     source, data = detail['result']['source'], detail['result']['data']
-    require(qualified_parser(source['parser'], source['parser_version']))
     artifact, g = source['artifact'], data['last_geometry']
     require(len(raw) <= 32*1024*1024 and len(raw) == artifact['size_bytes'] and hashlib.sha256(raw).hexdigest() == artifact['sha256'], 'log-hash-mismatch')
     require(g is not None and g.get('orientation_kind') == 'standard-orientation' and bound(g['source_span'], artifact), 'reference-geometry-unavailable')
@@ -145,3 +143,51 @@ def build_modes(detail, raw):
     packet = dict(schema=SCHEMA,kind=detail['kind'],id=detail['id'],decoder=DECODER,result_source=source,
                   vector_convention=CONVENTION,reference_geometry=g,modes=modes)
     return validate_modes(packet,detail)
+
+
+def parse_log_modes(raw, logical_name):
+    """Build the former decoder's byte spans directly from one log in memory.
+
+    Animate in the Standard orientation printed with these vectors, never mix
+    that frame with final.xyz (which may have been rotated by another program).
+    """
+    artifact = dict(logical_name=logical_name, sha256=hashlib.sha256(raw).hexdigest(), size_bytes=len(raw))
+    rows = raw.splitlines(keepends=True)
+    offsets, offset = [], 0
+    for row in rows:
+        offsets.append(offset)
+        offset += len(row)
+    orientations = [i for i, row in enumerate(rows) if b'Standard orientation:' in row]
+    require(bool(orientations), 'standard-orientation-missing')
+    begin = orientations[-1]
+    separators = [i for i in range(begin+1, len(rows)) if re.fullmatch(rb'\s*-{5,}\s*', rows[i])][:3]
+    require(len(separators) == 3, 'truncated-geometry')
+    atoms = []
+    for row in rows[separators[1]+1:separators[2]]:
+        values = row.decode('ascii').split()
+        require(len(values) == 6)
+        atoms.append(dict(center=int(values[0]), atomic_number=int(values[1]),
+                          **dict(zip(('x', 'y', 'z'), map(number, values[3:])))))
+    end = offsets[separators[2]] + len(rows[separators[2]])
+    geometry = dict(atoms=atoms, units='angstrom', orientation_kind='standard-orientation',
+                    source_span={**artifact, 'start': offsets[begin], 'end': end})
+    tail = raw[end:]
+    require(tail.count(b'Harmonic frequencies (cm**-1)') == 1, 'ambiguous-harmonic-analysis')
+    require(not any(m in tail for m in (b'Input orientation:', b'Z-Matrix orientation:', b'--Link1--', b'Entering Link 1')), 'cross-job-boundary')
+    blocks = []
+    for i in range(separators[2]+1, len(rows)):
+        if not re.match(rb'\s*Frequencies\s+--', rows[i]):
+            continue
+        frequencies = [number(v) for v in rows[i].decode('ascii').split('--', 1)[1].split()]
+        # Standard Gaussian output: mode numbers, symmetry labels, frequencies.
+        first = i-2
+        require(first > separators[2] and re.fullmatch(rb'\s*\d+(?:\s+\d+)*\s*', rows[first]))
+        table = next((j for j in range(i+1, min(i+12, len(rows))) if rows[j].split()[:2] == [b'Atom', b'AN']), None)
+        require(table is not None, 'cartesian-vectors-not-present')
+        blocks.append({'frequencies_cm-1': frequencies,
+                       'source_span': {**artifact, 'start': offsets[first], 'end': offsets[table]}})
+    detail = {'kind': 'attempt', 'id': logical_name, 'result': {
+        'availability': 'available', 'source': {'artifact': artifact},
+        'data': {'last_geometry': geometry, 'frequency_blocks': blocks,
+                 'frequencies_cm1': [v for b in blocks for v in b['frequencies_cm-1']]}}}
+    return build_modes(detail, raw)
