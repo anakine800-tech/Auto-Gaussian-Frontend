@@ -108,6 +108,16 @@ class ResultsTests(unittest.TestCase):
         self.snapshot.unlink();self.snapshot.parent.rmdir();self.snapshot.parent.symlink_to(self.study,target_is_directory=True)
         self.assertEqual(self.client.get('/api/monitor').status_code,403)
 
+    def test_optional_t11_core_fields(self):
+        data=monitor_snapshot()
+        data['own'].update(cores_running=8, cores_queued=22, committed_cap=88)
+        self.snapshot.write_text(json.dumps(data))
+        self.assertEqual(self.client.get('/api/monitor').json()['own'],data['own'])
+        for key in ('cores_running','cores_queued','committed_cap'):
+            for invalid in (-1, True, '22', None):
+                malformed=copy.deepcopy(data);malformed['own'][key]=invalid
+                self.snapshot.write_text(json.dumps(malformed))
+                self.assertEqual(self.client.get('/api/monitor').status_code,422)
     def test_monitor_malformed_fields_never_500(self):
         valid=monitor_snapshot();cases=[]
         for key in valid:

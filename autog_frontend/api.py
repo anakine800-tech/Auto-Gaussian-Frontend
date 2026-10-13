@@ -1,9 +1,12 @@
-"""Same-origin, loopback-only HTTP reads. No write or execution endpoints."""
+"""Same-origin loopback HTTP; actions require explicit local startup opt-in."""
+import json
+import secrets
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from .studies import Studies, StudyError
 from .static_ui import load_ui
@@ -11,10 +14,18 @@ from .static_ui import load_ui
 LOCAL_HOSTS = {'localhost', '127.0.0.1', '::1'}
 
 
-def create_app(studies_root, ui_directory=None):
+def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None):
     store = Studies(studies_root)
     ui = load_ui(Path(ui_directory)) if ui_directory else {}
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    actions = None
+    if enable_actions:
+        from .actions import Actions
+        actions = Actions(store, ag)
+        if '/' in ui:
+            body, mime = ui['/']
+            meta = f'<meta name="ag-token" content="{actions.token}">'
+            ui['/'] = (body.replace(b'</head>', meta.encode() + b'</head>'), mime)
 
     @app.middleware('http')
     async def local_readonly(request: Request, call_next):
@@ -26,7 +37,10 @@ def create_app(studies_root, ui_directory=None):
             if not local or (origin and origin != str(request.base_url).rstrip('/')) or request.headers.get('sec-fetch-site') == 'cross-site':
                 return JSONResponse({'detail': 'Local same-origin access only'}, status_code=403)
             if request.method not in ('GET', 'HEAD'):
-                return JSONResponse({'detail': 'Study viewer is read-only'}, status_code=405)
+                if request.method != 'POST' or actions is None:
+                    return JSONResponse({'detail': 'Method disabled'}, status_code=405)
+                if not secrets.compare_digest(request.headers.get('x-ag-token', '').encode(), actions.token.encode()):
+                    return JSONResponse({'detail': 'Invalid action token'}, status_code=403)
             response = await call_next(request)
         except ValueError:
             return JSONResponse({'detail': 'Invalid local request'}, status_code=400)
@@ -43,6 +57,25 @@ def create_app(studies_root, ui_directory=None):
     @app.exception_handler(OSError)
     async def io_error(_request, _exc):
         return JSONResponse({'detail': 'Local file changed or is unreadable; refresh to retry'}, status_code=409)
+
+    if actions is not None:
+        @app.get('/api/actions/{study}/{attempt}')
+        def action_context(study: str, attempt: str):
+            return actions.context(study, attempt)
+
+        @app.post('/api/actions')
+        async def action(request: Request):
+            from .actions import MAX_BODY
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > MAX_BODY:
+                    raise StudyError('Action request exceeds 1 MiB', 413)
+            try:
+                payload = json.loads(body)
+            except (ValueError, UnicodeError, RecursionError):
+                raise StudyError('Invalid JSON request', 400) from None
+            return await run_in_threadpool(actions.execute, payload)
 
     @app.get('/api/monitor')
     def monitor():

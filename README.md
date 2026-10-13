@@ -1,8 +1,8 @@
 # Auto-Gaussian Study Viewer
 
-A local, strictly read-only viewer for the new `ag` study directory architecture.
-No calculation package, database, SSH connection, scheduler, task queue, project
-library or archive import is used. Submit and cancel calculations through `ag`.
+A local viewer for the new `ag` study directory architecture, read-only by default.
+Optional actions delegate to a startup-selected local `ag` executable. The viewer
+has no calculation-package, SSH, scheduler, database, or archive dependency.
 
 ## Run locally
 
@@ -103,7 +103,11 @@ directories do not appear as studies. Missing files show
 sampling intervals (no expiry for a one-shot null interval), previous data marked
 **非最新** on sampling failure, own cores/jobs, cluster nodes/queues and unchanged
 warning text. Unknown schemas and malformed required fields are rejected with
-**快照格式不正确**. It never starts a sampler or connects to the cluster.
+**快照格式不正确**. It never starts a sampler or connects to the cluster. Sampling and last-success
+timestamps display in the browser’s local time zone, with the original UTC sample
+available on hover. If all three optional T11 fields `cores_running`, `cores_queued`
+and `committed_cap` are present, the own-core panel shows running, queued and total
+cap separately. Older snapshots retain the original display.
 
 The sole new direct dependency is pinned `react-markdown@10.1.0`, with its
 transitive tree locked in `web/pnpm-lock.yaml`. It provides Markdown parsing
@@ -166,12 +170,12 @@ Direct links use URL-encoded path components:
 
 Attempt links open the structure view; missing IDs show an error rather than
 silently choosing another Attempt. Browser back/forward navigation is supported.
-Only the URL fragment changes; all server requests remain GET reads through the
-same local/same-origin/path checks.
+Only the URL fragment changes; viewing requests use GET through the same
+local/same-origin/path checks. Optional calculation actions use the POST below.
 
 ## Read-only and local boundary
 
-Only GET/HEAD are allowed. The server binds exclusively to loopback; remote peers,
+With actions disabled, only GET/HEAD are allowed. The server binds exclusively to loopback; remote peers,
 non-local Host headers, cross-site requests, and foreign Origins are rejected.
 No permissive CORS is enabled. Do not put this private-data viewer behind a reverse
 proxy or expose it on a network interface.
@@ -187,6 +191,64 @@ This is an intentionally incompatible replacement of the former query-service
 frontend. Old database/profile/task-queue/import/monitor startup flags and APIs
 have been removed. Obsolete native/pre-v31/navigation registration documents and
 the publication source map have been deleted. This README is the current guide.
+
+## Optional local ag actions (T7d)
+
+Start with `--enable-actions`, optionally `--ag <executable>` (otherwise PATH).
+The executable is fixed at startup; HTTP cannot select it or supply file paths.
+Startup runs only `ag --version` and refuses actions if it fails. It reads the
+`local.studies_root` and `resources.tiers` values from ag’s existing local config
+`~/.config/ag/config.toml`; the viewer root must match. Resource/root changes
+require a restart. This avoids acting on a different same-named study or writing
+resource directives from stale settings. Nothing connects to a cluster at startup.
+
+On an Attempt, **刷新状态** runs `ag status --json <id>` (one selected Attempt,
+matching the current CLI), and **取回结果** runs `ag fetch --json <id>`.
+**基于此新建** starts from its unique Gaussian input. Edit the full input, tier,
+walltime, label, parent relation and method basis. Resource lines are regenerated
+from the local tier: its core count and 80% of its memory in decimal MB, below ag’s
+85% ceiling. The server enforces the same transformation. It exclusively creates
+`<study>/drafts/<UTC timestamp>-<label>.gjf` using descriptor-relative
+`O_EXCL | O_NOFOLLOW`; it never edits an existing Attempt. ag receives:
+
+```text
+ag prepare --json --study <server-resolved-study> --template gaussian
+  --input <new-draft> --tier <tier> --walltime <HH:MM:SS> --label <label>
+  --parent <original-id> --relation <relation> --method-basis <basis>
+```
+
+A successful JSON result opens the new input structure and parent input diff.
+Only `prepared` Attempts show **提交**; its first click displays the structure
+link, charge/multiplicity, full route, tier, walltime and first 12 bundle-hash
+characters. The second click runs `ag submit --json <id>`. **取消计算** runs
+`ag cancel --json <id>` only for submitted/running states or an Attempt named in
+a `scheduler-residue` monitor warning. Both display **请在 Mac 弹窗中确认**.
+The actual Mac confirmation, one-submit claim, core limits, upload and hash checks
+remain in ag. No confirmation bypass, delete, existing-input edit or resubmit
+command is exposed. Unknown/failed_presubmit Attempts cannot be used for new
+preparations in this UI; resolve them with Codex and ag first.
+
+All commands use fixed argv lists with `shell=False`, a single nonblocking operation
+lock, and a 420-second timeout. The page shows stdout/stderr verbatim and the exit
+code; missing exit codes and timeouts are explicit, with no automatic retry. A
+successful prepare response without a valid JSON identity is retained for manual
+inspection; human-readable output is never parsed. ag writes its own journal.
+**study.md 中的计划和结论仍由 Codex 更新**.
+
+POST `/api/actions` is registered only when enabled. A fresh random token is embedded
+in the served page and required in `X-AG-Token`. Existing loopback, Host and Origin
+checks still apply. Requests accept only each action’s fixed fields, at most 1 MiB;
+study/Attempt components cannot be paths or command options. A second concurrent
+operation receives 409. Opening a second browser tab does not create another lock.
+Use a single viewer process per local study root; ag owns cross-process submit safety.
+
+The test executable records argv and emits configured streams. Browser tests run
+two temporary synthetic servers (default read-only and fake-ag actions). They do
+not import or execute real ag, SSH, Gaussian, or Mac dialogs. Synthetic screenshots:
+[new input](docs/t7d/new-attempt.png), [preview and summary](docs/t7d/preview-submit.png),
+[submitted output](docs/t7d/submitted.png), [local time and T11 cores](docs/t7d/server-t11.png).
+These illustrate software behavior only. Execution-related changes require the
+supervisory review before a human merges the PR.
 
 ## Synthetic demo and tests
 
