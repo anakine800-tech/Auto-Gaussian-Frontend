@@ -6,13 +6,18 @@ file from exhausting the viewer. There is no cache, index, or derived-file write
 """
 from contextlib import contextmanager
 import errno
+import difflib
+import hashlib
+import itertools
 import json
 import math
 import os
 from pathlib import Path
 import stat
 
-from .geometry import parse_xyz
+from .geometry import parse_xyz, xyz_frame
+from .inputs import parse_input
+from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
 
 
@@ -160,10 +165,10 @@ class Studies:
         for name, error in self.names((study, 'analyses')):
             if error:
                 issues.append({'path': f'analyses/{name}', 'error': error})
-            elif name.endswith(('.json', '.md', '.csv', '.xyz', '.txt')):
+            elif name.endswith(('.json', '.md', '.csv', '.txt')):
                 analyses.append({'name': name, **self.document((study, 'analyses', name), name.endswith('.json'))})
         return {'id': study, 'study': self.document((study, 'study.md')), 'attempts': attempts,
-                'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'issues': issues}
+                'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
 
     def attempt(self, study, attempt):
         base = (component(study), 'attempts', component(attempt))
@@ -182,7 +187,14 @@ class Studies:
                 issues.append({'path': name, 'error': error})
             elif name.lower().endswith(('.log', '.out')):
                 logs.append(name)
-        return {'id': attempt, **data, 'geometry': geometry, 'logs': logs, 'issues': issues}
+        try:
+            input_files = [{'name': name, 'error': error} for name, error in self.names((*base, 'inputs'))]
+        except StudyError as exc:
+            input_files = []
+            issues.append({'path': 'inputs', 'error': str(exc)})
+        input_geometry = self.input_geometry(study, attempt, data['manifest'], input_files)
+        return {'id': attempt, **data, 'geometry': geometry, 'input_geometry': input_geometry,
+                'input_files': input_files, 'logs': logs, 'issues': issues}
 
     def log_parts(self, study, attempt, log):
         parts = (component(study), 'attempts', component(attempt), 'outputs', component(log))
@@ -212,3 +224,90 @@ class Studies:
             return parse_log_modes(raw, log)
         except (ValueError, UnicodeError, IndexError, KeyError):
             raise StudyError('No unambiguous supported Gaussian Cartesian vibration table') from None
+
+
+    def input_file(self, study, attempt, name):
+        raw = self.read((component(study), 'attempts', component(attempt), 'inputs', component(name)), 1024*1024)
+        try:
+            text = raw.decode('utf-8')
+        except UnicodeError:
+            raise StudyError('输入文件不是有效 UTF-8 文本') from None
+        digest = hashlib.sha256(raw).hexdigest()
+        manifest = self.document((study, 'attempts', attempt, 'manifest.json'), True)['data'] or {}
+        records = manifest.get('inputs', [])
+        expected = next((r.get('sha256') for r in records if isinstance(r, dict) and r.get('name') == name), None) if isinstance(records, list) else None
+        return {'name': name, 'text': text, 'size_bytes': len(raw), 'sha256': digest,
+                'manifest_sha256': expected, 'hash_matches': digest == expected if expected else None}
+
+    def input_geometry(self, study, attempt, manifest, files):
+        try:
+            if manifest['data'] is None:
+                raise ValueError('manifest 不可读')
+            candidates = [f['name'] for f in files if f['name'].lower().endswith(('.gjf', '.xyz'))]
+            if len(candidates) != 1:
+                raise ValueError('inputs 中需要恰好一个 .gjf 或 .xyz 输入文件')
+            source = self.input_file(study, attempt, candidates[0])
+            geometry = parse_input(source['text'], candidates[0], manifest['data'])
+            geometry.update({key: value for key, value in source.items() if key != 'text'})
+            return {'data': geometry, 'error': None}
+        except (StudyError, ValueError, TypeError, IndexError, OverflowError) as exc:
+            return {'data': None, 'error': '无法预览：'+str(exc)}
+
+    def input_diff(self, study, attempt, name, parent, parent_file):
+        component(parent)
+        manifest = self.document((component(study), 'attempts', component(attempt), 'manifest.json'), True)['data'] or {}
+        parents = manifest.get('parents', [])
+        if not isinstance(parents, list) or not any(isinstance(p, dict) and p.get('attempt_id') == parent for p in parents):
+            raise StudyError('只能与 manifest 中记录的父 Attempt 对比', 400)
+        before = self.input_file(study, parent, parent_file)
+        after = self.input_file(study, attempt, name)
+        a, b = before['text'].splitlines(keepends=True), after['text'].splitlines(keepends=True)
+        # Avoid quadratic alignment and huge DOM output on pathological 1 MB inputs.
+        if len(a)*len(b) > 4_000_000:
+            diff = itertools.chain(('--- '+parent+'/'+parent_file, '+++ '+attempt+'/'+name),
+                                   ('-'+line for line in a), ('+'+line for line in b)) if a != b else iter(())
+            alignment = 'large-input-replacement'
+        else:
+            diff = difflib.unified_diff(a, b, fromfile=parent+'/'+parent_file, tofile=attempt+'/'+name, lineterm='')
+            alignment = 'unified'
+        lines = list(itertools.islice(diff, 2001))
+        return {'lines': [line.rstrip('\r\n') for line in lines[:2000]], 'truncated': len(lines)>2000,
+                'alignment': alignment, 'identical': before['sha256'] == after['sha256'],
+                'parent_sha256': before['sha256'], 'input_sha256': after['sha256'],
+                'parent_final_newline': before['text'].endswith('\n'), 'input_final_newline': after['text'].endswith('\n')}
+
+    def structure_files(self, study):
+        result = []
+        for group, error in self.names((study, 'structures'), directories=True):
+            if error:
+                result.append({'parts': ['structures', group], 'error': error})
+                continue
+            for name, error in self.names((study, 'structures', group)):
+                if name.lower().endswith('.xyz'):
+                    result.append({'parts': ['structures', group, name], 'error': error})
+        for name, error in self.names((study, 'analyses')):
+            if name.lower().endswith('.xyz'):
+                result.append({'parts': ['analyses', name], 'error': error})
+        return result
+
+    def structure_frame(self, study, parts, frame):
+        if not (len(parts) == 3 and parts[0] == 'structures' or len(parts) == 2 and parts[0] == 'analyses'):
+            raise StudyError('Invalid structure location', 400)
+        if not parts[-1].lower().endswith('.xyz'):
+            raise StudyError('Only XYZ structures are readable', 400)
+        try:
+            with self.open_file((component(study), *(component(p) for p in parts))) as stream:
+                if os.fstat(stream.fileno()).st_size > 32*1024*1024:
+                    raise StudyError('XYZ 超过 32 MB', 413)
+                return xyz_frame(stream, frame)
+        except (ValueError, UnicodeError) as exc:
+            raise StudyError('无法预览：'+str(exc)) from None
+
+    def log_search(self, study, attempt, log, query, start, last):
+        with self.open_file(self.log_parts(study, attempt, log)) as stream:
+            if os.fstat(stream.fileno()).st_size > MAX_LOG_BYTES:
+                raise StudyError('日志搜索仅支持不超过 32 MB 的文件', 413)
+            try:
+                return search_log(stream, query, start, last)
+            except ValueError as exc:
+                raise StudyError(str(exc)) from None

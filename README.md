@@ -39,7 +39,9 @@ source installation above serves the explicit Vite build.
     facts.json
     review.md
     final.xyz
+    inputs/*
     outputs/*.log or *.out
+  structures/<name>/*.xyz
   analyses/*.json, *.md, *.csv, *.xyz, *.txt
 ```
 
@@ -68,8 +70,63 @@ source installation above serves the explicit Vite build.
 - `ag-thermo/1` tables display the saved `rows`, degeneracy, population (fraction
   converted to percent), E/ZPE/H/qh_H/qh_G, relative G, `weighted_mean_G` and
   `ensemble_G`. They are not recalculated. Settings and full JSON remain inspectable.
-  Dedup and cluster outputs are shown verbatim. No complete sampling or scientific
+  Dedup and cluster JSON outputs are shown verbatim; XYZ files use the frame viewer. No complete sampling or scientific
   acceptance is inferred from any saved status or number.
+
+## Preview before submission, input comparison, and diagnosis
+
+Prepared/submitting Attempts default to their input structure. Choose **输入结构 /
+最终结构** when a final XYZ is present. The parameter panel displays charge,
+multiplicity, formula, atom count, the full route, `%nprocshared`, `%mem`, and the
+saved resource tier/walltime. Input SHA-256, the manifest hash, bundle hash and
+saved scientific summary are available beside the structure for comparison with
+`ag prepare`'s confirmation summary. A hash mismatch is shown explicitly. The
+viewer neither repairs files nor replaces the submit confirmation.
+
+GJF parsing is adapted from `Auto-Gaussian/ag/src/ag/gaussian_input.py`'s `validate`
+implementation (read-only reference; no import). It retains the Link0 whitelist,
+resource match/85% memory rule, route/title/charge grammar and Cartesian coordinate
+format. Link1, internal coordinates, includes/external programs and additional
+sections are unavailable with a per-file `无法预览：…` message. XYZ is parsed
+directly; its charge/multiplicity come from the saved xTB/CREST template parameters
+(defaults match ag). Display requires known elements, finite coordinates and no
+more than 2,000 atoms. If more than one GJF/XYZ input exists, the viewer reports
+ambiguity instead of guessing which file will run.
+
+**输入文件** reads one selected UTF-8 file in `inputs/` at a time, up to 1 MiB.
+**与父 Attempt 输入对比** allows only parents recorded in that Attempt's manifest;
+select the parent and its input filename. Removed lines are red, additions green.
+At most 2,000 diff lines are displayed, with an explicit truncation notice; files
+remain individually readable in full. Very large line-count comparisons use a
+linear whole-file replacement diff to avoid quadratic alignment. Differences in
+final newline are identified separately. No diff files are written.
+
+**结构文件** lists XYZ files under `structures/<name>/` and `analyses/`. Each
+request validates the bounded trajectory but returns only the selected frame,
+frame count and its comment (for example, a force-field energy). Previous/next
+buttons and a frame-number input switch frames. Limits: 32 MiB per file, 5,000
+frames, 2,000 atoms per frame. Oversized or damaged files show an error; the browser
+never receives every frame at once. XYZ analysis files are no longer inlined in
+the study JSON.
+
+**日志关键词** performs literal, case-sensitive UTF-8 searches in backend chunks,
+then requests the normal page around the matched line. Search-next starts after
+the previous match and reports exhaustion without wrapping. The two termination
+buttons locate the final `Error termination` or `Normal termination`. Search is
+limited to 32 MiB and returns only a line index/counts, never the full log.
+
+Direct links use URL-encoded path components:
+
+```text
+#/<study>/<attempt>
+#/<study>/structures/<name>/<file.xyz>
+#/<study>/analyses/<file.xyz>
+```
+
+Attempt links open the structure view; missing IDs show an error rather than
+silently choosing another Attempt. Browser back/forward navigation is supported.
+Only the URL fragment changes; all server requests remain GET reads through the
+same local/same-origin/path checks.
 
 ## Read-only and local boundary
 
@@ -87,8 +144,8 @@ in the study adapter. `-B` prevents Python bytecode writes during launch.
 
 This is an intentionally incompatible replacement of the former query-service
 frontend. Old database/profile/task-queue/import/monitor startup flags and APIs
-have been removed. Older documents under `docs/` describe historical releases;
-this README is the current launch and behavior guide.
+have been removed. Obsolete native/pre-v31/navigation registration documents and
+the publication source map have been deleted. This README is the current guide.
 
 ## Synthetic demo and tests
 
