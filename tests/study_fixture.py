@@ -66,9 +66,48 @@ def create_studies(root):
     return study
 
 
+
+
+def gjf(route='# HF/STO-3G Opt'):
+    return '%nprocshared=8\n%mem=8GB\n%chk=butane.chk\n'+route+'\n\nSynthetic butane\n\n0 1\n'+'\n'.join(' '.join(map(str,a)) for a in ATOMS)+'\n\n'
+
+
+def create_preview_studies(root):
+    """T7b fixture extends the original only with invented butane input records."""
+    import hashlib
+    study=create_studies(root)
+    for name in ('anti','prepared','xtb-prepared'):
+        base=study/'attempts'/name
+        (base/'inputs').mkdir(parents=True)
+        text=gjf('# HF/STO-3G Opt Freq' if name=='prepared' else '# HF/STO-3G Opt')
+        filename='butane.gjf'
+        template='gaussian'
+        if name=='xtb-prepared':
+            filename='butane.xyz';template='xtb'
+            text='14\nSynthetic butane input\n'+'\n'.join(' '.join(map(str,a)) for a in ATOMS)+'\n'
+        (base/'inputs'/filename).write_text(text)
+        manifest={'schema':'ag-attempt/1','attempt_id':name,'label':name,'template':template,'template_params':{},
+                  'cores':8,'mem_gb':12,'tier':'simple','walltime':'01:00:00','remote_dir':'butane-demo/'+name,
+                  'parents':[{'attempt_id':'anti','relation':'retry_of'}] if name=='prepared' else [],
+                  'inputs':[{'name':filename,'sha256':hashlib.sha256(text.encode()).hexdigest(),'size':len(text.encode())}]}
+        (base/'manifest.json').write_text(json.dumps(manifest))
+        if name!='anti':
+            (base/'status.json').write_text(json.dumps({'state':'prepared'}))
+    frames=[]
+    for index,energy in enumerate([-1.25,-1.10,-.95]):
+        coordinates=[(a[0],a[1],a[2],a[3]+(.1*index if j==3 else 0)) for j,a in enumerate(ATOMS)]
+        frames.append('14\nSynthetic force-field energy = '+str(energy)+' kcal/mol\n'+'\n'.join(' '.join(map(str,a)) for a in coordinates)+'\n')
+    folder=study/'structures'/'butane';folder.mkdir(parents=True)
+    (folder/'conformers.xyz').write_text(''.join(frames))
+    (study/'analyses'/'representatives.xyz').write_text(''.join(frames[:2]))
+    logfile=study/'attempts/anti/outputs/butane.log'
+    logfile.write_text(logfile.read_text()+' Error termination first synthetic marker\n Normal termination later synthetic marker\n Error termination last synthetic marker\n Normal termination final synthetic marker\n')
+    return study
+
+
 if __name__ == '__main__':
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('destination', type=Path)
     args=parser.parse_args()
-    create_studies(args.destination)
+    create_preview_studies(args.destination)

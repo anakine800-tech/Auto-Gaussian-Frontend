@@ -1,8 +1,9 @@
 export type Document<T=unknown>={data:T|null;error:string|null};
 export type AttemptSummary={id:string;label:string|null;template:string|null;state:string;manifest:Document;status:Document};
 export type Graph={nodes:{id:string;state:string;missing:boolean}[];edges:{parent:string;child:string;relation:string}[]};
-export type Study={id:string;study:Document<string>;attempts:AttemptSummary[];graph:Graph;analyses:(Document&{name:string})[];issues:{path:string;error:string}[]};
-export type Attempt={id:string;manifest:Document;status:Document;facts:Document;review:Document<string>;geometry:Document;logs:string[];issues:{path:string;error:string}[]};
+export type StructureFile={parts:string[];error:string|null};
+export type Study={id:string;study:Document<string>;attempts:AttemptSummary[];graph:Graph;structure_files:StructureFile[];analyses:(Document&{name:string})[];issues:{path:string;error:string}[]};
+export type Attempt={id:string;manifest:Document;status:Document;facts:Document;review:Document<string>;geometry:Document;input_geometry:Document;input_files:{name:string;error:string|null}[];logs:string[];issues:{path:string;error:string}[]};
 export function endpoint(...parts:string[]){return '/api/studies/'+parts.map(encodeURIComponent).join('/');}
 export async function get<T>(url:string,signal:AbortSignal):Promise<T>{
  const response=await fetch(url,{signal,cache:'no-store'});

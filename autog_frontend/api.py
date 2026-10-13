@@ -64,6 +64,27 @@ def create_app(studies_root, ui_directory=None):
     def vibrations(study: str, attempt: str, log: str):
         return store.vibrations(study, attempt, log)
 
+    @app.get('/api/studies/{study}/attempts/{attempt}/inputs/{name}')
+    def input_file(study: str, attempt: str, name: str):
+        return store.input_file(study, attempt, name)
+
+    @app.get('/api/studies/{study}/attempts/{attempt}/input-diff/{name}')
+    def input_diff(study: str, attempt: str, name: str, parent: str, parent_file: str):
+        return store.input_diff(study, attempt, name, parent, parent_file)
+
+    @app.get('/api/studies/{study}/structures/{group}/{name}')
+    def structure_frame(study: str, group: str, name: str, frame: int = Query(0, ge=0, le=4999)):
+        return store.structure_frame(study, ('structures', group, name), frame)
+
+    @app.get('/api/studies/{study}/analyses/{name}')
+    def analysis_frame(study: str, name: str, frame: int = Query(0, ge=0, le=4999)):
+        return store.structure_frame(study, ('analyses', name), frame)
+
+    @app.get('/api/studies/{study}/attempts/{attempt}/log-search/{log}')
+    def log_search(study: str, attempt: str, log: str, query: str = Query(min_length=1, max_length=256),
+                   start: int = Query(0, ge=0), last: bool = False):
+        return store.log_search(study, attempt, log, query, start, last)
+
     @app.get('/{asset:path}', include_in_schema=False)
     def static(asset: str):
         found = ui.get('/' + asset)
