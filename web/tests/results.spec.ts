@@ -1,5 +1,22 @@
 import {test,expect} from '@playwright/test';
 
+test('local sample time and optional running/queued core totals',async({browser,request},info)=>{
+ const context=await browser.newContext({timezoneId:'Asia/Shanghai',locale:'zh-CN'});
+ const page=await context.newPage();
+ const data=await (await request.get('/api/monitor')).json();
+ data.sampled_at='2026-10-14T12:34:56Z';data.interval_seconds=null;
+ data.own={...data.own,cores_running:8,cores_queued:22,committed_cap:88};
+ await page.route('**/api/monitor',route=>route.fulfill({json:data}));
+ await page.goto('http://127.0.0.1:18765/#server');
+ await expect(page.locator('time')).toContainText('20:34:56');
+ await expect(page.locator('time')).toHaveAttribute('datetime',data.sampled_at);
+ await expect(page.locator('.core-count')).toHaveText('运行 8 · 排队 22 · 总上限 88');
+ await page.screenshot({path:info.outputPath('server-t11.png'),fullPage:true});
+ delete data.own.cores_queued;
+ await page.reload();await expect(page.locator('.core-count')).toHaveText('8 / 44');
+ await context.close();
+});
+
 test('results default, sorting, saved thermo and nested representatives',async({page},info)=>{
  const writes:string[]=[],errors:string[]=[];
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});page.on('pageerror',e=>errors.push(e.message));

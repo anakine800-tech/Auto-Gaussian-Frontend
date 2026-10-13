@@ -43,6 +43,9 @@ def validate_monitor(data):
         require(isinstance(cluster, dict) or not data['ok'] and cluster is None)
         if own is not None:
             integer(own['cores_in_use'])
+            for key in ('cores_running', 'cores_queued', 'committed_cap'):
+                if key in own:
+                    integer(own[key])
             require(type(own['core_cap']) is int and own['core_cap'] == 44)
             for job in rows(own['jobs']):
                 for key in ('job_id', 'name', 'state', 'queue'):
