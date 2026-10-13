@@ -3,6 +3,7 @@ import {test,expect} from '@playwright/test';
 test('study navigation, saved thermo, missing parents and unknown status',async({page})=>{
  await page.goto('/');
  await expect(page.getByRole('heading',{name:'Study 查看器'})).toBeVisible();
+ await page.getByRole('button',{name:'研究说明',exact:true}).click();
  await expect(page.getByText('仅用于查看器测试；能量与振动数据为虚构，不是研究结果。',{exact:false})).toBeVisible();
  await page.getByRole('button',{name:'分析结果',exact:true}).click();
  const table=page.getByRole('table',{name:'热化学表'});

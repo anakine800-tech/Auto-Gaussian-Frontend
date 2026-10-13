@@ -1,5 +1,5 @@
 export type Document<T=unknown>={data:T|null;error:string|null};
-export type AttemptSummary={id:string;label:string|null;template:string|null;state:string;manifest:Document;status:Document};
+export type AttemptSummary={id:string;label:string|null;template:string|null;state:string;manifest:Document;status:Document;facts:Document};
 export type Graph={nodes:{id:string;state:string;missing:boolean}[];edges:{parent:string;child:string;relation:string}[]};
 export type StructureFile={parts:string[];error:string|null};
 export type Study={id:string;study:Document<string>;attempts:AttemptSummary[];graph:Graph;structure_files:StructureFile[];analyses:(Document&{name:string})[];issues:{path:string;error:string}[]};

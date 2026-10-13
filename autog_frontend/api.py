@@ -44,6 +44,10 @@ def create_app(studies_root, ui_directory=None):
     async def io_error(_request, _exc):
         return JSONResponse({'detail': 'Local file changed or is unreadable; refresh to retry'}, status_code=409)
 
+    @app.get('/api/monitor')
+    def monitor():
+        return store.monitor()
+
     @app.get('/api/studies')
     def list_studies():
         return store.list_studies()
@@ -60,6 +64,10 @@ def create_app(studies_root, ui_directory=None):
     def log(study: str, attempt: str, log: str, start: int = Query(0, ge=0), limit: int = Query(120, ge=1, le=500)):
         return store.log_page(study, attempt, log, start, limit)
 
+    @app.get('/api/studies/{study}/attempts/{attempt}/optimization/{log}')
+    def optimization(study: str, attempt: str, log: str):
+        return store.optimization(study, attempt, log)
+
     @app.get('/api/studies/{study}/attempts/{attempt}/vibrations/{log}')
     def vibrations(study: str, attempt: str, log: str):
         return store.vibrations(study, attempt, log)
@@ -75,6 +83,10 @@ def create_app(studies_root, ui_directory=None):
     @app.get('/api/studies/{study}/structures/{group}/{name}')
     def structure_frame(study: str, group: str, name: str, frame: int = Query(0, ge=0, le=4999)):
         return store.structure_frame(study, ('structures', group, name), frame)
+
+    @app.get('/api/studies/{study}/analyses/{group}/{name}')
+    def analysis_structure(study: str, group: str, name: str, frame: int = Query(0, ge=0, le=4999)):
+        return store.structure_frame(study, ('analyses', group, name), frame)
 
     @app.get('/api/studies/{study}/analyses/{name}')
     def analysis_frame(study: str, name: str, frame: int = Query(0, ge=0, le=4999)):
