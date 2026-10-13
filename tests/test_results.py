@@ -1,0 +1,134 @@
+import copy
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from fastapi.testclient import TestClient
+from autog_frontend.api import create_app
+from autog_frontend.optimization import parse_optimization
+from tests.results_fixture import create_results_studies, opt_log, orientation, monitor_snapshot
+
+
+class ResultsTests(unittest.TestCase):
+    def setUp(self):
+        temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+        self.root=Path(temp.name).resolve();self.study=create_results_studies(self.root)
+        self.client=TestClient(create_app(self.root),base_url='http://localhost',client=('127.0.0.1',51234))
+        self.base='/api/studies/butane-demo'
+        self.opt=self.base+'/attempts/opt-demo/optimization/optimization.log'
+        self.snapshot=self.root/'.ag-monitor/latest.json'
+
+    def test_results_use_saved_documents_and_missing_facts_remain_missing(self):
+        data=self.client.get(self.base).json()
+        rows={a['id']:a for a in data['attempts']}
+        self.assertEqual(rows['opt-demo']['facts']['data']['energies']['scf'],-157.0025)
+        self.assertIsNone(rows['waiting']['facts']['data'])
+        self.assertEqual(self.client.get('/api/studies').json()['issues'],[])
+        hidden=self.root/'.hidden';hidden.mkdir();(hidden/'study.md').write_text('# Hidden')
+        (self.root/'.hidden-link').symlink_to(self.study,target_is_directory=True)
+        self.assertEqual(len(self.client.get('/api/studies').json()['studies']),1)
+        self.assertEqual(self.client.get('/api/studies').json()['issues'],[])
+
+    def test_three_steps_and_frequency_geometry_excluded(self):
+        data=self.client.get(self.opt).json()['segments']
+        self.assertEqual(len(data),1);segment=data[0]
+        self.assertEqual(segment['optimization'],'completed');self.assertEqual(segment['termination'],'normal')
+        self.assertEqual([s['printed_step'] for s in segment['steps']],[1,2,3])
+        self.assertEqual([s['scf_hartree'] for s in segment['steps']],[-157.,-157.002,-157.0025])
+        self.assertEqual(segment['steps'][0]['geometry']['orientation_kind'],'Standard orientation:')
+        self.assertEqual(segment['steps'][1]['geometry']['orientation_kind'],'Input orientation:')
+        self.assertAlmostEqual(segment['steps'][0]['geometry']['atoms'][0]['x'],-1.82)
+        self.assertTrue(all(m['result']=='YES' for m in segment['steps'][2]['metrics']))
+        self.assertEqual(segment['steps'][0]['metrics'][0]['threshold'],.00045)
+
+    def test_unconverged_termination_and_partial_last_step(self):
+        segment=parse_optimization(opt_log(False).encode(),'synthetic')['segments'][0]
+        self.assertEqual(segment['optimization'],'stopped');self.assertEqual(segment['termination'],'error')
+        self.assertEqual(len(segment['steps']),3)
+        self.assertTrue(all(m['result']=='NO' for m in segment['steps'][-1]['metrics']))
+        raw=opt_log(False).split(' Optimization stopped.')[0]+orientation()+' SCF Done: E(RHF) = -157.003 A.U.\n Step number 4 out of 20\n Error termination\n'
+        step=parse_optimization(raw.encode(),'synthetic')['segments'][0]['steps'][-1]
+        self.assertEqual(step['printed_step'],4);self.assertEqual(step['metrics'],[])
+
+    def test_link1_and_frequency_only_segment(self):
+        frequency=' # HF/STO-3G Freq\n ------\n'+orientation()+' SCF Done: E(RHF) = -157 A.U.\n Harmonic frequencies\n Normal termination\n'
+        for boundary in ['--Link1--','Proceeding to internal job step number 2.','Entering Link 1 = synthetic']:
+            data=parse_optimization((opt_log()+boundary+'\n'+frequency+'--Link1--\n'+opt_log(False)).encode(),'synthetic')['segments']
+            self.assertEqual([len(s['steps']) for s in data],[3,0,3])
+            self.assertEqual([s['index'] for s in data],[1,2,3])
+
+    def test_missing_geometry_not_reused_and_truncated_table_explicit(self):
+        raw=opt_log().replace(orientation('Input',1.2),'').replace(orientation('Standard',.1),'')
+        steps=parse_optimization(raw.encode(),'synthetic')['segments'][0]['steps']
+        self.assertIsNone(steps[1]['geometry'])
+        self.assertEqual(steps[0]['geometry']['orientation_kind'],'Input orientation:')
+        raw=opt_log(False).split(' RMS Displacement')[0]+'\n Error termination\n'
+        self.assertEqual(len(parse_optimization(raw.encode(),'synthetic')['segments'][0]['steps'][0]['metrics']),3)
+        with self.assertRaises(ValueError):parse_optimization(opt_log().replace('-157.00000000','1D999').encode(),'synthetic')
+
+    def test_optimization_limits_symlinks_and_invalid_text(self):
+        target=self.study/'attempts/opt-demo/outputs/optimization.log'
+        target.write_bytes(b'\xff');self.assertEqual(self.client.get(self.opt).status_code,422)
+        with target.open('wb') as f:f.truncate(32*1024*1024+1)
+        self.assertEqual(self.client.get(self.opt).status_code,413)
+        target.unlink();target.symlink_to(self.study/'study.md')
+        self.assertEqual(self.client.get(self.opt).status_code,403)
+
+    def test_analysis_subdirectory_inventory_frame_and_safety(self):
+        uri=self.base+'/analyses/cluster-demo/representatives.xyz'
+        files=self.client.get(self.base).json()['structure_files']
+        self.assertIn({'parts':['analyses','cluster-demo','representatives.xyz'],'error':None},files)
+        self.assertEqual(self.client.get(uri+'?frame=1').json()['frame_count'],2)
+        self.assertEqual(self.client.get(uri+'?frame=2').status_code,422)
+        folder=self.study/'analyses/cluster-demo'
+        target=folder/'representatives.xyz';target.unlink();target.symlink_to(self.study/'analyses/representatives.xyz')
+        self.assertEqual(self.client.get(uri).status_code,403)
+        target.unlink();folder.rmdir();folder.symlink_to(self.study/'structures/butane',target_is_directory=True)
+        self.assertEqual(self.client.get(uri.replace('representatives','conformers')).status_code,403)
+        self.assertEqual(self.client.get(self.base+'/analyses/cluster-demo/deeper/conformers.xyz').status_code,404)
+
+    def test_monitor_normal_stale_failed_and_one_shot(self):
+        data=monitor_snapshot()
+        for changes in [{},{'sampled_at':'2000-01-01T00:00:00Z'},
+                        {'ok':False,'error':'Synthetic sampler error','last_ok_at':'2000-01-01T00:00:00Z'},
+                        {'ok':False,'own':None,'cluster':None}, {'interval_seconds':None}]:
+            value={**data,**changes};self.snapshot.write_text(json.dumps(value))
+            response=self.client.get('/api/monitor')
+            self.assertEqual(response.status_code,200);self.assertEqual(response.json(),value)
+
+    def test_monitor_missing_oversized_and_symlinks(self):
+        self.snapshot.unlink()
+        response=self.client.get('/api/monitor');self.assertEqual(response.status_code,404)
+        self.assertEqual(response.json()['detail'],'请在终端运行 ag monitor --watch 120')
+        with self.snapshot.open('wb') as f:f.truncate(2*1024*1024+1)
+        self.assertEqual(self.client.get('/api/monitor').status_code,413)
+        self.snapshot.unlink();self.snapshot.symlink_to(self.study/'study.md')
+        self.assertEqual(self.client.get('/api/monitor').status_code,403)
+        self.snapshot.unlink();self.snapshot.parent.rmdir();self.snapshot.parent.symlink_to(self.study,target_is_directory=True)
+        self.assertEqual(self.client.get('/api/monitor').status_code,403)
+
+    def test_monitor_malformed_fields_never_500(self):
+        valid=monitor_snapshot();cases=[]
+        for key in valid:
+            missing=copy.deepcopy(valid);del missing[key];cases.append(missing)
+        for key,value in [('schema','ag-monitor/2'),('ok',1),('sampled_at','bad'),('sampled_at','2026-01-01T00:00:00'),('interval_seconds',True),('interval_seconds',59),('interval_seconds',601),('own',[]),('own',None),('cluster',None),('warnings',[{}])]:
+            cases.append({**valid,key:value})
+        for group,field,bad in [('own','jobs',[None]),('own','core_cap',45),('own','cores_in_use',True),('cluster','nodes',[{}]),('cluster','queues',[{'name':'demo','running':'1','queued':0}])]:
+            data=copy.deepcopy(valid);data[group][field]=bad;cases.append(data)
+        for data in cases:
+            self.snapshot.write_text(json.dumps(data));response=self.client.get('/api/monitor')
+            self.assertEqual(response.status_code,422,data);self.assertEqual(response.json()['detail'],'快照格式不正确')
+        for raw in [b'\xff',b'{',b'[]',b'{"x":NaN}',b'['*2000+b']'*2000]:
+            self.snapshot.write_bytes(raw);self.assertEqual(self.client.get('/api/monitor').status_code,422)
+
+    def test_all_new_reads_leave_bytes_unchanged_and_reject_writes(self):
+        def files():
+            return {str(p.relative_to(self.root)):(p.stat().st_mtime_ns,hashlib.sha256(p.read_bytes()).hexdigest()) for p in self.root.rglob('*') if p.is_file()}
+        before=files()
+        for uri in [self.base,self.opt,'/api/monitor',self.base+'/analyses/cluster-demo/representatives.xyz']:
+            self.assertEqual(self.client.get(uri).status_code,200)
+            for method in ('post','put','patch','delete'):
+                self.assertEqual(getattr(self.client,method)(uri).status_code,405)
+            self.assertEqual(self.client.get(uri,headers={'origin':'https://untrusted.invalid'}).status_code,403)
+        self.assertEqual(files(),before)

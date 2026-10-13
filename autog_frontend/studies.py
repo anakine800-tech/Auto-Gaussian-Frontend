@@ -17,6 +17,8 @@ import stat
 
 from .geometry import parse_xyz, xyz_frame
 from .inputs import parse_input
+from .optimization import parse_optimization
+from .monitor import validate_monitor
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
 
@@ -117,6 +119,8 @@ class Studies:
     def list_studies(self):
         result, issues = [], []
         for name, error in self.names((), directories=True):
+            if name.startswith('.'):
+                continue
             if error:
                 issues.append({'path': name, 'error': error})
                 continue
@@ -143,7 +147,8 @@ class Studies:
             m, s = manifest['data'] or {}, status['data'] or {}
             attempts.append({'id': name, 'label': m.get('label') if isinstance(m.get('label'), str) else None,
                              'template': m.get('template') if isinstance(m.get('template'), str) else None,
-                             'state': s.get('state') if isinstance(s.get('state'), str) else 'unavailable', 'manifest': manifest, 'status': status})
+                             'state': s.get('state') if isinstance(s.get('state'), str) else 'unavailable', 'manifest': manifest, 'status': status,
+                             'facts': self.document((*base, 'facts.json'), True)})
             if m.get('attempt_id', name) != name:
                 issues.append({'path': f'attempts/{name}', 'error': 'manifest attempt_id differs from directory; graph uses directory ID'})
             parents = m.get('parents', [])
@@ -278,20 +283,21 @@ class Studies:
 
     def structure_files(self, study):
         result = []
-        for group, error in self.names((study, 'structures'), directories=True):
-            if error:
-                result.append({'parts': ['structures', group], 'error': error})
-                continue
-            for name, error in self.names((study, 'structures', group)):
-                if name.lower().endswith('.xyz'):
-                    result.append({'parts': ['structures', group, name], 'error': error})
+        for area in ('structures', 'analyses'):
+            for group, error in self.names((study, area), directories=True):
+                if error:
+                    result.append({'parts': [area, group], 'error': error})
+                    continue
+                for name, error in self.names((study, area, group)):
+                    if name.lower().endswith('.xyz'):
+                        result.append({'parts': [area, group, name], 'error': error})
         for name, error in self.names((study, 'analyses')):
             if name.lower().endswith('.xyz'):
                 result.append({'parts': ['analyses', name], 'error': error})
         return result
 
     def structure_frame(self, study, parts, frame):
-        if not (len(parts) == 3 and parts[0] == 'structures' or len(parts) == 2 and parts[0] == 'analyses'):
+        if not (len(parts) == 3 and parts[0] in ('structures', 'analyses') or len(parts) == 2 and parts[0] == 'analyses'):
             raise StudyError('Invalid structure location', 400)
         if not parts[-1].lower().endswith('.xyz'):
             raise StudyError('Only XYZ structures are readable', 400)
@@ -311,3 +317,24 @@ class Studies:
                 return search_log(stream, query, start, last)
             except ValueError as exc:
                 raise StudyError(str(exc)) from None
+
+    def optimization(self, study, attempt, log):
+        raw = self.read(self.log_parts(study, attempt, log), 32*1024*1024)
+        try:
+            return parse_optimization(raw, log)
+        except (ValueError, UnicodeError):
+            raise StudyError('无法解析优化过程：日志文本或数字无效') from None
+
+    def monitor(self):
+        try:
+            raw = self.read(('.ag-monitor', 'latest.json'), 2*1024*1024)
+        except StudyError as exc:
+            if exc.status == 404:
+                raise StudyError('请在终端运行 ag monitor --watch 120', 404) from None
+            raise
+        try:
+            data = json.loads(raw.decode('utf-8'), parse_float=finite_float,
+                              parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+            return validate_monitor(data)
+        except (UnicodeError, ValueError, RecursionError):
+            raise StudyError('快照格式不正确') from None

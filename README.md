@@ -43,10 +43,12 @@ source installation above serves the explicit Vite build.
     outputs/*.log or *.out
   structures/<name>/*.xyz
   analyses/*.json, *.md, *.csv, *.xyz, *.txt
+  analyses/<name>/*.xyz
 ```
 
-- Study description and human review are displayed as escaped text, preserving their
-  contents. The viewer does not write signatures, interpretations, or edits.
+- Study descriptions render Markdown with raw HTML disabled and only local heading
+  anchors allowed; images and external links are disabled. Human reviews remain
+  escaped text. The viewer does not write signatures, interpretations, or edits.
 - Attempt states are read as saved, including `unknown`. Refresh rereads local
   files. It does not query a cluster or change a state.
 - The relationship graph reads `manifest.parents[].attempt_id` and `relation`.
@@ -72,6 +74,45 @@ source installation above serves the explicit Vite build.
   `ensemble_G`. They are not recalculated. Settings and full JSON remain inspectable.
   Dedup and cluster JSON outputs are shown verbatim; XYZ files use the frame viewer. No complete sampling or scientific
   acceptance is inferred from any saved status or number.
+
+## Results, optimization, and server snapshots (T7c)
+
+Studies open on **结果**. The sortable Attempt table displays saved manifest,
+status and facts values: route/template, termination, SCF energy, imaginary count,
+lowest printed frequency (`frequencies_low[0]`) and G. Missing values stay blank.
+Click a row to open the Attempt. The same page includes saved thermochemistry and
+representative XYZ frames from `analyses/`, including one directory level below it.
+Both XYZ locations also support direct links and the existing frame controls.
+
+**优化过程** on an Attempt reads a selected output log (32 MiB maximum). It shows
+SCF values, each printed convergence value/threshold/YES–NO result, and playable
+structures with Standard orientation preferred over Input orientation within the
+same cycle. Partial last steps keep missing fields explicit. Link1 jobs and step
+number restarts have separate curves; post-optimization frequency coordinates are
+excluded. The first energy in each segment is the plotting reference, converted
+using 627.5094740631 kcal/mol per Hartree. This display-only conversion neither
+changes facts nor supplies scientific acceptance. Parsing is adapted solely from
+`83184af:autog_frontend/calculation_analysis.py`; there is no legacy package import.
+
+The **服务器** navigation (`#server`) GETs `.ag-monitor/latest.json` every 30 seconds.
+The [ag-monitor/1 definition](docs/ag-monitor-1.md) is reproduced from the task's
+producer specification. The adapter only reads that fixed file, through the
+existing descriptor-relative `O_NOFOLLOW` traversal, at most 2 MiB. Hidden root
+directories do not appear as studies. Missing files show
+`请在终端运行 ag monitor --watch 120`. The page shows sampling age, expiry after three
+sampling intervals (no expiry for a one-shot null interval), previous data marked
+**非最新** on sampling failure, own cores/jobs, cluster nodes/queues and unchanged
+warning text. Unknown schemas and malformed required fields are rejected with
+**快照格式不正确**. It never starts a sampler or connects to the cluster.
+
+The sole new direct dependency is pinned `react-markdown@10.1.0`, with its
+transitive tree locked in `web/pnpm-lock.yaml`. It provides Markdown parsing
+without HTML injection; `skipHtml`, fragment-only URLs and disabled images keep
+the existing local-data restrictions intact. No raw-HTML plugin is installed.
+
+Synthetic screenshots: [results](docs/t7c/results.png),
+[optimization](docs/t7c/optimization.png), [server](docs/t7c/server.png).
+The invented numbers and scheduler records are UI examples, not research results.
 
 ## Preview before submission, input comparison, and diagnosis
 
