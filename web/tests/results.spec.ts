@@ -59,8 +59,8 @@ test('optimization chart, convergence, standard/input frames and playback',async
 
 test('server snapshot, warnings, links and 30 second GET polling',async({page},info)=>{
  await page.clock.install();
- let reads=0;const writes:string[]=[];
- page.on('request',r=>{if(r.url().endsWith('/api/monitor'))reads++;if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
+ let reads=0;const writes:string[]=[],apiReads:string[]=[];
+ page.on('request',r=>{if(r.url().includes('/api/'))apiReads.push(new URL(r.url()).pathname);if(r.url().endsWith('/api/monitor'))reads++;if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
  await page.goto('/#server');
  await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('00:03:12 / 01:00:00');
  await expect(page.locator('.core-count')).toHaveText('8 / 44');
@@ -69,6 +69,7 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  await expect(page.getByText('需人工确认后 ag cancel',{exact:true})).toBeVisible();
  await expect(page.getByText('运行 ag status 核对',{exact:true})).toBeVisible();
  const first=reads;await page.clock.fastForward(30001);await expect.poll(()=>reads).toBe(first+1);
+ expect(apiReads.every(path=>path==='/api/monitor')).toBeTruthy();
  await page.screenshot({path:info.outputPath('server.png'),fullPage:true});
  await page.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
