@@ -6,9 +6,10 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 from autog_frontend.actions import Actions, resource_input
@@ -168,12 +169,73 @@ class ActionsTests(unittest.TestCase):
             self.assertEqual(first.result().status_code,200)
 
     def test_timeout_420_no_retry_and_json_only(self):
-        with patch('autog_frontend.actions.subprocess.run', side_effect=subprocess.TimeoutExpired('fake',420,output=b'partial\n',stderr=b'err\n')) as run:
-            data=self.post('submit').json()
-            self.assertEqual(data['stdout'],'partial\n');self.assertEqual(data['stderr'],'err\n')
-            self.assertTrue(data['timed_out']);self.assertIsNone(data['exit_code'])
-            self.assertEqual(run.call_count,1);self.assertIs(run.call_args.kwargs['shell'],False)
-            self.assertEqual(run.call_args.kwargs['timeout'],420)
+        actions=Actions(Studies(self.studies),self.fake)
+        release=threading.Event()
+        process=Mock()
+        def communicate(timeout=None):
+            if timeout is not None:
+                self.assertEqual(timeout,420)
+                raise subprocess.TimeoutExpired('fake',420,output=b'partial\n',stderr=b'err\n')
+            release.wait(5)
+            return b'partial\nfinal\n',b'err\n'
+        process.communicate.side_effect=communicate
+        with patch('autog_frontend.actions.subprocess.Popen',return_value=process) as popen:
+            try:
+                data=actions.execute(dict(action='submit',study='butane-demo',attempt='prepared'))
+                self.assertEqual(data['stdout'],'partial\n');self.assertEqual(data['stderr'],'err\n')
+                self.assertTrue(data['timed_out']);self.assertIsNone(data['exit_code'])
+                self.assertIn('ag 仍在运行，不要重复操作，结果以 ag status 为准',data['notice'])
+                self.assertTrue(actions.lock.locked())
+                self.assertEqual(popen.call_count,1);self.assertIs(popen.call_args.kwargs['shell'],False)
+                process.kill.assert_not_called();process.terminate.assert_not_called()
+            finally:
+                release.set()
+                self.assertTrue(actions.lock.acquire(timeout=5));actions.lock.release()
+            process.wait.assert_called_once()
         self.control(stdout='Created butane-demo-001-made-up\n')
         response=self.prepare().json()
         self.assertNotIn('new_attempt',response);self.assertIn('no valid JSON',response['notice'])
+
+    def test_all_timed_out_actions_keep_process_and_lock_until_exit(self):
+        # Real fake-ag subprocesses exercise survival, pipe draining and lock
+        # lifetime without waiting 420 seconds or invoking any real ag command.
+        for action in ('submit','status','fetch','cancel','prepare'):
+            with self.subTest(action=action):
+                actions=Actions(Studies(self.studies),self.fake)
+                (self.root/'release').unlink(missing_ok=True)
+                (self.study/'attempts/prepared/status.json').write_text(json.dumps(
+                    dict(state='submitted' if action=='cancel' else 'prepared')))
+                self.control(wait_for_release=True,early_stdout='partial\n',early_stderr='early error\n',
+                             stdout='x'*200000,stderr='y'*200000,exit_code=2)
+                payload=dict(action=action,study='butane-demo',attempt='prepared')
+                if action=='prepare':
+                    payload.update(input=gjf(),tier='simple',walltime='01:00:00',label='delayed',
+                                   relation='derived_from',method_basis='synthetic fallback')
+                processes=[]
+                original=subprocess.Popen
+                def start(*args,**kwargs):
+                    process=original(*args,**kwargs);processes.append(process);return process
+                with patch('autog_frontend.actions.TIMEOUT',.2), patch('autog_frontend.actions.subprocess.Popen',side_effect=start):
+                    try:
+                        data=actions.execute(payload)
+                        self.assertTrue(data['timed_out'])
+                        self.assertEqual(len(processes),1)
+                        self.assertIsNone(processes[0].poll())
+                        for blocked in ('submit','status','fetch','cancel','prepare'):
+                            blocked_payload=dict(action=blocked,study='butane-demo',attempt='prepared')
+                            if blocked=='prepare':
+                                blocked_payload.update(input=gjf(),tier='simple',walltime='01:00:00',label='blocked',
+                                                       relation='derived_from',method_basis='synthetic fallback')
+                            with self.assertRaises(StudyError) as caught:
+                                actions.execute(blocked_payload)
+                            self.assertEqual(caught.exception.status,409)
+                        self.assertEqual(len(processes),1)
+                    finally:
+                        (self.root/'release').touch()
+                        self.assertTrue(actions.lock.acquire(timeout=5))
+                        actions.lock.release()
+                        for process in processes:self.assertEqual(process.wait(timeout=5),2)
+                self.control(stdout='done\n',stderr='end\n',exit_code=0)
+                result=actions.execute(dict(action='status',study='butane-demo',attempt='prepared'))
+                self.assertEqual(result['exit_code'],0)
+                self.assertFalse(result['timed_out'])

@@ -11,7 +11,7 @@ function resources(input:string,tier:Tier){
  return `%nprocshared=${tier.cores}\n%mem=${tier.mem_mb}MB\n`+input.split('\n').filter(line=>!/^\s*%(nprocshared|mem)\s*=/i.test(line)).join('\n');
 }
 export function ActionOutput({result}:{result:ActionResult|null}){
- return result&&<section className="action-output" aria-label="ag 输出"><h2>ag 输出</h2><p>退出码：{result.exit_code??'未取得'}{result.timed_out?' · 已超时':''}</p>{result.notice&&<p role="alert">{result.notice}</p>}<h3>stdout</h3><pre data-testid="ag-stdout">{result.stdout}</pre><h3>stderr</h3><pre data-testid="ag-stderr">{result.stderr}</pre></section>;
+ return result&&<section className="action-output" aria-label="ag 输出"><h2>ag 输出</h2><p>退出码：{result.exit_code??'未取得'}{result.timed_out?' · 页面等待已结束（未终止 ag）':''}</p>{result.notice&&<p role="alert">{result.notice}</p>}<h3>stdout</h3><pre data-testid="ag-stdout">{result.stdout}</pre><h3>stderr</h3><pre data-testid="ag-stderr">{result.stderr}</pre></section>;
 }
 export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study:string;data:Attempt;revision:number;busy:boolean;onBusy:(v:boolean)=>void;onResult:(r:ActionResult)=>void}){
  const [context,setContext]=useState<Context|null>(null),[error,setError]=useState(''),[editing,setEditing]=useState(false),[confirm,setConfirm]=useState(false),[pending,setPending]=useState('');
@@ -55,6 +55,6 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  <p>%nprocshared 和 %mem 由档位填入；编辑这两行会自动恢复为档位值。内存采用档位上限的 80%（低于 ag 的 85% 上限）。</p>
  <label>输入全文 <textarea aria-label="输入全文" spellCheck={false} value={input} onChange={e=>setInput(resources(e.target.value,context.tiers[tier]))}/></label>
  <button type="submit">保存并新建</button><button type="button" onClick={()=>setEditing(false)}>收起表单</button></fieldset></form>}</>}
- {pending&&<p role="status">{['submit','cancel'].includes(pending)?'请在 Mac 弹窗中确认':'正在等待 ag 返回'} · 最长等待 420 秒</p>}
+ {pending&&<p role="status">{['submit','cancel'].includes(pending)?'请在 Mac 弹窗中确认':'正在等待 ag 返回'} · 页面等待最多 420 秒，之后 ag 继续运行</p>}
  </section>;
 }

@@ -16,6 +16,10 @@ def main():
         print('fake-ag/1')
         return control.get('version_code', 0)
     (home/'started').touch()
+    print(control.get('early_stdout', ''), end='', flush=True)
+    print(control.get('early_stderr', ''), end='', file=sys.stderr, flush=True)
+    while control.get('wait_for_release') and not (home/'release').exists():
+        time.sleep(.01)
     time.sleep(control.get('delay', 0))
     if 'stdout' in control:
         print(control['stdout'], end='')

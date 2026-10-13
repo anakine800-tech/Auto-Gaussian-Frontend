@@ -196,6 +196,7 @@ the publication source map have been deleted. This README is the current guide.
 
 Start with `--enable-actions`, optionally `--ag <executable>` (otherwise PATH).
 The executable is fixed at startup; HTTP cannot select it or supply file paths.
+The page header reads **可操作（经 ag）** when enabled and **只读** otherwise.
 Startup runs only `ag --version` and refuses actions if it fails. It reads the
 `local.studies_root` and `resources.tiers` values from ag’s existing local config
 `~/.config/ag/config.toml`; the viewer root must match. Resource/root changes
@@ -229,8 +230,13 @@ command is exposed. Unknown/failed_presubmit Attempts cannot be used for new
 preparations in this UI; resolve them with Codex and ag first.
 
 All commands use fixed argv lists with `shell=False`, a single nonblocking operation
-lock, and a 420-second timeout. The page shows stdout/stderr verbatim and the exit
-code; missing exit codes and timeouts are explicit, with no automatic retry. A
+lock, and a 420-second HTTP wait. Actions use `Popen`; reaching that wait limit
+does not kill or terminate ag. A background thread continues draining stdout/stderr
+and holds the operation lock until ag exits, including for status/fetch/cancel.
+Other operations still receive 409 during that time. The page shows the partial
+stdout/stderr available when the wait ends and an explicit running notice, with no
+exit code invented and no automatic retry. After ag exits, use ag status to check
+the result. Normal completion displays the full streams and actual exit code. A
 successful prepare response without a valid JSON identity is retained for manual
 inspection; human-readable output is never parsed. ag writes its own journal.
 **study.md 中的计划和结论仍由 Codex 更新**.

@@ -126,6 +126,7 @@ class Actions:
             raise StudyError('Only the fixed string fields for this action are accepted', 400)
         if not self.lock.acquire(blocking=False):
             raise StudyError('Another ag operation is still running', 409)
+        pending = None
         try:
             if self.settings() != self.tiers:
                 raise StudyError('ag resource settings changed; restart the viewer', 409)
@@ -151,7 +152,7 @@ class Actions:
                         '--relation', relation, '--method-basis', payload['method_basis']]
             else:
                 argv = [self.executable, action, '--json', attempt]
-            result = self.run(argv)
+            result, pending = self.run(argv)
             if action == 'prepare' and result['exit_code'] == 0:
                 # Interpret only ag's JSON. Never infer an ID from human output.
                 try:
@@ -164,17 +165,47 @@ class Actions:
                     result['notice'] = 'ag prepare returned no valid JSON Attempt identity; inspect output manually. Do not retry automatically.'
             return result
         finally:
+            if pending is None:
+                self.lock.release()
+            else:
+                # Do not terminate a possible in-flight qsub or release its lock
+                # just because the HTTP wait expired. Drain both pipes so ag can
+                # finish even if it produces more output than a pipe can hold.
+                waiter = threading.Thread(target=self.finish, args=(pending,), daemon=False)
+                try:
+                    waiter.start()
+                except RuntimeError:
+                    # If a thread cannot start, keep waiting in this request.
+                    self.finish(pending)
+
+    @staticmethod
+    def drain(process):
+        try:
+            process.communicate()
+        finally:
+            process.wait()
+
+    def finish(self, process):
+        try:
+            self.drain(process)
+        finally:
             self.lock.release()
 
     def run(self, argv):
         def decode(value):
             return (value or b'').decode('utf-8', errors='replace')
         try:
-            result = subprocess.run(argv, shell=False, capture_output=True, timeout=TIMEOUT, check=False)
-            return dict(stdout=decode(result.stdout), stderr=decode(result.stderr), exit_code=result.returncode, timed_out=False)
-        except subprocess.TimeoutExpired as exc:
-            return dict(stdout=decode(exc.stdout), stderr=decode(exc.stderr), exit_code=None, timed_out=True,
-                        notice='ag exceeded 420 seconds. Result is uncertain; inspect with ag status. No automatic retry.')
+            process = subprocess.Popen(argv, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except OSError as exc:
-            return dict(stdout='', stderr=str(exc), exit_code=None, timed_out=False,
-                        notice='ag could not be started. No automatic retry.')
+            return (dict(stdout='', stderr=str(exc), exit_code=None, timed_out=False,
+                         notice='ag could not be started. No automatic retry.'), None)
+        try:
+            stdout, stderr = process.communicate(timeout=TIMEOUT)
+            return (dict(stdout=decode(stdout), stderr=decode(stderr), exit_code=process.returncode, timed_out=False), None)
+        except subprocess.TimeoutExpired as exc:
+            return (dict(stdout=decode(exc.stdout), stderr=decode(exc.stderr), exit_code=None, timed_out=True,
+                         notice='ag 仍在运行，不要重复操作，结果以 ag status 为准。操作锁保持到 ag 自行退出；当前显示等待结束时的部分输出。'), process)
+        except BaseException:
+            # An unexpected read error must not unlock a still-running command.
+            self.drain(process)
+            raise
