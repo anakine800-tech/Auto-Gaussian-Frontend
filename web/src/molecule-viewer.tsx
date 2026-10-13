@@ -94,7 +94,7 @@ export function MoleculeViewer({last,review,renderSource,vibration,onClearVibrat
   const [source,setSource]=useState('last');const geometry=source==='review'?review:last;
   useEffect(()=>{if(vibration)setSource('last');},[vibration]);
   return <section className="molecule-section" aria-label="三维分子结构"><div className="section-heading"><div><div className="eyebrow">MOLECULAR GEOMETRY</div><h3>结构与振动</h3></div><label>坐标来源<select aria-label="结构来源" value={source} onChange={e=>{onClearVibration?.();setSource(e.target.value);}}><option value="last">{frameLabel??'最后记录结构'}</option>{isGeometry(review)&&<option value="review">Review 选中结构</option>}</select></label></div>
-    <p className="muted">{source==='last'?(frameLabel?'当前选中优化周期的坐标；不表示最终结构或科学验收。':'日志最后一个已解析坐标块，不自动等同科学验收结构。'):'历史 Review 明确选中的坐标块；沿用报告的验收范围。'}</p>
+    <p className="muted">{source==='last'?(frameLabel?`${frameLabel} 的坐标；文件展示不表示科学验收。`:'日志最后一个已解析坐标块，不自动等同科学验收结构。'):'历史 Review 明确选中的坐标块；沿用报告的验收范围。'}</p>
     {!isGeometry(geometry)?<p className="empty compact">暂无可安全展示的坐标。</p>:geometry.atoms.length>2000?<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>:<CoordinateScene key={source} geometry={geometry} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel}/>}
     {(!isGeometry(geometry)||geometry.atoms.length>2000)&&modePanel}
     {renderSource?.(source,geometry)}

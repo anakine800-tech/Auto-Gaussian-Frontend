@@ -1,3 +1,3 @@
-"""Local, read-only HTTP adapter for Auto-Gaussian's public query contract."""
+"""Local, strictly read-only study directory viewer."""
 
-__version__ = "0.28.0+native.opt.1"
+__version__ = "0.29.0"
