@@ -256,6 +256,48 @@ not import or execute real ag, SSH, Gaussian, or Mac dialogs. Synthetic screensh
 These illustrate software behavior only. Execution-related changes require the
 supervisory review before a human merges the PR.
 
+## Multi-cluster adaptation status (T7e)
+
+T7e is blocked on a backend read-only configuration command. No multi-cluster
+actions or monitoring support is claimed by this documentation change. The
+existing T7d adapter still reads top-level `resources.tiers`; it cannot select
+`clusters.<name>.resources.tiers`. Do not use it to prepare named-cluster work.
+
+Checked against [Auto-Gaussian #229](https://github.com/anakine800-tech/Auto-Gaussian/pull/229)
+and backend main `ac28a494b7ae9a699d0ea1f6822bd637f31075ec`:
+
+- `config.py` handles legacy configuration as `default`, named clusters, and a
+  mixed configuration with an implicit legacy `default` cluster.
+- The CLI has `prepare --cluster`, but no command returns the configured cluster
+  list and each cluster's resource tiers. `list --json` lists Attempts, while
+  `doctor --json` contacts the cluster and does not expose its tier list.
+- Legacy monitoring writes `.ag-monitor/latest.json`; named clusters write
+  `.ag-monitor/<cluster>/latest.json`, including a named `default` cluster.
+- Slurm snapshots currently expose `cluster.storage_kib` and
+  `cluster.expiry_warning`. They do not expose budget totals, used/reserved
+  core-hours, or an expiry date. Missing optional values must stay unavailable.
+
+Before frontend implementation resumes, ag needs a **local, read-only JSON
+configuration query**. The backend should choose and implement the command name;
+no proposed command is treated as available. It must provide the configured
+study root for the existing root-match check, normalized cluster names and
+scheduler types, and each cluster's tier names, cores and memory in GB. It must
+apply ag's own legacy/mixed-configuration handling without opening a remote
+connection or changing files, and omit SSH credentials, connection identities
+and remote paths. This lets the frontend use the same cluster/resource selection
+as `ag prepare` without duplicating the TOML parser. The frontend must not read
+ag's private budget ledger; budget display awaits producer-defined snapshot
+fields if ag adds them.
+
+After that interface is available, T7e still needs the parent-cluster default,
+`--cluster` forwarding, cluster-dependent tiers, the cross-cluster warning
+“同一能量曲线内的物种应在同一集群计算”, per-cluster monitor sections, Attempt/submit
+cluster labels, and estimated core-hours from cores × walltime. Synthetic tests
+must cover two clusters, legacy configuration, tier switching, the warning,
+monitor sections, and absent optional fields. Remove this limitation only after
+those behaviors are implemented and verified. Execution-related changes await
+supervisory review before human merge.
+
 ## Synthetic demo and tests
 
 The fixture generator uses only synthetic normal butane with invented energies,
