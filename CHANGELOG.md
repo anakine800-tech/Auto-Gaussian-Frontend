@@ -3,7 +3,7 @@
 ## v4.0.0
 
 配合 ag 4.0.0 使用。本节对比 T7 改造前的旧前端，仅包含已合并的功能。
-发布 PR 待负责人确认验收后合并；本次不创建 tag 或 release。以下 PR 均属于本前端仓库，另有明确标注的后端关联。
+前端版本准备已由 [#8](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/8) 合并；本次补记 T7e，不创建 tag 或 release。以下 PR 均属于本前端仓库，另有明确标注的后端关联。
 
 ### 保留
 
@@ -18,10 +18,13 @@
 - 增加默认关闭的 `--enable-actions`：固定本机 ag 入口、新建草稿、prepare、submit、status、fetch、cancel；随机 token、同源检查和单操作锁；提交/取消继续由 ag 弹出 Mac 确认。[#7](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/7)
 - 420 秒页面等待结束不终止 ag，后台读取输出并持锁至进程退出；监控时间按本地时区显示，兼容运行/排队核数与总额度字段。[#7](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/7)
 
+- T7e：操作模式通过 `ag clusters --json --verify-studies-root` 获取各集群档位、程序启用配置并核对根目录，不再直接解析 TOML；新建默认父集群，切换联动档位，prepare 显式传入 `--cluster`，摘要显示集群及估算核时。[#9](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/9)、[后端 #233](https://github.com/anakine800-tech/Auto-Gaussian/pull/233)
+- T7e：服务器页分集群读取快照，兼容旧 default 位置；显示 Slurm 本地核时预算、到期与存储，缺失不当零、陈旧值明确标记。两个 default 来源并存时显示歧义，取消提示按 Attempt 集群匹配，仍由 ag 和 Mac 确认执行。[#9](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/9)
+
 ### 移除
 
 - 移除旧 calculation-package、数据库、profile、任务队列、导入和查询服务的启动参数/API 依赖；旧 native/pre-v31/navigation 注册文档和发布来源映射退役。新查看器不导入旧后端运行时，也不提供旧数据自动迁移。[#4](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/4)
 
 ### 兼容边界
 
-- T7d 的操作配置及服务器页仍面向旧单集群布局。ag 4.0.0 多集群快照位于各集群子目录，当前前端尚未适配；多集群动作请走 ag CLI，具体路径占位符和启动方式见 README。[#7](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/7)、[后端 #229](https://github.com/anakine800-tech/Auto-Gaussian/pull/229)
+- T7e 已支持 ag 4.0.0 多集群查询和快照布局，操作模式要求包含 T19 接口的 ag；程序启用标记仅代表已配置，本地预算不等于平台余额。默认只读不调用 ag，所有计算副作用仍经显式操作模式委托 ag，科学验收由人完成。启动与快照路径见 [README](README.md)。[#9](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/9)、[后端 #233](https://github.com/anakine800-tech/Auto-Gaussian/pull/233)
