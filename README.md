@@ -55,17 +55,12 @@ source installation above serves the explicit Vite build.
 提交/取消仍须人亲手点击 Mac 系统确认框，前端不直接连接 SSH 或调用调度器，
 也不提供重提 UNKNOWN、覆盖旧 Attempt 或绕过确认的接口。
 
-**ag 4.0.0 的多集群限制**：当前操作模式仍读取旧单集群配置顶层的
-`resources.tiers`，不支持仅含 `clusters.<CLUSTER>.resources` 的配置，且新建表单没有集群选择。
-因此操作模式仅用于 ag 仍支持的旧单集群 PBS 配置；多集群请使用 ag CLI。
-本地 study 只读查看可继续使用，但不宣称多集群动作和监控已集成。
-
 服务器监控的唯一数据来源是 **ag monitor 快照**，不是浏览器直接查询服务器：
 
 - 旧单集群配置：在独立终端运行 `ag monitor --watch 120`，生成
   `<STUDIES_ROOT>/.ag-monitor/latest.json`，前端每 30 秒读取该固定文件。
 - ag 4.0.0 多集群配置：快照位于
-  `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`，当前服务器页尚未读取这些子目录。
+  `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`。
 - 前端不会启动采样器；缺失、过期和采样失败均需按界面提示解释，不能视为服务器空闲。
 
 ## Files displayed
