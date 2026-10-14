@@ -1,4 +1,6 @@
-# Auto-Gaussian Study Viewer
+# Auto-Gaussian Study Viewer v4.0
+
+**配合 ag 4.0.0 使用。** This is the v4.0.0 release candidate; see [CHANGELOG.md](CHANGELOG.md).
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -27,6 +29,39 @@ A missing root is an error; the viewer never creates it.
 The API can run without `--ui-directory`. The optional `--ui` flag uses bundled
 `autog_frontend/ui` assets if a distributor includes them in a wheel. The ordinary
 source installation above serves the explicit Vite build.
+
+## 两种启动模式与兼容范围
+
+默认只读，不注册操作 POST 接口、不显示操作按钮；刷新页面只重读本地文件，不查询服务器。
+完成上面的安装和构建后，使用已存在且不含符号链接的 study 根目录启动：
+
+```sh
+.venv/bin/python -B -m autog_frontend \
+  --studies-root '<STUDIES_ROOT>' --ui-directory "$PWD/web/dist"
+```
+
+显式开启操作模式：
+
+```sh
+.venv/bin/python -B -m autog_frontend \
+  --studies-root '<STUDIES_ROOT>' --ui-directory "$PWD/web/dist" \
+  --enable-actions --ag '<AG_WORKTREE>/.venv/bin/ag'
+```
+
+尖括号为占位符，替换成本机值后执行；每个 worktree 使用自己的 `.venv`。
+`--ag` 省略时从 PATH 查找，HTTP 请求不能指定可执行文件。
+启动执行 `ag --version`，失败则拒绝开启；此检查不验证精确版本或集群能力。
+操作模式允许通过 ag 刷新远程状态、取回结果、基于已有输入新建 Attempt、提交及取消。
+提交/取消仍须人亲手点击 Mac 系统确认框，前端不直接连接 SSH 或调用调度器，
+也不提供重提 UNKNOWN、覆盖旧 Attempt 或绕过确认的接口。
+
+服务器监控的唯一数据来源是 **ag monitor 快照**，不是浏览器直接查询服务器：
+
+- 旧单集群配置：在独立终端运行 `ag monitor --watch 120`，生成
+  `<STUDIES_ROOT>/.ag-monitor/latest.json`，前端每 30 秒读取该固定文件。
+- ag 4.0.0 多集群配置：快照位于
+  `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`。
+- 前端不会启动采样器；缺失、过期和采样失败均需按界面提示解释，不能视为服务器空闲。
 
 ## Files displayed
 
@@ -337,3 +372,12 @@ explicit, pagination reconstructs exact log text, and Gaussian vectors retain
 atom and frequency order. Browser checks exercise the molecule, vibration,
 thermochemistry, graph, responsive navigation, and read-only HTTP traffic.
 CI installs this repository without checking out the calculation backend.
+
+## Release status
+
+V4.0.0 prepares the version and documentation for the current study viewer.
+Synthetic offline tests demonstrate UI and adapter behavior; they do not establish
+L1/L2/L3 scientific acceptance. See the
+[backend acceptance status](https://github.com/anakine800-tech/Auto-Gaussian#验收状态).
+The release PR remains unmerged pending owner acceptance. The owner creates tags
+and releases on GitHub; this preparation does neither.
