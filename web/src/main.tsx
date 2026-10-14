@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {ActionOutput,AttemptActions,actionToken} from './actions';
 import type {ActionResult} from './actions';
 import {createRoot} from 'react-dom/client';
-import {endpoint,get,object} from './api';
+import {display,endpoint,get,object} from './api';
 import {InputFiles,InputSummary,StructureFiles} from './preview-panels';
 import {readRoute,routeHash} from './routing';
 import type {Attempt,Study} from './api';
@@ -22,7 +22,7 @@ function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare}:{study
  useEffect(()=>{if(data)document.getElementById('attempt-structure')?.scrollIntoView({block:'start'});},[data]);
  if(error)return <p role="alert">{error}</p>;if(!data)return <p role="status">读取 Attempt…</p>;
  const vibration=selected!==null?modes?.modes[selected]:undefined;
- return <section className="attempt-detail"><h2>{id}</h2><nav aria-label="Attempt 内容"><button aria-current={attemptTab==='details'?'page':undefined} onClick={()=>setAttemptTab('details')}>Attempt 详情</button><button aria-current={attemptTab==='optimization'?'page':undefined} onClick={()=>setAttemptTab('optimization')}>优化过程</button></nav>{attemptTab==='optimization'?<>{data.logs.length?<><label>优化日志 <select aria-label="优化日志" value={log} onChange={e=>setLog(e.target.value)}>{data.logs.map(l=><option key={l}>{l}</option>)}</select></label>{log&&<Optimization key={log+revision} study={study} attempt={id} log={log} revision={revision}/>}</>:<p>尚无 outputs 日志。</p>}</>:<><div id="attempt-structure" className="structure-preview">
+ return <section className="attempt-detail"><h2>{id}</h2><p>所属集群：{display(object(data.manifest.data)?data.manifest.data.cluster??'default':null)}</p><nav aria-label="Attempt 内容"><button aria-current={attemptTab==='details'?'page':undefined} onClick={()=>setAttemptTab('details')}>Attempt 详情</button><button aria-current={attemptTab==='optimization'?'page':undefined} onClick={()=>setAttemptTab('optimization')}>优化过程</button></nav>{attemptTab==='optimization'?<>{data.logs.length?<><label>优化日志 <select aria-label="优化日志" value={log} onChange={e=>setLog(e.target.value)}>{data.logs.map(l=><option key={l}>{l}</option>)}</select></label>{log&&<Optimization key={log+revision} study={study} attempt={id} log={log} revision={revision}/>}</>:<p>尚无 outputs 日志。</p>}</>:<><div id="attempt-structure" className="structure-preview">
  <div><label>预览结构 <select aria-label="预览结构" value={geometrySource} onChange={e=>{setGeometrySource(e.target.value);setSelected(null);}}><option value="input">输入结构</option><option value="final" disabled={!data.geometry.data}>最终结构 · final.xyz</option></select></label>
  <MoleculeViewer key={vibration?'vibration':geometrySource} last={vibration?modes?.reference_geometry:geometrySource==='input'?data.input_geometry.data:data.geometry.data} frameLabel={vibration?'Gaussian 振动参考坐标':geometrySource==='input'?'输入结构':'最终结构 · final.xyz'} vibration={vibration} onClearVibration={()=>setSelected(null)}/>
  {geometrySource==='input'&&data.input_geometry.error&&<p className="notice">{data.input_geometry.error}</p>}

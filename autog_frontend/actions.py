@@ -14,18 +14,11 @@ import secrets
 import shutil
 import subprocess
 import threading
-import tomllib
 
 from .studies import StudyError, component
 
 MAX_BODY = 1024 * 1024
 TIMEOUT = 420
-
-
-def read_local_settings():
-    with (Path.home() / '.config/ag/config.toml').open('rb') as handle:
-        config = tomllib.load(handle)
-    return config['local']['studies_root'], config['resources']['tiers']
 
 
 def resource_input(text, tier):
@@ -50,24 +43,47 @@ class Actions:
             raise ValueError('ag --version failed; actions disabled') from exc
         if version.returncode != 0:
             raise ValueError('ag --version failed; actions disabled')
-        self.tiers = self.settings()
+        self.clusters = self.settings()
         self.token = secrets.token_urlsafe(32)
         self.lock = threading.Lock()
 
     def settings(self):
+        # ag owns configuration parsing. Root verification prevents actions on a
+        # different same-named study without exposing ag's configured path.
         try:
-            root, tiers = read_local_settings()
-            if Path(root).expanduser().absolute() != self.store.root:
+            result = subprocess.run(
+                [self.executable, 'clusters', '--json', '--verify-studies-root', str(self.store.root)],
+                shell=False, capture_output=True, timeout=15, check=False)
+            if result.returncode != 0:
+                raise ValueError('ag clusters query failed; actions unavailable')
+            data = json.loads(result.stdout)
+            if data.get('studies_root_matches') is not True:
                 raise ValueError('Viewer studies root must equal ag local.studies_root')
-            result = {}
-            for name in ('mini', 'simple', 'general', 'complex'):
-                cores, memory = tiers[name]['cores'], tiers[name]['mem_gb']
-                if type(cores) is not int or not 1 <= cores <= 44 or type(memory) is not int or not 1 <= memory <= 120:
-                    raise ValueError('Invalid ag resource tier')
-                result[name] = dict(cores=cores, mem_mb=memory * 800)
-            return result
-        except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
-            raise ValueError('Cannot read ag local study root and resource tiers') from exc
+            rows = data['clusters']
+            if not isinstance(rows, list) or not rows:
+                raise ValueError('Invalid ag cluster list')
+            clusters = {}
+            for row in rows:
+                name = row['name']
+                if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name)
+                        or name in clusters or row['scheduler'] not in ('pbs', 'slurm')):
+                    raise ValueError('Invalid ag cluster identity')
+                tiers = {}
+                for tier in ('mini', 'simple', 'general', 'complex'):
+                    value = row['resources']['tiers'][tier]
+                    cores, memory = value['cores'], value['mem_gb']
+                    if type(cores) is not int or cores < 1 or type(memory) is not int or memory < 1:
+                        raise ValueError('Invalid ag resource tier')
+                    tiers[tier] = dict(cores=cores, mem_mb=memory * 800)
+                enabled = row['programs_enabled']
+                if any(type(enabled[key]) is not bool for key in ('gaussian', 'xtb', 'crest')):
+                    raise ValueError('Invalid ag program availability')
+                clusters[name] = dict(scheduler=row['scheduler'], tiers=tiers,
+                                      programs_enabled={key: enabled[key] for key in ('gaussian', 'xtb', 'crest')})
+            return clusters
+        except (OSError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError,
+                UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+            raise ValueError('Cannot query ag clusters and verify viewer study root') from exc
 
     def context(self, study, attempt):
         component(study); component(attempt)
@@ -79,7 +95,7 @@ class Actions:
             raise StudyError('Attempt manifest identity or status is unavailable', 409)
         residue = False
         try:
-            monitor = self.store.monitor()
+            monitor = self.store.monitor_for_cluster(manifest.get('cluster', 'default'))
             residue = any(w['kind'] == 'scheduler-residue' and w['study'] == study and w['attempt'] == attempt
                           for w in monitor['warnings'])
         except StudyError:
@@ -94,7 +110,7 @@ class Actions:
                 # A damaged input disables editing, not status/fetch/cancel.
                 pass
         return dict(state=status.get('state'), can_cancel=status.get('state') in ('submitted', 'running') or residue,
-                    source=source, tiers=self.tiers, manifest=manifest)
+                    source=source, clusters=self.clusters, manifest=manifest)
 
     def draft(self, study, label, text):
         name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '-' + label + '.gjf'
@@ -119,7 +135,7 @@ class Actions:
         action = payload.get('action')
         fields = {'action', 'study', 'attempt'}
         if action == 'prepare':
-            fields |= {'input', 'tier', 'walltime', 'label', 'relation', 'method_basis'}
+            fields |= {'cluster', 'input', 'tier', 'walltime', 'label', 'relation', 'method_basis'}
         elif action not in ('status', 'fetch', 'submit', 'cancel'):
             raise StudyError('Unsupported action', 400)
         if set(payload) != fields or any(not isinstance(v, str) or '\x00' in v for v in payload.values()):
@@ -128,7 +144,7 @@ class Actions:
             raise StudyError('Another ag operation is still running', 409)
         pending = None
         try:
-            if self.settings() != self.tiers:
+            if self.settings() != self.clusters:
                 raise StudyError('ag resource settings changed; restart the viewer', 409)
             study, attempt = payload['study'], payload['attempt']
             context = self.context(study, attempt)
@@ -142,12 +158,15 @@ class Actions:
                 label, relation = payload['label'], payload['relation']
                 if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}', label) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', relation):
                     raise StudyError('Invalid label or parent relation', 400)
-                tier = self.tiers.get(payload['tier'])
+                cluster = self.clusters.get(payload['cluster'])
+                if cluster is None or not cluster['programs_enabled']['gaussian']:
+                    raise StudyError('Selected cluster is unavailable or Gaussian is disabled', 400)
+                tier = cluster['tiers'].get(payload['tier'])
                 if not tier or not re.fullmatch(r'\d{1,3}:[0-5]\d:[0-5]\d', payload['walltime']) or not payload['method_basis'].strip():
                     raise StudyError('Invalid tier, walltime or method basis', 400)
                 draft = self.draft(study, label, resource_input(payload['input'], tier))
                 argv = [self.executable, 'prepare', '--json', '--study', str(self.store.root / study),
-                        '--template', 'gaussian', '--input', str(draft), '--tier', payload['tier'],
+                        '--template', 'gaussian', '--input', str(draft), '--cluster', payload['cluster'], '--tier', payload['tier'],
                         '--walltime', payload['walltime'], '--label', label, '--parent', attempt,
                         '--relation', relation, '--method-basis', payload['method_basis']]
             else:

@@ -79,7 +79,7 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
 
     @app.get('/api/monitor')
     def monitor():
-        return store.monitor()
+        return store.monitors(actions.clusters if actions else ())
 
     @app.get('/api/studies')
     def list_studies():

@@ -27,8 +27,6 @@ class ActionsTests(unittest.TestCase):
         self.studies = self.root/'studies'
         self.study = action_studies(self.studies)
         self.fake = make_fake(self.root)
-        local = patch('autog_frontend.actions.read_local_settings', return_value=settings(self.studies))
-        local.start(); self.addCleanup(local.stop)
         ui = self.root/'ui'; (ui/'assets').mkdir(parents=True)
         (ui/'index.html').write_text('<html><head></head><body></body></html>')
         self.app = create_app(self.studies, ui, enable_actions=True, ag=self.fake)
@@ -44,12 +42,13 @@ class ActionsTests(unittest.TestCase):
                                 json=dict(action=action, study='butane-demo', attempt=attempt, **extra))
 
     def prepare(self, **extra):
-        values = dict(input=gjf(), tier='general', walltime='02:00:00', label='modified',
+        values = dict(cluster='default', input=gjf(), tier='general', walltime='02:00:00', label='modified',
                       relation='derived_from', method_basis='Fallback; $(touch injected) `echo nope` "quoted" & | < >')
         return self.post('prepare', **(values | extra))
 
-    def calls(self):
-        return [json.loads(line) for line in (self.root/'argv.jsonl').read_text().splitlines()]
+    def calls(self, queries=False):
+        rows = [json.loads(line) for line in (self.root/'argv.jsonl').read_text().splitlines()]
+        return rows if queries else [row for row in rows if row[0] != 'clusters']
 
     def control(self, **values):
         (self.root/'control.json').write_text(json.dumps(values))
@@ -114,7 +113,7 @@ class ActionsTests(unittest.TestCase):
         draft=next((self.study/'drafts').glob('*.gjf'))
         args=self.calls()[-1]
         self.assertEqual(args,['prepare','--json','--study',str(self.study),'--template','gaussian','--input',str(draft),
-                               '--tier','general','--walltime','02:00:00','--label','modified','--parent','prepared',
+                               '--cluster','default','--tier','general','--walltime','02:00:00','--label','modified','--parent','prepared',
                                '--relation','derived_from','--method-basis','Fallback; $(touch injected) `echo nope` "quoted" & | < >'])
         self.assertTrue(draft.read_text().startswith('%nprocshared=22\n%mem=40000MB\n'))
         self.assertEqual({k:snapshot()[k] for k in before},before)
@@ -134,14 +133,14 @@ class ActionsTests(unittest.TestCase):
         path.parent.symlink_to(outside,target_is_directory=True)
         self.assertEqual(self.prepare().status_code,403)
         self.assertEqual(list(outside.iterdir()),[])
-        with patch('autog_frontend.actions.read_local_settings',return_value=settings(self.root/'different')):
-            with self.assertRaisesRegex(ValueError,'must equal'):Actions(Studies(self.studies),self.fake)
-            self.assertEqual(self.post().status_code,400)
+        self.control(root_matches=False)
+        with self.assertRaisesRegex(ValueError,'must equal'):Actions(Studies(self.studies),self.fake)
+        self.assertEqual(self.post().status_code,400)
 
     def test_every_tier_input_is_previewable_and_special_id_is_one_argument(self):
         actions=Actions(Studies(self.studies),self.fake)
-        for name,tier in actions.tiers.items():
-            manifest=settings(self.studies)[1][name]
+        for name,tier in actions.clusters['default']['tiers'].items():
+            manifest=settings(self.studies)['clusters'][0]['resources']['tiers'][name]
             preview=parse_input(resource_input(gjf(),tier),'draft.gjf',manifest)
             self.assertEqual(preview['n_atoms'],14)
         special='id;$(echo nope)`uname`&quoted'
@@ -179,7 +178,7 @@ class ActionsTests(unittest.TestCase):
             release.wait(5)
             return b'partial\nfinal\n',b'err\n'
         process.communicate.side_effect=communicate
-        with patch('autog_frontend.actions.subprocess.Popen',return_value=process) as popen:
+        with patch.object(actions, 'settings', return_value=actions.clusters), patch('autog_frontend.actions.subprocess.Popen',return_value=process) as popen:
             try:
                 data=actions.execute(dict(action='submit',study='butane-demo',attempt='prepared'))
                 self.assertEqual(data['stdout'],'partial\n');self.assertEqual(data['stderr'],'err\n')
@@ -209,13 +208,13 @@ class ActionsTests(unittest.TestCase):
                              stdout='x'*200000,stderr='y'*200000,exit_code=2)
                 payload=dict(action=action,study='butane-demo',attempt='prepared')
                 if action=='prepare':
-                    payload.update(input=gjf(),tier='simple',walltime='01:00:00',label='delayed',
+                    payload.update(cluster='default',input=gjf(),tier='simple',walltime='01:00:00',label='delayed',
                                    relation='derived_from',method_basis='synthetic fallback')
                 processes=[]
                 original=subprocess.Popen
                 def start(*args,**kwargs):
                     process=original(*args,**kwargs);processes.append(process);return process
-                with patch('autog_frontend.actions.TIMEOUT',.2), patch('autog_frontend.actions.subprocess.Popen',side_effect=start):
+                with patch.object(actions, 'settings', return_value=actions.clusters), patch('autog_frontend.actions.TIMEOUT',.2), patch('autog_frontend.actions.subprocess.Popen',side_effect=start):
                     try:
                         data=actions.execute(payload)
                         self.assertTrue(data['timed_out'])
@@ -224,7 +223,7 @@ class ActionsTests(unittest.TestCase):
                         for blocked in ('submit','status','fetch','cancel','prepare'):
                             blocked_payload=dict(action=blocked,study='butane-demo',attempt='prepared')
                             if blocked=='prepare':
-                                blocked_payload.update(input=gjf(),tier='simple',walltime='01:00:00',label='blocked',
+                                blocked_payload.update(cluster='default',input=gjf(),tier='simple',walltime='01:00:00',label='blocked',
                                                        relation='derived_from',method_basis='synthetic fallback')
                             with self.assertRaises(StudyError) as caught:
                                 actions.execute(blocked_payload)
@@ -239,3 +238,78 @@ class ActionsTests(unittest.TestCase):
                 result=actions.execute(dict(action='status',study='butane-demo',attempt='prepared'))
                 self.assertEqual(result['exit_code'],0)
                 self.assertFalse(result['timed_out'])
+
+    def test_cluster_query_root_and_failures(self):
+        self.assertEqual(self.calls(queries=True)[:2], [
+            ['--version'], ['clusters','--json','--verify-studies-root',str(self.studies)]])
+        for values in [dict(clusters_code=1),dict(clusters_code=2),dict(root_matches=False),
+                       dict(clusters_response={'clusters':[]}),dict(clusters_response={'clusters':None})]:
+            self.control(**values)
+            with self.assertRaises(ValueError):Actions(Studies(self.studies),self.fake)
+            before=len(self.calls())
+            self.assertEqual(self.prepare().status_code,400)
+            self.assertEqual(len(self.calls()),before)
+            self.assertFalse((self.study/'drafts').exists())
+
+    def test_clusters_legacy_named_disabled_changed_and_unknown(self):
+        context=self.client.get('/api/actions/butane-demo/prepared').json()
+        self.assertEqual(context['clusters']['batch']['tiers']['general'],dict(cores=64,mem_mb=128000))
+        self.assertEqual(self.prepare(cluster='missing').status_code,400)
+        self.assertEqual(self.prepare(cluster='../batch').status_code,400)
+        response=self.prepare(cluster='batch')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertIn('--cluster',self.calls()[-1])
+        path=self.study/'attempts'/response.json()['new_attempt']/'manifest.json'
+        self.assertEqual(json.loads(path.read_text())['cluster'],'batch')
+        draft=next((self.study/'drafts').glob('*.gjf'))
+        self.assertTrue(draft.read_text().startswith('%nprocshared=64\n%mem=128000MB\n'))
+        cfg=settings(self.studies)
+        cfg['clusters'][1]['programs_enabled']['gaussian']=False
+        self.control(clusters_response=cfg)
+        # Changed execution settings require a restart before a draft is created.
+        self.assertEqual(self.prepare(cluster='batch',label='changed').status_code,409)
+        actions=Actions(Studies(self.studies),self.fake)
+        with self.assertRaises(StudyError):
+            actions.execute(dict(action='prepare',study='butane-demo',attempt='prepared',cluster='batch',
+                                 input=gjf(),tier='general',walltime='01:00:00',label='disabled',
+                                 relation='derived_from',method_basis='Synthetic'))
+        cfg['clusters']=cfg['clusters'][:1]  # ag's normalized old single-cluster output
+        self.control(clusters_response=cfg)
+        self.assertEqual(list(Actions(Studies(self.studies),self.fake).clusters),['default'])
+        cfg=settings(self.studies);cfg['clusters']=cfg['clusters'][1:]
+        self.control(clusters_response=cfg)
+        self.assertEqual(list(Actions(Studies(self.studies),self.fake).clusters),['batch'])
+
+    def test_budget_change_does_not_invalidate_resource_settings(self):
+        cfg=settings(self.studies);cfg['clusters'][1]['budget']['reserved']=40
+        self.control(clusters_response=cfg)
+        self.assertEqual(self.post().status_code,200)
+
+    def test_residue_cancellation_is_scoped_to_attempt_cluster(self):
+        default=self.studies/'.ag-monitor/latest.json'
+        data=json.loads(default.read_text());data['warnings']=[]
+        default.write_text(json.dumps(data))
+        batch=self.studies/'.ag-monitor/batch/latest.json'
+        data=json.loads(batch.read_text())
+        data['warnings']=[dict(kind='scheduler-residue',study='butane-demo',attempt='opt-demo',
+                               job_id='batch:1',detail='Synthetic residue')]
+        batch.write_text(json.dumps(data))
+        self.assertEqual(self.post('cancel',attempt='opt-demo').status_code,409)
+        manifest=self.study/'attempts/opt-demo/manifest.json'
+        data=json.loads(manifest.read_text());data['cluster']='batch';data['scheduler']='slurm'
+        manifest.write_text(json.dumps(data))
+        self.assertTrue(self.client.get('/api/actions/butane-demo/opt-demo').json()['can_cancel'])
+        # A cache under the wrong cluster directory cannot supply the warning.
+        data=json.loads(batch.read_text());data['cluster']['name']='other'
+        batch.write_text(json.dumps(data))
+        self.assertEqual(self.post('cancel',attempt='opt-demo').status_code,409)
+
+    def test_query_timeout_or_malformed_json_has_no_action_side_effect(self):
+        actions=Actions(Studies(self.studies),self.fake)
+        for outcome in (subprocess.TimeoutExpired('clusters',15), None):
+            kwargs={'side_effect':outcome} if outcome else {'return_value':Mock(returncode=0,stdout=b'not json')}
+            with patch('autog_frontend.actions.subprocess.run',**kwargs):
+                with self.assertRaises(ValueError):
+                    actions.execute(dict(action='status',study='butane-demo',attempt='prepared'))
+            self.assertFalse(actions.lock.locked())
+        self.assertEqual(self.calls(),[['--version'],['--version']])
