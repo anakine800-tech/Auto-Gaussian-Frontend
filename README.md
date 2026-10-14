@@ -129,9 +129,10 @@ using 627.5094740631 kcal/mol per Hartree. This display-only conversion neither
 changes facts nor supplies scientific acceptance. Parsing is adapted solely from
 `83184af:autog_frontend/calculation_analysis.py`; there is no legacy package import.
 
-The **服务器** navigation (`#server`) GETs `.ag-monitor/latest.json` every 30 seconds.
-The [ag-monitor/1 definition](docs/ag-monitor-1.md) is reproduced from the task's
-producer specification. The adapter only reads that fixed file, through the
+The **服务器** navigation (`#server`) reads local snapshots every 30 seconds; see
+T7e below for the per-cluster locations.
+The [ag-monitor/1 definition](docs/ag-monitor-1.md) follows the task's
+producer specification, including T19 additions. The adapter reads only the fixed snapshot filenames, through the
 existing descriptor-relative `O_NOFOLLOW` traversal, at most 2 MiB. Hidden root
 directories do not appear as studies. Missing files show
 `请在终端运行 ag monitor --watch 120`. The page shows sampling age, expiry after three
@@ -232,10 +233,9 @@ the publication source map have been deleted. This README is the current guide.
 Start with `--enable-actions`, optionally `--ag <executable>` (otherwise PATH).
 The executable is fixed at startup; HTTP cannot select it or supply file paths.
 The page header reads **可操作（经 ag）** when enabled and **只读** otherwise.
-Startup runs only `ag --version` and refuses actions if it fails. It reads the
-`local.studies_root` and `resources.tiers` values from ag’s existing local config
-`~/.config/ag/config.toml`; the viewer root must match. Resource/root changes
-require a restart. This avoids acting on a different same-named study or writing
+Startup runs `ag --version` and the T19 `ag clusters` query described below;
+actions are refused if either fails or the viewer root does not match.
+Resource/root changes require a restart. This avoids acting on a different same-named study or writing
 resource directives from stale settings. Nothing connects to a cluster at startup.
 
 On an Attempt, **刷新状态** runs `ag status --json <id>` (one selected Attempt,
@@ -249,13 +249,13 @@ from the local tier: its core count and 80% of its memory in decimal MB, below a
 
 ```text
 ag prepare --json --study <server-resolved-study> --template gaussian
-  --input <new-draft> --tier <tier> --walltime <HH:MM:SS> --label <label>
+  --input <new-draft> --cluster <cluster> --tier <tier> --walltime <HH:MM:SS> --label <label>
   --parent <original-id> --relation <relation> --method-basis <basis>
 ```
 
 A successful JSON result opens the new input structure and parent input diff.
 Only `prepared` Attempts show **提交**; its first click displays the structure
-link, charge/multiplicity, full route, tier, walltime and first 12 bundle-hash
+link, cluster, estimated core-hours, charge/multiplicity, full route, tier, walltime and first 12 bundle-hash
 characters. The second click runs `ag submit --json <id>`. **取消计算** runs
 `ag cancel --json <id>` only for submitted/running states or an Attempt named in
 a `scheduler-residue` monitor warning. Both display **请在 Mac 弹窗中确认**.
@@ -290,6 +290,62 @@ not import or execute real ag, SSH, Gaussian, or Mac dialogs. Synthetic screensh
 [submitted output](docs/t7d/submitted.png), [local time and T11 cores](docs/t7d/server-t11.png).
 These illustrate software behavior only. Execution-related changes require the
 supervisory review before a human merges the PR.
+
+## Multi-cluster operation and snapshots (T7e)
+
+Actions require ag with the T19 query interface ([Auto-Gaussian #233](https://github.com/anakine800-tech/Auto-Gaussian/pull/233)).
+At startup and before every action, the selected executable runs:
+
+```text
+ag clusters --json --verify-studies-root <viewer-studies-root>
+```
+
+This local read-only query supplies cluster names, scheduler types, resource tiers
+and program availability while returning only a boolean directory match. The
+viewer no longer parses TOML or reads budget ledgers. A failed query, a false or
+missing directory match, or changed execution settings prevents the action before
+any draft is written. Restart after changing cluster resources or enabled programs.
+Budget/date changes alone do not invalidate the resource selection. The default
+read-only viewer does not invoke ag at all.
+
+**基于此新建** defaults to the parent's saved cluster; old manifests without a
+cluster use `default`. Changing the cluster updates tier choices and input resource
+lines. Selecting another cluster displays **同一能量曲线内的物种应在同一集群计算**.
+A removed parent cluster requires an explicit choice; a cluster with Gaussian
+disabled cannot prepare a Gaussian Attempt. `programs_enabled` means configured,
+not remotely verified. Preparation always passes `--cluster <selected-name>`.
+Attempt details and the submit summary display the saved cluster; the summary
+also displays cores × walltime as estimated core-hours, not measured billing.
+
+The server page groups snapshots by cluster. It discovers named directories in
+read-only mode; action mode also includes configured clusters with no snapshot.
+Legacy `default` uses `.ag-monitor/latest.json`; named clusters (including a named
+`default`) use `.ag-monitor/<name>/latest.json`. Each file retains the 2 MiB and
+no-symlink restrictions. Missing or malformed files are reported in their own
+section. If both default locations exist, both appear with source labels and an
+ambiguity notice; neither is assumed to be current or used to authorize a
+scheduler-residue cancellation. Sampling age, failed sampling and last-success
+times stay visible for every cluster.
+
+Slurm snapshots show budget total/used/reserved in core-hours, expiry date/reminder
+and storage in KiB when present. Budget values are ag's local ledger summary, not
+platform credit. Missing/null fields are not zero. Retained budget/storage are
+marked **非最新** on failed, expired or ambiguous samples. Unknown Slurm hardware
+capacity is shown as unknown, never as the producer's placeholder zero capacity.
+The [T19 producer specification](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/redesign-tasks/T19-clusters-json.md)
+defines these optional fields. The viewer's `/api/monitor` response is a
+`clusters` array of `{name, source, ambiguous, snapshot, error}` entries; each
+`snapshot` is the saved `ag-monitor/1` object.
+
+Synthetic tests cover legacy default metadata, two clusters with distinct tiers,
+parent-cluster selection, cluster switching, the warning, exact CLI arguments,
+root mismatch, disabled programs, independent monitor errors, absent optional
+fields and retained old values. Execution changes require supervisory review
+before a human merges this PR.
+
+Synthetic screenshots: [cluster selection](docs/t7e/clusters-form.png),
+[submission summary](docs/t7e/submit-summary.png), [cluster monitoring](docs/t7e/monitor.png).
+All displayed calculations and scheduler data are synthetic.
 
 ## Synthetic demo and tests
 

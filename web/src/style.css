@@ -8,3 +8,6 @@
 
 .attempt-actions{border:1px solid var(--line,#cbd5e1);padding:1rem;margin:1rem 0;border-radius:12px}.action-buttons{display:flex;flex-wrap:wrap;gap:.5rem}.attempt-actions form label{display:block;margin:.8rem 0}.attempt-actions textarea{display:block;width:100%;min-height:26rem;font-family:ui-monospace,monospace;font-size:14px;line-height:1.5}.attempt-actions input{max-width:100%;width:28rem}.attempt-actions fieldset{min-width:0;border:0;padding:0}.attempt-actions dl{overflow-wrap:anywhere}.action-output{margin:1rem 2rem}.action-output pre{white-space:pre-wrap;overflow-wrap:anywhere;min-height:2rem}
 .attempt-actions dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.8rem}.attempt-actions dd{margin:0;white-space:pre-wrap}.attempt-actions dt{color:#52656b;font-size:.85rem}
+
+.cluster-monitor + .cluster-monitor { margin-top: 2rem; padding-top: 1rem; border-top: 3px solid var(--line, #d5e3e2); }
+.cluster-monitor > h3 { font-size: 1.2rem; color: #145d64; }

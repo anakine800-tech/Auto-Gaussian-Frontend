@@ -12,6 +12,7 @@ import itertools
 import json
 import math
 import os
+import re
 from pathlib import Path
 import stat
 
@@ -325,9 +326,10 @@ class Studies:
         except (ValueError, UnicodeError):
             raise StudyError('无法解析优化过程：日志文本或数字无效') from None
 
-    def monitor(self):
+    def monitor(self, cluster=None):
         try:
-            raw = self.read(('.ag-monitor', 'latest.json'), 2*1024*1024)
+            parts = ('.ag-monitor', 'latest.json') if cluster is None else ('.ag-monitor', component(cluster), 'latest.json')
+            raw = self.read(parts, 2*1024*1024)
         except StudyError as exc:
             if exc.status == 404:
                 raise StudyError('请在终端运行 ag monitor --watch 120', 404) from None
@@ -338,3 +340,39 @@ class Studies:
             return validate_monitor(data)
         except (UnicodeError, ValueError, RecursionError):
             raise StudyError('快照格式不正确') from None
+
+    def monitors(self, configured=()):
+        names = set(configured)
+        names.update(name for name, _ in self.names(('.ag-monitor',), directories=True)
+                     if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name))
+        legacy = any(name == 'latest.json' for name, _ in self.names(('.ag-monitor',)))
+        if legacy or not names:
+            names.add('default')
+        rows = []
+        named_dirs = {n for n, _ in self.names(('.ag-monitor',), directories=True)}
+        for name in sorted(names):
+            named = name in named_dirs
+            sources = ['named'] if named or name != 'default' or not legacy else []
+            if name == 'default' and legacy:
+                sources.append('legacy')
+            for source in sources:
+                row = dict(name=name, source=source, snapshot=None, error=None,
+                           ambiguous=len(sources) > 1)
+                try:
+                    row['snapshot'] = self.monitor(name if source == 'named' else None)
+                    identity = (row['snapshot'].get('cluster') or {}).get('name')
+                    if identity is not None and identity != name:
+                        row['snapshot'] = None
+                        raise StudyError('快照集群名称与目录不一致')
+                except StudyError as exc:
+                    row['error'] = str(exc)
+                rows.append(row)
+        return dict(clusters=rows)
+
+    def monitor_for_cluster(self, name):
+        rows = [row for row in self.monitors((name,))['clusters'] if row['name'] == name]
+        # Conflicting default locations must not authorize cancellation using a
+        # historical warning from another cache layout.
+        if len(rows) != 1 or rows[0]['snapshot'] is None:
+            raise StudyError('Cluster monitor unavailable or ambiguous', 409)
+        return rows[0]['snapshot']

@@ -3,10 +3,10 @@ import {test,expect} from '@playwright/test';
 test('local sample time and optional running/queued core totals',async({browser,request},info)=>{
  const context=await browser.newContext({timezoneId:'Asia/Shanghai',locale:'zh-CN'});
  const page=await context.newPage();
- const data=await (await request.get('/api/monitor')).json();
+ const data=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
  data.sampled_at='2026-10-14T12:34:56Z';data.interval_seconds=null;
  data.own={...data.own,cores_running:8,cores_queued:22,committed_cap:88};
- await page.route('**/api/monitor',route=>route.fulfill({json:data}));
+ await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:data,error:null}]}}));
  await page.goto('http://127.0.0.1:18765/#server');
  await expect(page.locator('time')).toContainText('20:34:56');
  await expect(page.locator('time')).toHaveAttribute('datetime',data.sampled_at);
@@ -95,7 +95,7 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
 });
 
 test('server stale, failed, one-shot, missing, malformed and oversized states',async({page,request})=>{
- const data=await (await request.get('/api/monitor')).json();
+ const data=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
  const cases=[
   {body:{...data,sampled_at:'2000-01-01T00:00:00Z'},text:'数据已过期'},
   {body:{...data,ok:false,error:'Synthetic sampler failure',last_ok_at:'2000-01-01T00:00:00Z'},text:'非最新'},
@@ -106,7 +106,7 @@ test('server stale, failed, one-shot, missing, malformed and oversized states',a
   {body:{detail:'File exceeds display size limit'},status:413,text:'File exceeds display size limit'},
  ];
  for(const c of cases){
-  await page.route('**/api/monitor',route=>route.fulfill({status:c.status??200,contentType:'application/json',body:JSON.stringify(c.body)}));
+  await page.route('**/api/monitor',route=>route.fulfill({status:c.status??200,contentType:'application/json',body:JSON.stringify(c.status?c.body:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:c.body,error:null}]})}));
   await page.goto('/?snapshot='+cases.indexOf(c)+'#server');await expect(page.getByRole('region',{name:'服务器监控'})).toContainText(c.text);
   if(c.text==='非最新')await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('synthetic-opt');
   if(c.text==='单次采样')await expect(page.getByText('数据已过期',{exact:true})).toHaveCount(0);
@@ -122,4 +122,53 @@ test('three new views fit mobile viewport',async({page})=>{
   await expect(page.getByRole('heading',{name:'Study 查看器'})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  }
+});
+
+test('two cluster sections show Slurm optional fields and retained data honestly',async({page,request},info)=>{
+ const original=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ const batch=structuredClone(original);
+ batch.own.core_cap=96;
+ batch.cluster={name:'batch',scheduler:'slurm',nodes:[],queues:[],cores_total:0,cores_used:0,
+  hardware_capacity_known:false,budget:{core_hours:100,used:1.5,reserved:2.25},expires:'2099-01-01',storage_kib:1024,expiry_warning:null};
+ batch.own.jobs.forEach((job:Record<string,unknown>)=>{delete job.mem;delete job.start_time;delete job.walltime_limit;});
+ const rows=[{name:'default',source:'named',ambiguous:false,snapshot:original,error:null},
+  {name:'batch',source:'named',ambiguous:false,snapshot:batch,error:null}];
+ await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:rows}}));
+ await page.goto('/#server');
+ const section=page.getByRole('region',{name:'集群 batch',exact:true});
+ await expect(page.getByRole('region',{name:'集群 default',exact:true})).toBeVisible();
+ await expect(section).toContainText('预算 100 · 已用 1.5 · 预留 2.25 核时');
+ await expect(section).toContainText('到期日期：2099-01-01');
+ await expect(section).toContainText('存储占用：1024 KiB');
+ await expect(section).toContainText('集群硬件容量未知');
+ await expect(section).not.toContainText('集群核数：0 / 0');
+ await page.screenshot({path:info.outputPath('multi-cluster-monitor.png'),fullPage:true});
+ batch.ok=false;batch.error='Synthetic failure';batch.last_ok_at='2000-01-01T00:00:00Z';
+ await page.reload();await expect(section).toContainText('核时预算 · 非最新');await expect(section).toContainText('存储占用 · 非最新');
+ delete batch.cluster.budget;delete batch.cluster.expires;delete batch.cluster.storage_kib;
+ await page.reload();await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
+ await expect(section).not.toContainText('存储占用');await expect(section).not.toContainText('到期日期');
+});
+
+test('conflicting default snapshots are identified instead of silently selecting an old source',async({page,request})=>{
+ const sample=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:['named','legacy'].map(source=>({name:'default',source,ambiguous:true,snapshot:sample,error:null}))}}));
+ await page.goto('/#server');
+ await expect(page.getByRole('region',{name:'集群 default · named',exact:true})).toContainText('来源未确认');
+ await expect(page.getByRole('region',{name:'集群 default · legacy',exact:true})).toContainText('来源未确认');
+});
+
+
+test('first failed sample never renders zero placeholders as measured capacity',async({page,request})=>{
+ const sample=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ sample.ok=false;sample.error='Synthetic first failure';sample.last_ok_at=null;
+ sample.own={cores_in_use:0,core_cap:96,jobs:[]};
+ sample.cluster={nodes:[],queues:[],cores_total:0,cores_used:0,budget:null,storage_kib:null,expires:null,expiry_warning:null};
+ await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:[{name:'batch',source:'named',ambiguous:false,snapshot:sample,error:null}]}}));
+ await page.goto('/#server');
+ const section=page.getByRole('region',{name:'集群 batch',exact:true});
+ await expect(section).toContainText('尚无成功采样，当前占用与硬件容量未知。');
+ await expect(section).not.toContainText('集群核数：0 / 0');
+ await expect(section.locator('.core-count')).toHaveText('—');
+ await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
 });

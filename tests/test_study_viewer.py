@@ -121,8 +121,10 @@ class StudyViewerTests(unittest.TestCase):
             with self.assertRaises(StudyError):store.attempt('butane-demo',name)
         for method in ('post','put','patch','delete'):
             self.assertEqual(getattr(self.client,method)(self.base).status_code,405)
-        for uri in ['/api/tasks','/api/queue','/api/submit','/api/cancel','/api/projects','/api/import','/api/monitor']:
+        for uri in ['/api/tasks','/api/queue','/api/submit','/api/cancel','/api/projects','/api/import']:
             self.assertEqual(self.client.get(uri).status_code,404)
+        self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['error'],
+                         '请在终端运行 ag monitor --watch 120')
         for headers in [{'host':'untrusted.invalid'}, {'origin':'https://untrusted.invalid'}, {'sec-fetch-site':'cross-site'}]:
             self.assertEqual(self.client.get('/api/studies',headers=headers).status_code,403)
         remote=TestClient(create_app(self.studies),base_url='http://localhost',client=('remote.invalid',1234))
