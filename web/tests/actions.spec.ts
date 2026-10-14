@@ -72,3 +72,65 @@ test('unknown has no submit; scheduler residue can cancel; readonly has no actio
  expect((await request.post('http://127.0.0.1:18765/api/actions')).status()).toBe(405);
  expect((await request.post('/api/actions')).status()).toBe(403);
 });
+
+test('clusters change tiers and input, warn across clusters and retain the parent cluster',async({page},info)=>{
+ const errors:string[]=[],posts:Record<string,string>[]=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('request',r=>{if(r.method()==='POST')posts.push(r.postDataJSON());});
+ await page.goto('/#/butane-demo/prepared');
+ await expect(page.locator('.attempt-detail')).toContainText('所属集群：default');
+ await page.getByRole('button',{name:'基于此新建',exact:true}).click();
+ await expect(page.getByLabel('集群',{exact:true})).toHaveValue('default');
+ await page.getByLabel('档位',{exact:true}).selectOption('general');
+ await expect(page.getByLabel('输入全文')).toHaveValue(/^%nprocshared=22\n%mem=40000MB/);
+ await page.getByLabel('集群',{exact:true}).selectOption('batch');
+ await expect(page.getByLabel('档位',{exact:true}).locator('option:checked')).toHaveText('general · 64 核 · 128000 MB');
+ await expect(page.getByLabel('输入全文')).toHaveValue(/^%nprocshared=64\n%mem=128000MB/);
+ await expect(page.getByText('同一能量曲线内的物种应在同一集群计算',{exact:true})).toBeVisible();
+ await page.getByLabel('集群',{exact:true}).selectOption('default');
+ await expect(page.getByText('同一能量曲线内的物种应在同一集群计算',{exact:true})).toHaveCount(0);
+ await page.getByLabel('集群',{exact:true}).selectOption('batch');
+ await page.getByLabel('walltime',{exact:true}).fill('02:30:00');
+ await page.getByLabel('标签',{exact:true}).fill('clusters');
+ await page.getByLabel('方法依据',{exact:true}).fill('Synthetic fallback');
+ await page.screenshot({path:info.outputPath('clusters-form.png'),fullPage:true});
+ await page.getByRole('button',{name:'保存并新建',exact:true}).click();
+ await expect(page).toHaveURL(/butane-demo-001-clusters$/);
+ expect(posts).toHaveLength(1);expect(posts[0].cluster).toBe('batch');
+ await expect(page.locator('.attempt-detail')).toContainText('所属集群：batch');
+ await page.getByRole('button',{name:'提交',exact:true}).click();
+ const summary=page.getByRole('region',{name:'提交摘要'});
+ await expect(summary).toContainText('batch');await expect(summary).toContainText('160 核时');
+ await summary.screenshot({path:info.outputPath('cluster-submit-summary.png')});
+ await page.getByRole('button',{name:'返回',exact:true}).click();
+ await page.getByRole('button',{name:'基于此新建',exact:true}).click();
+ await expect(page.getByLabel('集群',{exact:true})).toHaveValue('batch');
+ await expect(page.getByText('同一能量曲线内的物种应在同一集群计算',{exact:true})).toHaveCount(0);
+ expect(errors).toEqual([]);
+});
+
+test('removed parent cluster requires an explicit choice and disabled Gaussian cannot prepare',async({page})=>{
+ await page.route('**/api/actions/butane-demo/prepared',async route=>{
+  const response=await route.fetch(),data=await response.json();
+  delete data.clusters.default;data.clusters.batch.programs_enabled.gaussian=false;
+  await route.fulfill({json:data});
+ });
+ await page.goto('/#/butane-demo/prepared');
+ await page.getByRole('button',{name:'基于此新建',exact:true}).click();
+ await expect(page.getByLabel('集群',{exact:true})).toHaveValue('');
+ await expect(page.getByText('父 Attempt 集群 default 未配置，请明确选择目标集群。')).toBeVisible();
+ await expect(page.getByRole('button',{name:'保存并新建',exact:true})).toBeDisabled();
+ await page.getByLabel('集群',{exact:true}).selectOption('batch');
+ await expect(page.getByText('此集群未启用 Gaussian。')).toBeVisible();
+ await expect(page.getByRole('button',{name:'保存并新建',exact:true})).toBeDisabled();
+});
+
+
+test('server reads both physical synthetic cluster caches',async({page})=>{
+ await page.goto('/#server');
+ await expect(page.getByRole('region',{name:'集群 default',exact:true})).toContainText('synthetic-node');
+ const batch=page.getByRole('region',{name:'集群 batch',exact:true});
+ await expect(batch).toContainText('预算 1000 · 已用 1.5 · 预留 2 核时');
+ await expect(batch).toContainText('存储占用：1024 KiB');
+ await expect(batch).toContainText('运行 16 · 排队 0 · 总上限 96');
+});

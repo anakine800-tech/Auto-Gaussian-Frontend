@@ -95,16 +95,16 @@ class ResultsTests(unittest.TestCase):
                         {'ok':False,'own':None,'cluster':None}, {'interval_seconds':None}]:
             value={**data,**changes};self.snapshot.write_text(json.dumps(value))
             response=self.client.get('/api/monitor')
-            self.assertEqual(response.status_code,200);self.assertEqual(response.json(),value)
+            self.assertEqual(response.status_code,200);self.assertEqual(response.json()['clusters'][0]['snapshot'],value)
 
     def test_monitor_missing_oversized_and_symlinks(self):
         self.snapshot.unlink()
-        response=self.client.get('/api/monitor');self.assertEqual(response.status_code,404)
-        self.assertEqual(response.json()['detail'],'请在终端运行 ag monitor --watch 120')
+        response=self.client.get('/api/monitor');self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['clusters'][0]['error'],'请在终端运行 ag monitor --watch 120')
         with self.snapshot.open('wb') as f:f.truncate(2*1024*1024+1)
-        self.assertEqual(self.client.get('/api/monitor').status_code,413)
+        self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['error'],'File exceeds display size limit')
         self.snapshot.unlink();self.snapshot.symlink_to(self.study/'study.md')
-        self.assertEqual(self.client.get('/api/monitor').status_code,403)
+        self.assertIn('Unsafe', self.client.get('/api/monitor').json()['clusters'][0]['error'])
         self.snapshot.unlink();self.snapshot.parent.rmdir();self.snapshot.parent.symlink_to(self.study,target_is_directory=True)
         self.assertEqual(self.client.get('/api/monitor').status_code,403)
 
@@ -112,25 +112,25 @@ class ResultsTests(unittest.TestCase):
         data=monitor_snapshot()
         data['own'].update(cores_running=8, cores_queued=22, committed_cap=88)
         self.snapshot.write_text(json.dumps(data))
-        self.assertEqual(self.client.get('/api/monitor').json()['own'],data['own'])
+        self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['snapshot']['own'],data['own'])
         for key in ('cores_running','cores_queued','committed_cap'):
             for invalid in (-1, True, '22', None):
                 malformed=copy.deepcopy(data);malformed['own'][key]=invalid
                 self.snapshot.write_text(json.dumps(malformed))
-                self.assertEqual(self.client.get('/api/monitor').status_code,422)
+                self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['error'],'快照格式不正确')
     def test_monitor_malformed_fields_never_500(self):
         valid=monitor_snapshot();cases=[]
         for key in valid:
             missing=copy.deepcopy(valid);del missing[key];cases.append(missing)
         for key,value in [('schema','ag-monitor/2'),('ok',1),('sampled_at','bad'),('sampled_at','2026-01-01T00:00:00'),('interval_seconds',True),('interval_seconds',59),('interval_seconds',601),('own',[]),('own',None),('cluster',None),('warnings',[{}])]:
             cases.append({**valid,key:value})
-        for group,field,bad in [('own','jobs',[None]),('own','core_cap',45),('own','cores_in_use',True),('cluster','nodes',[{}]),('cluster','queues',[{'name':'demo','running':'1','queued':0}])]:
+        for group,field,bad in [('own','jobs',[None]),('own','core_cap',0),('own','cores_in_use',True),('cluster','nodes',[{}]),('cluster','queues',[{'name':'demo','running':'1','queued':0}])]:
             data=copy.deepcopy(valid);data[group][field]=bad;cases.append(data)
         for data in cases:
             self.snapshot.write_text(json.dumps(data));response=self.client.get('/api/monitor')
-            self.assertEqual(response.status_code,422,data);self.assertEqual(response.json()['detail'],'快照格式不正确')
+            self.assertEqual(response.status_code,200,data);self.assertEqual(response.json()['clusters'][0]['error'],'快照格式不正确')
         for raw in [b'\xff',b'{',b'[]',b'{"x":NaN}',b'['*2000+b']'*2000]:
-            self.snapshot.write_bytes(raw);self.assertEqual(self.client.get('/api/monitor').status_code,422)
+            self.snapshot.write_bytes(raw);self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['error'],'快照格式不正确')
 
     def test_all_new_reads_leave_bytes_unchanged_and_reject_writes(self):
         def files():
@@ -142,3 +142,43 @@ class ResultsTests(unittest.TestCase):
                 self.assertEqual(getattr(self.client,method)(uri).status_code,405)
             self.assertEqual(self.client.get(uri,headers={'origin':'https://untrusted.invalid'}).status_code,403)
         self.assertEqual(files(),before)
+
+    def test_named_clusters_optional_slurm_fields_and_isolated_errors(self):
+        data=monitor_snapshot()
+        data['own']['core_cap']=96
+        for job in data['own']['jobs']:
+            for key in ('mem','walltime_limit','start_time'):job.pop(key,None)
+        data['cluster'].update(name='batch',scheduler='slurm',hardware_capacity_known=False,
+                               nodes=[],queues=[],cores_total=0,cores_used=0,
+                               budget=dict(core_hours=100,used=1.5,reserved=.25),
+                               expires='2099-01-01',storage_kib=1024,expiry_warning=None)
+        named=self.root/'.ag-monitor/batch';named.mkdir()
+        path=named/'latest.json';path.write_text(json.dumps(data))
+        rows=self.client.get('/api/monitor').json()['clusters']
+        self.assertEqual([row['name'] for row in rows],['batch','default'])
+        self.assertEqual(rows[0]['snapshot']['cluster']['budget']['used'],1.5)
+        # Failed sampling retains saved values; UI receives the original age and failure.
+        data.update(ok=False,error='Synthetic failure',last_ok_at='2000-01-01T00:00:00Z')
+        path.write_text(json.dumps(data))
+        self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['snapshot'],data)
+        for key in ('budget','expires','storage_kib','expiry_warning','hardware_capacity_known'):
+            data['cluster'].pop(key)
+        path.write_text(json.dumps(data))
+        self.assertIsNone(self.client.get('/api/monitor').json()['clusters'][0]['error'])
+        data['cluster']['budget']=dict(core_hours=100,used=True,reserved=0)
+        path.write_text(json.dumps(data))
+        rows=self.client.get('/api/monitor').json()['clusters']
+        self.assertEqual(rows[0]['error'],'快照格式不正确')
+        self.assertIsNotNone(rows[1]['snapshot'])
+        path.unlink();path.symlink_to(self.snapshot)
+        self.assertIn('Unsafe',self.client.get('/api/monitor').json()['clusters'][0]['error'])
+
+    def test_two_default_locations_remain_explicit(self):
+        named=self.root/'.ag-monitor/default';named.mkdir()
+        (named/'latest.json').write_text(json.dumps(monitor_snapshot()))
+        rows=self.client.get('/api/monitor').json()['clusters']
+        self.assertEqual([r['source'] for r in rows],['named','legacy'])
+        self.assertTrue(all(r['ambiguous'] for r in rows))
+        self.snapshot.unlink()
+        rows=self.client.get('/api/monitor').json()['clusters']
+        self.assertEqual(len(rows),1);self.assertFalse(rows[0]['ambiguous'])

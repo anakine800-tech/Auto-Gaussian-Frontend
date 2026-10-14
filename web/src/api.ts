@@ -12,3 +12,9 @@ export async function get<T>(url:string,signal:AbortSignal):Promise<T>{
 }
 export const object=(value:unknown):value is Record<string,unknown>=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 export const display=(value:unknown)=>typeof value==='number'||typeof value==='string'?String(value):'—';
+
+export function coreHours(m:Record<string,unknown>):string{
+ if(typeof m.cores!=='number'||!Number.isFinite(m.cores)||m.cores<=0||typeof m.walltime!=='string'||!/^\d+:[0-5]\d:[0-5]\d$/.test(m.walltime))return '—';
+ const [h,min,sec]=m.walltime.split(':').map(Number);
+ return `${Number((m.cores*(h+min/60+sec/3600)).toFixed(3))} 核时（核数 × walltime）`;
+}

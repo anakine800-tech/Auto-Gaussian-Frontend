@@ -4,6 +4,7 @@ Required fields/types are checked because a partial producer update must show a
 format error, rather than crash the page or mislabel old values as current.
 """
 from datetime import datetime, timedelta
+import math
 
 
 def validate_monitor(data):
@@ -46,14 +47,27 @@ def validate_monitor(data):
             for key in ('cores_running', 'cores_queued', 'committed_cap'):
                 if key in own:
                     integer(own[key])
-            require(type(own['core_cap']) is int and own['core_cap'] == 44)
+            require(type(own['core_cap']) is int and own['core_cap'] > 0)
             for job in rows(own['jobs']):
                 for key in ('job_id', 'name', 'state', 'queue'):
                     string(job[key])
                 integer(job['cores'], True)
                 for key in ('mem', 'walltime_used', 'walltime_limit', 'start_time', 'study', 'attempt'):
-                    string(job[key], True)
+                    string(job.get(key), True)
         if cluster is not None:
+            for key in ('name', 'scheduler', 'expires', 'expiry_warning'):
+                if key in cluster:
+                    string(cluster[key], True)
+            if 'storage_kib' in cluster:
+                integer(cluster['storage_kib'], True)
+            if 'hardware_capacity_known' in cluster:
+                require(type(cluster['hardware_capacity_known']) is bool)
+            budget = cluster.get('budget')
+            if budget is not None:
+                require(isinstance(budget, dict))
+                for key in ('core_hours', 'used', 'reserved'):
+                    value = budget[key]
+                    require(type(value) in (int, float) and math.isfinite(value) and value >= 0)
             integer(cluster['cores_total'], True)
             integer(cluster['cores_used'], True)
             for node in rows(cluster['nodes']):
