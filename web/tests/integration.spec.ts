@@ -87,6 +87,8 @@ test('TS frequency → animation → review atom picks → matching saved report
  await page.getByRole('button',{name:'回到参考结构',exact:true}).click();
  await page.getByLabel('启用审阅模式').check();
  await expect(page.getByTestId('current-1-2')).toHaveText('4.000');
+ // The report panel scrolls the SVG partly out of view. Clicking a visible atom
+ // must not scroll it on focus and invalidate the pointer-up hit test.
  // Remove the report default, then restore it through actual atom clicks.
  await page.getByRole('button',{name:'删除原子对 1-2'}).click();
  for(const atom of [1,2])await page.locator(`[data-testid="molecule-atom"][data-center="${atom}"]`).click();
