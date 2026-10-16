@@ -21,7 +21,7 @@ export function InputFiles({study,attempt,data,autoCompare=false}:{study:string;
  useEffect(()=>{const c=new AbortController();setFile(null);setError('');if(name)get<InputFile>(endpoint(study,'attempts',attempt,'inputs',name),c.signal).then(v=>{if(!c.signal.aborted)setFile(v);}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,attempt,name]);
  useEffect(()=>{const c=new AbortController();setParentData(null);setParentFile('');setDiff(null);setDiffError('');if(compare&&parent)get<Attempt>(endpoint(study,'attempts',parent),c.signal).then(v=>{if(!c.signal.aborted){setParentData(v);setParentFile(v.input_files.some(f=>f.name===name)?name:v.input_files[0]?.name??'');}}).catch(e=>{if(!c.signal.aborted)setDiffError(e.message);});return()=>c.abort();},[study,parent,compare,name]);
  useEffect(()=>{const c=new AbortController();setDiff(null);if(compare&&name&&parent&&parentFile){setDiffError('');const query=new URLSearchParams({parent,parent_file:parentFile});get<Diff>(endpoint(study,'attempts',attempt,'input-diff',name)+'?'+query,c.signal).then(v=>{if(!c.signal.aborted)setDiff(v);}).catch(e=>{if(!c.signal.aborted)setDiffError(e.message);});}return()=>c.abort();},[study,attempt,name,parent,parentFile,compare]);
- return <section aria-label="输入文件"><h3>输入文件</h3>{data.input_files.length?<>
+ return <><section aria-label="输入文件"><h3>输入文件</h3>{data.input_files.length?<>
  <label>文件 <select aria-label="输入文件" value={name} onChange={e=>setName(e.target.value)}>{data.input_files.map(f=><option key={f.name} value={f.name}>{f.name}{f.error?' · 不可读':''}</option>)}</select></label>
  {error?<p role="alert">{error}</p>:file?<><p className="muted">{file.size_bytes} bytes · SHA-256 <code>{file.sha256}</code></p><pre data-testid="input-text">{file.text}</pre></>:<p role="status">读取输入文件…</p>}
  {parents.length>0&&<button onClick={()=>setCompare(v=>!v)} aria-expanded={compare}>与父 Attempt 输入对比</button>}
@@ -30,7 +30,7 @@ export function InputFiles({study,attempt,data,autoCompare=false}:{study:string;
  {parentData?.input_files.length===0&&<p>父 Attempt 没有输入文件。</p>}
  {diffError?<p role="alert">{diffError}</p>:diff?<><p>{diff.identical?'文件字节完全一致。':'− 为父输入，+ 为当前输入。'}</p>{diff.parent_final_newline!==diff.input_final_newline&&<p>文件末尾换行不同：父输入 {String(diff.parent_final_newline)}，当前输入 {String(diff.input_final_newline)}。</p>}{diff.truncated&&<p className="notice">差异超过 2000 行，仅显示前 2000 行；输入全文仍可逐个查看。</p>}
  <pre data-testid="input-diff">{diff.lines.map((line,i)=><span className={line.startsWith('+')?'diff-added':line.startsWith('-')?'diff-removed':'diff-context'} key={i}>{line}{'\n'}</span>)}</pre></>:compare&&!parentData?<p>读取父 Attempt…</p>:null}</div>}
- </>:<p>暂无 inputs 文件。</p>}</section>;
+ </>:<p>暂无 inputs 文件。</p>}</section>{manifest.template==='crest'&&<CrestOutputs study={study} attempt={attempt}/>}</>;
 }
 
 type Frame={frame:number;frame_count:number;comment:string;geometry:unknown};
@@ -42,4 +42,11 @@ export function StructureFiles({study,files,selected,onSelect,revision}:{study:s
  return <section aria-label="结构文件"><h2>结构与构象文件</h2><ul className="structure-list">{files.map(f=><li key={f.parts.join('/')}><a href={'#/'+[study,...f.parts].map(encodeURIComponent).join('/')} onClick={e=>{e.preventDefault();onSelect(f.parts);}}>{f.parts.join('/')}</a>{f.error&&<span className="notice">{f.error}</span>}</li>)}</ul>{files.length===0&&<p>structures 与 analyses 中暂无 XYZ 文件。</p>}
  {selected&&<><h3>{location}</h3>{error?<p role="alert">{error}</p>:data?<><div className="frame-controls"><button disabled={frame===0} onClick={()=>setFrame(f=>f-1)}>上一帧</button><label>帧号 <input aria-label="帧号" type="number" min={1} max={data.frame_count} value={frame+1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=data.frame_count)setFrame(n-1);}}/> / {data.frame_count}</label><button disabled={frame+1>=data.frame_count} onClick={()=>setFrame(f=>f+1)}>下一帧</button></div><p data-testid="frame-comment">{data.comment||'此帧无注释。'}</p><MoleculeViewer key={location+frame} last={data.geometry} frameLabel={`第 ${frame+1} 帧`}/></>:<p role="status">读取 XYZ 帧…</p>}</>}
  </section>;
+}
+
+// Reuse StructureFiles unchanged; this entry is rendered only for CREST Attempts.
+function CrestOutputs({study,attempt}:{study:string;attempt:string}){
+ const files=['crest_conformers.xyz','crest_best.xyz','crest_ensemble.xyz'].map(name=>({parts:['attempts',attempt,'crest-frames',name],error:null}));
+ const [selected,setSelected]=useState<string[]|null>(null);
+ return <section aria-label="CREST 输出"><h3>CREST 输出逐帧查看</h3><p className="muted">仅供显示，以 facts 和后端分析为准。缺失输出显示读取错误。</p><StructureFiles study={study} files={files} selected={selected} onSelect={setSelected} revision={0}/></section>;
 }

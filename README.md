@@ -65,6 +65,18 @@ source installation above serves the explicit Vite build.
 
 ## Files displayed
 
+- 构象集合：结果页列出 `analyses/*.json` 与 `analyses/<group>/*.json` 中的
+  `ag-ensemble/1`；校验后展示来源、各层保存值、缺失层、分页缩略图与 3D 结构。
+  清单最多 4 MiB，XYZ 最多 32 MiB / 1000 帧 / 每帧 500 原子，超限报错。
+  只读清单同目录的 `inputs.xyz.file`，核对文件与候选几何 SHA-256；不跟随 `path`。
+  数值不作科学判断，不重算布居；不能跨路线比较的 xTB 值按路线展开。
+  选中项保存在 `#/study/ensembles/group/name.json?candidate=1`，缩略图每页最多 50 个、可见时绘制。
+- CREST Attempt 的 `outputs/crest_conformers.xyz`、`crest_best.xyz` 和
+  `crest_ensemble.xyz` 可逐帧查看，沿用上述 XYZ 限制。注释中首个可解析的浮点数
+  按 Hartree 显示，无数值则未知；相对最低已知帧按 627.5094740631 换算 kcal/mol。
+  仅供显示，以 facts 和后端分析为准；缺失文件明确报错。
+
+
 ```text
 <studies_root>/<study_id>/
   study.md

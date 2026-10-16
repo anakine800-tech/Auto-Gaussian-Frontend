@@ -202,6 +202,10 @@ class Studies:
         return {'id': attempt, **data, 'geometry': geometry, 'input_geometry': input_geometry,
                 'input_files': input_files, 'logs': logs, 'issues': issues}
 
+    def crest_frames(self, study, attempt, name, frame=0):
+        from .ensembles import crest_frames
+        return crest_frames(self, study, attempt, name, frame)
+
     def log_parts(self, study, attempt, log):
         parts = (component(study), 'attempts', component(attempt), 'outputs', component(log))
         if not log.lower().endswith(('.log', '.out')):
