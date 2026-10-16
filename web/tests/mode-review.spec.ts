@@ -140,8 +140,10 @@ createRoot(document.getElementById('root')).render(<><div id="omitted"><Molecule
   // Fixed front projection, .08 s tick cap, .6 cycles/s, RAW vector .6 × .45.
   const phase=Math.sin(.08*.6*2*Math.PI),scale=136/Math.sqrt((4-4/3)**2+1);
   const expectedX=300+(-4/3+.6*.45*phase)*scale;
-  const transform=await a.getAttribute('transform');const x=Number(transform?.match(/translate\(([^ ]+)/)?.[1]);
-  expect(x).toBeCloseTo(expectedX,8);
+  // React may commit the rAF update after evaluate returns, especially in CI.
+  // Wait for the same numerical expectation; do not loosen its precision.
+  await expect.poll(async()=>Number((await a.getAttribute('transform'))?.match(/translate\(([^ ]+)/)?.[1])).toBeCloseTo(expectedX,8);
+  await expect(b).toHaveAttribute('transform',await a.getAttribute('transform')??'');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 
