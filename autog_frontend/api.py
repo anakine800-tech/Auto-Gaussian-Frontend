@@ -135,6 +135,21 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
                    start: int = Query(0, ge=0), last: bool = False):
         return store.log_search(study, attempt, log, query, start, last)
 
+    @app.get('/api/studies/{study}/irc-reviews')
+    def irc_reviews(study: str):
+        from .irc_reviews import list_reviews
+        return list_reviews(store, study)
+
+    @app.get('/api/studies/{study}/irc-reviews/{name}')
+    def irc_review(study: str, name: str):
+        from .irc_reviews import read_review
+        return read_review(store, study, name)
+
+    @app.get('/api/studies/{study}/irc-reviews/{group}/{name}')
+    def grouped_irc_review(study: str, group: str, name: str):
+        from .irc_reviews import read_review
+        return read_review(store, study, name, group)
+
     @app.get('/api/studies/{study}/ensembles')
     def ensembles(study: str):
         from .ensembles import list_ensembles

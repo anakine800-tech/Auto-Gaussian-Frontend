@@ -4,6 +4,12 @@ import {routeHash} from './routing';
 type Association={study:string|null;attempt:string|null};
 type Job=Association&{job_id:string;name:string;state:string;queue:string;cores:number|null;mem:string|null;walltime_used:string|null;walltime_limit:string|null;start_time:string|null};
 export type Monitor={schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;ok:boolean;error:string|null;last_ok_at:string|null;own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;jobs:Job[]}|null;cluster:{scheduler?:string;name?:string;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;nodes:{name:string;state:string;cores_total:number|null;cores_used:number|null}[];queues:{name:string;running:number;queued:number}[]}|null;warnings:(Association&{kind:string;job_id:string|null;detail:string})[]};
+const SINGLE_SAMPLE_STALE_SECONDS=10*60;
+function ageText(seconds:number){
+ if(seconds<60)return `${seconds} 秒`;
+ const minutes=Math.floor(seconds/60),hours=Math.floor(minutes/60),days=Math.floor(hours/24);
+ return `${days} 天 ${hours%24} 小时 ${minutes%60} 分`;
+}
 function localTime(value:string){
  return new Intl.DateTimeFormat(undefined,{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'}).format(new Date(value));
 }
@@ -25,11 +31,11 @@ export function ServerMonitor({revision}:{revision:number}){
 }
 function ClusterSnapshot({data,now,ambiguous}:{data:Monitor;now:number;ambiguous:boolean}){
  const age=Math.max(0,Math.floor((now-Date.parse(data.sampled_at))/1000));
- const stale=data.interval_seconds!==null&&now-Date.parse(data.sampled_at)>3*data.interval_seconds*1000;
+ const stale=now-Date.parse(data.sampled_at)>(data.interval_seconds===null?SINGLE_SAMPLE_STALE_SECONDS:3*data.interval_seconds)*1000;
  const old=!data.ok||stale||ambiguous;
  const cluster=data.cluster,hasData=data.ok||data.last_ok_at!==null;
  return <>
- <p>采样时间：<time dateTime={data.sampled_at} title={data.sampled_at}>{localTime(data.sampled_at)}</time>（本地时间） · 距今 {age} 秒{data.interval_seconds===null?' · 单次采样':` · 采样间隔 ${data.interval_seconds} 秒`}</p>
+ <p>采样时间：<time dateTime={data.sampled_at} title={data.sampled_at}>{localTime(data.sampled_at)}</time>（本地时间） · 距今 {ageText(age)}{data.interval_seconds===null?' · 单次采样':` · 采样间隔 ${data.interval_seconds} 秒`}</p>
  {stale&&<p className="expired" role="status">数据已过期</p>}
  {!data.ok&&<div role="alert"><strong>采样失败：{data.error??'未提供错误说明'}</strong><p>last_ok_at：{data.last_ok_at?localTime(data.last_ok_at):'尚无成功采样'}</p><p>{hasData?'下方为上一次成功的数据（非最新）。':'尚无成功采样，当前占用与硬件容量未知。'}</p></div>}
  <article><h3>本人占用核数{old?' · 非最新':''}</h3><p className="core-count">{data.own&&hasData?data.own.cores_running!==undefined&&data.own.cores_queued!==undefined&&data.own.committed_cap!==undefined?`运行 ${data.own.cores_running} · 排队 ${data.own.cores_queued} · 总上限 ${data.own.committed_cap}`:`${data.own.cores_in_use} / ${data.own.core_cap}`:'—'}</p></article>
