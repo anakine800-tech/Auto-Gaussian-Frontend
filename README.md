@@ -1,6 +1,6 @@
-# Auto-Gaussian Study Viewer v4.0
+# Auto-Gaussian Study Viewer v4.2.0
 
-**配合 ag 4.0.0 使用。** This is the v4.0.0 release candidate; see [CHANGELOG.md](CHANGELOG.md).
+**配合 ag 4.2.0 使用。** This is the v4.2.0 release candidate; see [CHANGELOG.md](CHANGELOG.md).
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -63,6 +63,24 @@ source installation above serves the explicit Vite build.
   `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`。
 - 前端不会启动采样器；缺失、过期和采样失败均需按界面提示解释，不能视为服务器空闲。
 
+## 只读模式在计算机上启动
+
+1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.2.0 使用。
+2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
+3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
+
+```sh
+cd '<FRONTEND_DIRECTORY>'
+.venv/bin/python -B -m autog_frontend \
+  --studies-root '<STUDIES_ROOT>' --ui-directory '<FRONTEND_DIRECTORY>/web/dist'
+```
+
+从“结果”打开构象集合、选择候选并查看三维结构，再通过来源 Attempt 链接打开
+CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点击“解析振动位移”，
+选中虚频后可启用审阅模式。服务器页只读取已保存的 monitor 快照；缺失时按提示
+单独运行采样器。合并后的实际 study 检查由负责人完成，仅在 PR 评论记录“可用”
+或“有问题（类别）”，不上传研究截图或数值。
+
 ## Files displayed
 
 - 构象集合：结果页列出 `analyses/*.json` 与 `analyses/<group>/*.json` 中的
@@ -88,9 +106,10 @@ source installation above serves the explicit Vite build.
     final.xyz
     inputs/*
     outputs/*.log or *.out
+    outputs/crest_conformers.xyz, crest_best.xyz, crest_ensemble.xyz
   structures/<name>/*.xyz
   analyses/*.json, *.md, *.csv, *.xyz, *.txt
-  analyses/<name>/*.xyz
+  analyses/<name>/*.json, *.xyz
 ```
 
 - Study descriptions render Markdown with raw HTML disabled and only local heading
@@ -140,6 +159,44 @@ source installation above serves the explicit Vite build.
   `ensemble_G`. They are not recalculated. Settings and full JSON remain inspectable.
   Dedup and cluster JSON outputs are shown verbatim; XYZ files use the frame viewer. No complete sampling or scientific
   acceptance is inferred from any saved status or number.
+
+## 构象集合与 CREST 输出（T54）
+
+“结果”页识别 `analyses/*.json` 以及下一层目录的 `ag-ensemble/1` 清单。
+清单必须显式引用同目录 XYZ 文件并匹配 SHA-256；映射、能量、布居和缺失层均来自
+保存的数据，不按文件名推断构象对应关系，不重新计算去重或热化学。
+能量表、缩略图与三维查看器联动，候选选择保存到 URL；可排序列支持排序，
+缩略图每页最多 50 个。缺失或歧义的值留空，悬停可看原因；分路线能量标为
+“各路线 xTB 能量不可直接比较”，不能作跨路线排序。来源链接打开对应 Attempt。
+缩略图包含 B、Cl、Br、P、Si、I 的专用配色。
+
+CREST Attempt 可查看 `outputs/crest_conformers.xyz`、`crest_best.xyz` 和
+`crest_ensemble.xyz`。逐帧显示注释中的 Hartree 能量和相对最低已知帧的 kcal/mol 值，
+无法识别的能量显示“未知”。这些仅供显示，以 facts 和后端分析为准。
+集合与 CREST 专用读取上限均为 32 MiB、1,000 帧、每帧 500 原子；清单上限为
+4 MiB。超限、XYZ 哈希不符、缺失文件和符号链接会显示原因，不展示部分集合。
+原有通用结构文件查看器的上限见下文，二者不同。
+
+```text
+#/<study>/ensembles/<manifest.json>?candidate=2
+#/<study>/ensembles/<group>/<manifest.json>?candidate=2
+```
+
+## 虚频审阅与报告对照（T55）
+
+Attempt 页“解析振动位移”读取所选 Gaussian log，选择模式后显示动画。
+“启用审阅模式”使用归一化振幅（最大原子位移，Å）；原有动画幅度与该设置独立。
+在三维结构中依次点两个原子，面板显示参考距离、正负位移后的距离和变化；
+审阅模式还显示当前动画帧距离。可维护多个原子对，选择保存在 URL 查询参数中。
+模式整体正负号任意，有限振幅距离变化不等于线性导数。
+
+面板读取 `analyses/` 及下一层目录中该 Attempt 的 `ag mode-review` JSON 报告，
+展示原始频率序号、坐标方向和 log SHA-256。只有同一 log、模式和方向的报告
+才可自动带出原子对；多份报告需选择，另一份 log 会明确提示且不自动带出。
+报告与页面振幅一致时，正负方向分别按 0.001 Å 容差显示距离对照。
+不合规报告单独显示错误，仍可播放可用模式；截断或不支持的位移表显示不可用原因，
+原始日志和其他文件仍可读。页面不保存报告或科学签字，虚频动画与距离一致均不等于
+TS 验收；科学判断仍需振动方向审阅、双向 IRC 与端点识别。
 
 ## Results, optimization, and server snapshots (T7c)
 
@@ -302,7 +359,9 @@ and holds the operation lock until ag exits, including for status/fetch/cancel.
 Other operations still receive 409 during that time. The page shows the partial
 stdout/stderr available when the wait ends and an explicit running notice, with no
 exit code invented and no automatic retry. After ag exits, use ag status to check
-the result. Normal completion displays the full streams and actual exit code. A
+the result. Normal completion displays the full streams and actual exit code. T52 fetch JSON
+including the new `facts` status/reason remains visible verbatim in stdout; a
+successful fetch exit code does not imply that facts parsing or scientific review passed. A
 successful prepare response without a valid JSON identity is retained for manual
 inspection; human-readable output is never parsed. ag writes its own journal.
 **study.md 中的计划和结论仍由 Codex 更新**.
@@ -404,11 +463,20 @@ atom and frequency order. Browser checks exercise the molecule, vibration,
 thermochemistry, graph, responsive navigation, and read-only HTTP traffic.
 CI installs this repository without checking out the calculation backend.
 
+T57 adds `tests/test_integration.py` and `web/tests/integration.spec.ts` using
+`tests/integration_fixture.py`: one combined synthetic study plus isolated damaged
+copies, T51 monitor snapshots, and a fake T52 fetch response. Browser integration
+starts two additional temporary loopback servers on ports 18767/18768 and stops
+them on completion. It exercises the built UI against real local HTTP adapters;
+no API responses are mocked in these integration tests.
+
 ## Release status
 
-V4.0.0 prepares the version and documentation for the current study viewer.
+V4.2.0 integrates T54 ensemble browsing, T55 vibration review, and T57 synthetic
+cross-page and malformed-data regression. Pair it with backend ag 4.2.0 (T61).
 Synthetic offline tests demonstrate UI and adapter behavior; they do not establish
 L1/L2/L3 scientific acceptance. See the
 [backend acceptance status](https://github.com/anakine800-tech/Auto-Gaussian#验收状态).
-The release PR remains unmerged pending owner acceptance. The owner creates tags
-and releases on GitHub; this preparation does neither.
+Supervisory review and owner merge are required. The owner creates the v4.2.0
+tag and release after merge, coordinated with T61. Synthetic regression does not
+replace the owner’s post-merge read-only check of the actual study.
