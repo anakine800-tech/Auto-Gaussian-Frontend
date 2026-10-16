@@ -13,7 +13,7 @@ export function drawThumbnail(canvas:HTMLCanvasElement,atoms:Atom[]){
  const byCenter=new Map(atoms.map((a,i)=>[a.center,i]));
  ctx.strokeStyle='#708384';ctx.lineWidth=3;
  for(const bond of inferDisplayBonds(atoms).bonds){const a=project(byCenter.get(bond.a)!),b=project(byCenter.get(bond.b)!);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();}
- const colors:Record<number,string>={1:'#fff',6:'#52656b',7:'#4268cf',8:'#cc4545',9:'#68ac7c',16:'#d2ae25'};
+ const colors:Record<number,string>={1:'#fff',6:'#52656b',7:'#4268cf',8:'#cc4545',9:'#68ac7c',16:'#d2ae25',5:'#d89e83',14:'#c3b99b',15:'#dc9440',17:'#389b68',35:'#a35439',53:'#8553ac'};
  atoms.map((a,i)=>({a,i})).sort((a,b)=>points[a.i][2]-points[b.i][2]).forEach(({a,i})=>{const [x,y]=project(i);ctx.beginPath();ctx.arc(x,y,a.atomic_number===1?3.5:6,0,Math.PI*2);ctx.fillStyle=colors[a.atomic_number]??'#9b73b2';ctx.fill();ctx.strokeStyle='#6c8283';ctx.lineWidth=1;ctx.stroke();});
  canvas.dataset.drawn='true';
 }

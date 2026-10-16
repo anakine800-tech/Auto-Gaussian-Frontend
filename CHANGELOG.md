@@ -1,5 +1,26 @@
 # Changelog
 
+## v4.2.0
+
+配合 ag 4.2.0（后端 T61）使用。版本准备完成后仍需监督方审阅、负责人合并；
+负责人在合并后与 T61 同步创建 v4.2.0 tag/release。
+
+- T54：新增 `ag-ensemble/1` 构象集合列表、能量表、缩略图/三维联动、候选 URL
+  和 CREST 输出逐帧查看；核对 XYZ 哈希，保留缺失与跨路线能量限制。
+  [#12](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/12)
+- T55：新增可选虚频审阅模式、归一化振幅、原子对距离/变化及来源信息，
+  与同源 mode-review 报告逐方向对照；不代替 TS/IRC 科学验收。
+  [#13](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/13)
+- T57：补全 B、Cl、Br、P、Si、I 缩略图配色；增加合成 study 的跨页浏览器与
+  HTTP 集成回归，覆盖缺失/损坏 facts、XYZ 被替换、异源报告、截断日志、大小/
+  帧数/原子数限制、陈旧/失败快照、符号链接、只读无 POST 及 T52 fetch facts 输出。
+  补全启动与浏览说明，Python 与网页包版本同步为 4.2.0。修复三维图部分离开视口时聚焦滚动导致原子点击丢失的问题，
+  以及既有动画对照测试提前取值的时序问题。
+  [#14](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/14)
+
+离线验证只证明软件行为；真实 study 的只读可用性由负责人在合并后验证，
+在 PR 评论中仅记录“可用 / 有问题（类别）”。不发布研究截图、数据或科学验收结论。
+
 ## v4.0.0
 
 配合 ag 4.0.0 使用。本节对比 T7 改造前的旧前端，仅包含已合并的功能。
