@@ -1,6 +1,6 @@
-# Auto-Gaussian Study Viewer v4.2.0
+# Auto-Gaussian Study Viewer v4.2.1
 
-**配合 ag 4.2.0 使用。** This is the v4.2.0 release candidate; see [CHANGELOG.md](CHANGELOG.md).
+**配合 ag 4.2.1 使用。** This is the v4.2.1 release candidate; see [CHANGELOG.md](CHANGELOG.md).
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -65,7 +65,7 @@ source installation above serves the explicit Vite build.
 
 ## 只读模式在计算机上启动
 
-1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.2.0 使用。
+1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.2.1 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -479,11 +479,16 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.2.0 integrates T54 ensemble browsing, T55 vibration review, and T57 synthetic
-cross-page and malformed-data regression. Pair it with backend ag 4.2.0 (T61).
+V4.2.1 includes T71 local conformer groups, boundary filters, distances and summary
+navigation, on top of the T54/T55/T57 features. Pair it with backend ag 4.2.1 (T67).
+T71 is merged; this release PR changes only versions and release documentation.
 Synthetic offline tests demonstrate UI and adapter behavior; they do not establish
 L1/L2/L3 scientific acceptance. See the
 [backend acceptance status](https://github.com/anakine800-tech/Auto-Gaussian#验收状态).
-Supervisory review and owner merge are required. The owner creates the v4.2.0
-tag and release after merge, coordinated with T61. Synthetic regression does not
-replace the owner’s post-merge read-only check of the actual study.
+Supervisory review and owner merge are required. The owner creates the v4.2.1
+tag on this PR's exact merge commit, after verifying it is the intended release
+commit; do not select whichever commit main happens to point to later. Use the
+v4.2.1 CHANGELOG section as release notes and coordinate with backend T67.
+Before syncing the calculation machine, confirm no fetch is in progress; rebuild
+the frontend after syncing. Synthetic regression does not replace the owner’s
+read-only check of the actual study.
