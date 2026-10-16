@@ -140,7 +140,11 @@ def build_modes(detail, raw):
             modes.append(dict(mode_number=indices[slot],frequency_index=len(modes),block_index=bi,column_index=slot,
                               frequency_cm1=frequency,frequency_source_span=span,source_span={**artifact,'start':span['start'],'end':offset},displacements=vectors[slot]))
         previous_end = offset
-    packet = dict(schema=SCHEMA,kind=detail['kind'],id=detail['id'],decoder=DECODER,result_source=source,
+    # Add provenance without changing original mode ordering or vector bytes.
+    for rank, index in enumerate(sorted(range(len(modes)), key=lambda i: modes[i]['frequency_cm1']), 1):
+        modes[index].update(sorted_mode_index=rank, source_mode_index=index + 1)
+    packet = dict(log_name=artifact['logical_name'], log_sha256=artifact['sha256'],
+                  orientation='standard', schema=SCHEMA,kind=detail['kind'],id=detail['id'],decoder=DECODER,result_source=source,
                   vector_convention=CONVENTION,reference_geometry=g,modes=modes)
     return validate_modes(packet,detail)
 

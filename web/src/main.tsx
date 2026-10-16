@@ -10,12 +10,12 @@ import type {Attempt,Study} from './api';
 import {ServerMonitor} from './server-monitor';
 import {Results,StudyMarkdown,Optimization} from './results-panels';
 import {Analyses,FileView,PagedLog,RelationshipGraph} from './study-panels';
-import {MoleculeViewer} from './molecule-viewer';
-import type {VibrationMode} from './vibration-contract';
+import {ModeReviewViewer} from './mode-panels';
+import type {ReviewModes} from './mode-panels';
 import './style.css';
 import './molecule-layout.css';
 
-type Modes={reference_geometry:unknown;modes:VibrationMode[]};
+type Modes=ReviewModes;
 function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare}:{study:string;id:string;revision:number;busy:boolean;onBusy:(v:boolean)=>void;onResult:(r:ActionResult)=>void;autoCompare:boolean}){
  const [data,setData]=useState<Attempt|null>(null),[error,setError]=useState(''),[log,setLog]=useState(''),[modes,setModes]=useState<Modes|null>(null),[modeError,setModeError]=useState(''),[selected,setSelected]=useState<number|null>(null),[decode,setDecode]=useState(false),[geometrySource,setGeometrySource]=useState('input'),[attemptTab,setAttemptTab]=useState('details');
  useEffect(()=>{const c=new AbortController();setData(null);setError('');setLog('');setModes(null);setSelected(null);setDecode(false);get<Attempt>(endpoint(study,'attempts',id),c.signal).then(v=>{if(!c.signal.aborted){setData(v);setLog(v.logs[0]??'');const state=object(v.status.data)?v.status.data.state:'';setGeometrySource(['prepared','submitting'].includes(String(state))||!v.geometry.data?'input':'final');}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,id,revision]);
@@ -25,7 +25,7 @@ function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare}:{study
  const vibration=selected!==null?modes?.modes[selected]:undefined;
  return <section className="attempt-detail"><h2>{id}</h2><p>所属集群：{display(object(data.manifest.data)?data.manifest.data.cluster??'default':null)}</p><nav aria-label="Attempt 内容"><button aria-current={attemptTab==='details'?'page':undefined} onClick={()=>setAttemptTab('details')}>Attempt 详情</button><button aria-current={attemptTab==='optimization'?'page':undefined} onClick={()=>setAttemptTab('optimization')}>优化过程</button></nav>{attemptTab==='optimization'?<>{data.logs.length?<><label>优化日志 <select aria-label="优化日志" value={log} onChange={e=>setLog(e.target.value)}>{data.logs.map(l=><option key={l}>{l}</option>)}</select></label>{log&&<Optimization key={log+revision} study={study} attempt={id} log={log} revision={revision}/>}</>:<p>尚无 outputs 日志。</p>}</>:<><div id="attempt-structure" className="structure-preview">
  <div><label>预览结构 <select aria-label="预览结构" value={geometrySource} onChange={e=>{setGeometrySource(e.target.value);setSelected(null);}}><option value="input">输入结构</option><option value="final" disabled={!data.geometry.data}>最终结构 · final.xyz</option></select></label>
- <MoleculeViewer key={vibration?'vibration':geometrySource} last={vibration?modes?.reference_geometry:geometrySource==='input'?data.input_geometry.data:data.geometry.data} frameLabel={vibration?'Gaussian 振动参考坐标':geometrySource==='input'?'输入结构':'最终结构 · final.xyz'} vibration={vibration} onClearVibration={()=>setSelected(null)}/>
+ <ModeReviewViewer study={study} attempt={id} log={log} packet={modes} revision={revision} key={vibration?'vibration':geometrySource} last={vibration?modes?.reference_geometry:geometrySource==='input'?data.input_geometry.data:data.geometry.data} frameLabel={vibration?'Gaussian 振动参考坐标':geometrySource==='input'?'输入结构':'最终结构 · final.xyz'} vibration={vibration} onClearVibration={()=>setSelected(null)}/>
  {geometrySource==='input'&&data.input_geometry.error&&<p className="notice">{data.input_geometry.error}</p>}
  {geometrySource==='final'&&data.geometry.error&&<p className="notice">final.xyz：{data.geometry.error}</p>}</div>
  <InputSummary input={data.input_geometry} manifest={data.manifest}/></div>
