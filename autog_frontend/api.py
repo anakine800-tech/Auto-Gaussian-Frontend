@@ -130,6 +130,25 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
                    start: int = Query(0, ge=0), last: bool = False):
         return store.log_search(study, attempt, log, query, start, last)
 
+    @app.get('/api/studies/{study}/ensembles')
+    def ensembles(study: str):
+        from .ensembles import list_ensembles
+        return list_ensembles(store, study)
+
+    @app.get('/api/studies/{study}/ensembles/{name}')
+    def ensemble(study: str, name: str):
+        from .ensembles import read_ensemble
+        return read_ensemble(store, study, name)
+
+    @app.get('/api/studies/{study}/ensembles/{group}/{name}')
+    def grouped_ensemble(study: str, group: str, name: str):
+        from .ensembles import read_ensemble
+        return read_ensemble(store, study, name, group)
+
+    @app.get('/api/studies/{study}/attempts/{attempt}/crest-frames/{name}')
+    def crest_frames(study: str, attempt: str, name: str, frame: int = Query(0, ge=0, le=999)):
+        return store.crest_frames(study, attempt, name, frame)
+
     @app.get('/{asset:path}', include_in_schema=False)
     def static(asset: str):
         found = ui.get('/' + asset)

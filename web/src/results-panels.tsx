@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import {display,endpoint,get,object} from './api';
 import type {AttemptSummary,Document,Study} from './api';
 import {Analyses} from './study-panels';
+import {EnsembleList} from './ensemble-panels';
 import {StructureFiles} from './preview-panels';
 import {MoleculeViewer} from './molecule-viewer';
 
@@ -40,6 +41,7 @@ export function Results({data,onSelect,revision}:{data:Study;onSelect:(id:string
  return <section aria-label="结果总览"><h2>结果总览</h2><p className="muted">数值来自 facts.json；标签、模板和状态来自 manifest / status。空值表示未提供。</p>
  <div className="table-scroll"><table aria-label="Attempt 结果表"><thead><tr>{columns.map((c,i)=><th key={c} aria-sort={sort.column===i?(sort.direction===1?'ascending':'descending'):'none'}><button onClick={()=>setSort(s=>({column:i,direction:s.column===i?-s.direction:1}))}>{c}{sort.column===i?(sort.direction===1?' ↑':' ↓'):''}</button></th>)}</tr></thead><tbody>{rows.map(({a,cells})=><tr key={a.id} onClick={()=>onSelect(a.id)} className="result-row">{cells.map((v,i)=><td key={i}>{i===0?<button onClick={e=>{e.stopPropagation();onSelect(a.id);}}>{a.id}</button>:display(v)}</td>)}</tr>)}</tbody></table></div>
  {data.attempts.filter(a=>a.facts.error||a.manifest.error||a.status.error).map(a=><p className="muted" key={a.id}>{a.id}：{[a.facts.error,a.manifest.error,a.status.error].filter(Boolean).join(' · ')}</p>)}
+ <EnsembleList study={data.id} revision={revision}/>
  <Analyses analyses={data.analyses.filter(a=>object(a.data)&&a.data.schema==='ag-thermo/1')}/>
  <StructureFiles study={data.id} files={files} selected={selected} onSelect={setSelected} revision={revision}/>
  </section>;

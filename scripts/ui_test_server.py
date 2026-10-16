@@ -18,5 +18,7 @@ with tempfile.TemporaryDirectory() as directory:
         uvicorn.run(app,host='127.0.0.1',port=18766,access_log=False,proxy_headers=False)
     else:
         create_results_studies(root)
+        from tests.ensemble_fixture import create_ensemble_study
+        create_ensemble_study(root)
         app=create_app(root,ui)
         uvicorn.run(app,host='127.0.0.1',port=18765,access_log=False,proxy_headers=False)
