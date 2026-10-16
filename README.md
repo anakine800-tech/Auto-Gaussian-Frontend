@@ -231,7 +231,7 @@ producer specification, including T19 additions. The adapter reads only the fixe
 existing descriptor-relative `O_NOFOLLOW` traversal, at most 2 MiB. Hidden root
 directories do not appear as studies. Missing files show
 `请在终端运行 ag monitor --watch 120`. The page shows sampling age, expiry after three
-sampling intervals (no expiry for a one-shot null interval), previous data marked
+sampling intervals (one-shot null-interval samples expire after 10 minutes), previous data marked
 **非最新** on sampling failure, own cores/jobs, cluster nodes/queues and unchanged
 warning text. Unknown schemas and malformed required fields are rejected with
 **快照格式不正确**. It never starts a sampler or connects to the cluster. Sampling and last-success
@@ -492,3 +492,34 @@ v4.2.1 CHANGELOG section as release notes and coordinate with backend T67.
 Before syncing the calculation machine, confirm no fetch is in progress; rebuild
 the frontend after syncing. Synthetic regression does not replace the owner’s
 read-only check of the actual study.
+
+## IRC 查看页（T87）
+
+结果页列出 `analyses/*.json` 及一层子目录中的 `ag-irc-review/1` 报告。
+格式同步自后端 T79，见 [格式说明](docs/ag-irc-review-1.md)。仅显示报告保存的
+能量、距离、阈值、四条判据、原始状态和依据；工具核对仍需人工审阅。
+能量以各方向第 0 点为基准，TS facts 对照原值同时保留；缺能量处断线。
+reverse 在横轴左侧，forward 在右侧，TS 为 0。停止原因和最后已接受点分别标记。
+非零路径点数与含 TS 的点数、XYZ 帧数分别显示；缺几何的点不借用相邻帧。
+
+点击曲线点或使用逐点按钮查看保存帧，可选择报告原子对以橙色描边高亮，
+距离读报告值，不重新计算判据或播放路径动画。路径点通过 `geometry_frame` 映射。
+URL 支持刷新、前进及后退恢复，例如：
+
+```text
+#/<study>/irc-reviews/<report.json>?direction=reverse&point=2
+#/<study>/irc-reviews/<group>/<report.json>?direction=forward&point=0
+```
+
+只读报告同目录中明确声明的两份路径 XYZ；来源日志等引用只显示、不打开。
+沿用逐级 `O_NOFOLLOW` 路径读取：JSON 上限 4 MiB，每份 XYZ 上限 32 MiB、
+1,000 帧、每帧 500 原子，每方向最多 1,000 个报告点（含 TS）。
+必需字段、有限数值、点号、帧号映射、帧数与元素行序不符时，整份报告拒绝显示。
+`inputs` 中有对应 study 相对路径的 SHA-256 时逐份核对，字节不符则拒绝；
+没有对应哈希时明确显示“未核对哈希”（负责人在 T87 对话中已明确允许），
+不按同名文件猜测哈希，也不声称未绑定的 XYZ 没有被替换。
+`met_by_endpoint_optimization` 同时显示实际降能和原阈值，状态采用中性色。
+
+服务器监控：单次采样超过 10 分钟显示“数据已过期”；连续采样保持超过
+3 个采样间隔的规则。距今按天、小时、分钟显示，不足一分钟显示秒数，
+页面时钟持续更新，过期数据同时标记为“非最新”。

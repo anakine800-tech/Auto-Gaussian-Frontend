@@ -109,7 +109,7 @@ test('server stale, failed, one-shot, missing, malformed and oversized states',a
   await page.route('**/api/monitor',route=>route.fulfill({status:c.status??200,contentType:'application/json',body:JSON.stringify(c.status?c.body:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:c.body,error:null}]})}));
   await page.goto('/?snapshot='+cases.indexOf(c)+'#server');await expect(page.getByRole('region',{name:'服务器监控'})).toContainText(c.text);
   if(c.text==='非最新')await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('synthetic-opt');
-  if(c.text==='单次采样')await expect(page.getByText('数据已过期',{exact:true})).toHaveCount(0);
+  if(c.text==='单次采样')await expect(page.getByText('数据已过期',{exact:true})).toBeVisible();
   await page.unroute('**/api/monitor');
  }
 });
@@ -171,4 +171,26 @@ test('first failed sample never renders zero placeholders as measured capacity',
  await expect(section).not.toContainText('集群核数：0 / 0');
  await expect(section.locator('.core-count')).toHaveText('—');
  await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
+});
+
+test('monitor one-shot expiry, continuous boundary, elapsed clock and readable age',async({page,request})=>{
+ const data=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ const now=Date.parse('2026-01-04T12:00:00Z');await page.clock.install({time:now});
+ for(const c of [
+  {seconds:300,interval:null,stale:false,age:'0 天 0 小时 5 分'},
+  {seconds:900,interval:null,stale:true,age:'0 天 0 小时 15 分'},
+  {seconds:600,interval:null,stale:false,age:'0 天 0 小时 10 分'},
+  {seconds:359,interval:120,stale:false,age:'0 天 0 小时 5 分'},
+  {seconds:361,interval:120,stale:true,age:'0 天 0 小时 6 分'},
+  {seconds:190800,interval:null,stale:true,age:'2 天 5 小时 0 分'},
+  {seconds:25,interval:null,stale:false,age:'25 秒'},
+ ]){
+  await page.clock.setFixedTime(now);
+  await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:{...data,interval_seconds:c.interval,sampled_at:new Date(now-c.seconds*1000).toISOString()},error:null}]}}));
+  await page.goto('/?age='+c.seconds+'#server');
+  await expect(page.getByRole('region',{name:'服务器监控'})).toContainText('距今 '+c.age);
+  await expect(page.getByText('数据已过期',{exact:true})).toHaveCount(c.stale?1:0);
+  if(c.seconds===600){await page.clock.setFixedTime(now+1001);await page.clock.runFor(1000);await expect(page.getByText('数据已过期',{exact:true})).toBeVisible();}
+  await page.unroute('**/api/monitor');
+ }
 });
