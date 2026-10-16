@@ -105,6 +105,11 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     def vibrations(study: str, attempt: str, log: str):
         return store.vibrations(study, attempt, log)
 
+    @app.get('/api/studies/{study}/attempts/{attempt}/mode-reports/{log}')
+    def mode_reports(study: str, attempt: str, log: str):
+        from .mode_reports import list_reports
+        return list_reports(store, study, attempt, log)
+
     @app.get('/api/studies/{study}/attempts/{attempt}/inputs/{name}')
     def input_file(study: str, attempt: str, name: str):
         return store.input_file(study, attempt, name)

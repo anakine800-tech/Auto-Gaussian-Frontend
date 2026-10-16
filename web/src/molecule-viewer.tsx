@@ -10,13 +10,18 @@ export function isGeometry(v:unknown):v is Geometry {
   if(!v||typeof v!=='object'||!('units'in v)||v.units!=='angstrom'||!('atoms'in v)||!Array.isArray(v.atoms)||!v.atoms.length)return false;
   return v.atoms.every(a=>a&&typeof a==='object'&&Number.isSafeInteger(a.center)&&a.center>0&&Number.isSafeInteger(a.atomic_number)&&a.atomic_number>=1&&a.atomic_number<=118&&['x','y','z'].every(k=>typeof a[k]==='number'&&Number.isFinite(a[k])&&Math.abs(a[k])<1e8))&&new Set(v.atoms.map(a=>a.center)).size===v.atoms.length;
 }
+export type VibrationFrame={phase:number;displacementScale:number};
+export type ModeReviewOptions={reviewMode?:boolean;reviewAmplitude?:number;onAtomPick?:(center:number)=>void;onFrame?:(frame:VibrationFrame)=>void};
 type Display='ball-stick'|'tube'|'wire';
 type Measurement='distance'|'angle'|'torsion';
-function CoordinateScene({geometry,vibration,onClearVibration,modePanel}:{geometry:Geometry;vibration?:VibrationMode;onClearVibration?:()=>void;modePanel?:ReactNode}) {
+function CoordinateScene({geometry,vibration,onClearVibration,modePanel,reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{geometry:Geometry;vibration?:VibrationMode;onClearVibration?:()=>void;modePanel?:ReactNode}&ModeReviewOptions) {
   const [playing,setPlaying]=useState(false),[phase,setPhase]=useState(0),[amplitude,setAmplitude]=useState(.45),[speed,setSpeed]=useState(.6);
   const clock=useRef(0);
   useEffect(()=>{clock.current=0;setPhase(0);setPlaying(Boolean(vibration));},[vibration]);
   useEffect(()=>{if(!playing||!vibration)return;let frame=0,last=0;const tick=(time:number)=>{if(last){clock.current+=Math.min(.08,(time-last)/1000)*speed;setPhase(Math.sin(clock.current*2*Math.PI));}last=time;frame=requestAnimationFrame(tick);};frame=requestAnimationFrame(tick);const hide=()=>{if(document.hidden)setPlaying(false);};document.addEventListener('visibilitychange',hide);return()=>{cancelAnimationFrame(frame);document.removeEventListener('visibilitychange',hide);};},[playing,vibration,speed]);
+  const maximum=useMemo(()=>Math.max(0,...(vibration?.displacements.map(v=>Math.hypot(v.dx,v.dy,v.dz))??[])),[vibration]);
+  const frameScale=vibration?phase*(reviewMode?(maximum>0?reviewAmplitude/maximum:0):amplitude):0;
+  useEffect(()=>{if(reviewMode&&vibration)onFrame?.({phase,displacementScale:frameScale});},[reviewMode,vibration,phase,frameScale,onFrame]);
   const displacement=useMemo(()=>new Map(vibration?.displacements.map(v=>[v.center,v])??[]),[vibration]);
   const uid=useId().replace(/:/g,'');
   const [angles,setAngles]=useState([-.25,.35]),[zoom,setZoom]=useState(1),[pan,setPan]=useState([0,0]);
@@ -34,7 +39,7 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel}:{geomet
   const originals=useMemo(()=>new Map(geometry.atoms.map(a=>[a.center,a])),[geometry]);
   const visible=geometry.atoms.filter(a=>hydrogen||a.atomic_number!==1);
   const scale=136/normalized.radius*zoom;
-  const projected=normalized.points.filter(a=>hydrogen||a.atomic_number!==1).map(a=>{const d=displacement.get(a.center),factor=vibration?phase*amplitude:0;const p=orient(a.x+(d?.dx??0)*factor,a.y+(d?.dy??0)*factor,a.z+(d?.dz??0)*factor);return {...a,px:300+pan[0]+p.x*scale,py:185+pan[1]-p.y*scale,depth:p.z};});
+  const projected=normalized.points.filter(a=>hydrogen||a.atomic_number!==1).map(a=>{const d=displacement.get(a.center),factor=frameScale;const p=orient(a.x+(d?.dx??0)*factor,a.y+(d?.dy??0)*factor,a.z+(d?.dz??0)*factor);return {...a,px:300+pan[0]+p.x*scale,py:185+pan[1]-p.y*scale,depth:p.z};});
   const positions=new Map(projected.map(a=>[a.center,a]));
   const bonds=connectivity.bonds.filter(b=>positions.has(b.a)&&positions.has(b.b));
   const width=display==='wire'?1.8:Math.max(2,.115*scale*bondSize);
@@ -61,7 +66,7 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel}:{geomet
       onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-','Home'].includes(e.key))return;e.preventDefault();if(e.key==='Home')reset();else if(e.key==='+')changeZoom(1.2);else if(e.key==='-')changeZoom(1/1.2);else if(e.shiftKey)setPan(([x,y])=>[x+(e.key==='ArrowLeft'?-10:e.key==='ArrowRight'?10:0),y+(e.key==='ArrowUp'?-10:e.key==='ArrowDown'?10:0)]);else setAngles(([x,y])=>[x+(e.key==='ArrowUp'?.15:e.key==='ArrowDown'?-.15:0),y+(e.key==='ArrowLeft'?-.15:e.key==='ArrowRight'?.15:0)]);}}
       onPointerDown={e=>{if(!e.isPrimary||drag.current||(e.pointerType==='touch'&&!touchEnabled)||(e.button!==0&&e.button!==1))return;e.preventDefault();e.currentTarget.focus();drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pan:interaction==='pan'||e.shiftKey||e.button===1};e.currentTarget.setPointerCapture(e.pointerId);}}
       onPointerMove={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;const dx=e.clientX-d.x,dy=e.clientY-d.y;if(Math.abs(dx)+Math.abs(dy)>2)d.moved=true;if(d.moved){if(d.pan){const rect=e.currentTarget.getBoundingClientRect();setPan(([x,y])=>[x+dx*600/rect.width,y+dy*370/rect.height]);}else setAngles(([x,y])=>[x+dy*.012,y+dx*.012]);d.x=e.clientX;d.y=e.clientY;}}}
-      onPointerUp={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;if(!d.moved){const rect=e.currentTarget.getBoundingClientRect();const x=(e.clientX-rect.left)/rect.width*600,y=(e.clientY-rect.top)/rect.height*370;const atom=[...projected].sort((a,b)=>b.depth-a.depth).find(a=>Math.hypot(a.px-x,a.py-y)<Math.max(radius(a.atomic_number),12*600/rect.width));if(atom)pick(atom.center);}drag.current=null;}}
+      onPointerUp={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;if(!d.moved){const rect=e.currentTarget.getBoundingClientRect();const x=(e.clientX-rect.left)/rect.width*600,y=(e.clientY-rect.top)/rect.height*370;const atom=[...projected].sort((a,b)=>b.depth-a.depth).find(a=>Math.hypot(a.px-x,a.py-y)<Math.max(radius(a.atomic_number),12*600/rect.width));if(atom){pick(atom.center);onAtomPick?.(atom.center);}}drag.current=null;}}
       onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}}>
       <defs>{[...new Set(visible.map(a=>a.atomic_number))].map(n=><radialGradient id={`${uid}-atom-${n}`} key={n} cx="29%" cy="23%" r="78%"><stop offset="0" stopColor="#fff"/><stop offset=".25" stopColor={colors[n]??'#976abc'}/><stop offset=".68" stopColor={colors[n]??'#976abc'}/><stop offset="1" stopColor={n===1?'#9b9fae':'#202537'}/></radialGradient>)}</defs>
       {primitives.map(p=><g key={p.key}>{p.node}</g>)}
@@ -73,7 +78,7 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel}:{geomet
     <p className="model-hint">拖动旋转 · Shift 平移 · Alt / Option + 滚轮缩放<br/>连接为距离推测，不代表键级或科学验收。</p><details className="interaction-help"><summary>鼠标与触屏操作说明</summary><p>普通滚轮和触屏默认滑动页面。可使用工具按钮、方向键与 + / −；启用触屏操作后可拖动及点选原子。</p></details></div>
     <div className="molecule-tools" role="group" aria-label="结构显示与测量工具">
     {modePanel}
-    {vibration&&<div className="vibration-controls" data-testid="vibration-controls"><div><strong>模式 {vibration.mode_number} · {vibration.frequency_cm1} cm⁻¹ {vibration.frequency_cm1<0?'· 虚频方向示意':''}</strong><p>原始打印位移 × 显示幅度 × sin(相位)。播放速度不代表真实频率；测量使用参考坐标，连接保持参考结构。</p></div><button onClick={()=>setPlaying(!playing)}>{playing?'暂停动画':'继续播放'}</button><button onClick={()=>{setPlaying(false);clock.current=0;setPhase(0);}}>回到参考结构</button><button onClick={onClearVibration}>关闭模式</button><label>显示幅度 / Å<input aria-label="振动显示幅度" type="range" min="0.05" max="0.8" step="0.05" value={amplitude} onChange={e=>setAmplitude(Number(e.target.value))}/><output>{amplitude.toFixed(2)}</output></label><label>播放速度 / 周期·s⁻¹<input aria-label="振动播放速度" type="range" min="0.2" max="1.5" step="0.1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/><output>{speed.toFixed(1)}</output></label><span role="status">{playing?'播放中':'已暂停'}</span></div>}
+    {vibration&&<div className="vibration-controls" data-testid="vibration-controls"><div><strong>模式 {vibration.mode_number} · {vibration.frequency_cm1} cm⁻¹ {vibration.frequency_cm1<0?'· 虚频方向示意':''}</strong><p>{reviewMode?'审阅模式：最大原子位移 = 归一化振幅 × sin(相位)。':'原始打印位移 × 显示幅度 × sin(相位)。'}播放速度不代表真实频率；测量使用参考坐标，连接保持参考结构。</p></div><button onClick={()=>setPlaying(!playing)}>{playing?'暂停动画':'继续播放'}</button><button onClick={()=>{setPlaying(false);clock.current=0;setPhase(0);}}>回到参考结构</button><button onClick={onClearVibration}>关闭模式</button>{reviewMode?<p>归一化振幅 / Å：{reviewAmplitude}（在距离面板调整）</p>:<label>显示幅度 / Å<input aria-label="振动显示幅度" type="range" min="0.05" max="0.8" step="0.05" value={amplitude} onChange={e=>setAmplitude(Number(e.target.value))}/><output>{amplitude.toFixed(2)}</output></label>}<label>播放速度 / 周期·s⁻¹<input aria-label="振动播放速度" type="range" min="0.2" max="1.5" step="0.1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/><output>{speed.toFixed(1)}</output></label><span role="status">{playing?'播放中':'已暂停'}</span></div>}
     <details className="structure-tools"><summary>结构工具 · 显示 / 测量 / 视角</summary><div className="molecule-toolbar"><label>显示方式<select aria-label="分子显示方式" value={display} onChange={e=>setDisplay(e.target.value as Display)}><option value="ball-stick">球棍 · Ball & Stick</option><option value="tube">管状 · Tube</option><option value="wire">线框 · Wireframe</option></select></label>
       <label>标签<select aria-label="原子标签" value={labels} onChange={e=>setLabels(e.target.value)}><option value="both">元素与编号</option><option value="element">仅元素</option><option value="number">仅编号</option><option value="none">不显示</option></select></label>
       <label className="check-control"><input type="checkbox" checked={showBonds} onChange={e=>setShowBonds(e.target.checked)}/>显示推测连接</label>
@@ -90,12 +95,12 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel}:{geomet
     </details></div>
   </div>;
 }
-export function MoleculeViewer({last,review,renderSource,vibration,onClearVibration,scientificPanel,modePanel,frameLabel}:{last:unknown;frameLabel?:string;review?:unknown;renderSource?:(source:string,geometry:unknown)=>ReactNode;vibration?:VibrationMode;onClearVibration?:()=>void;scientificPanel?:ReactNode;modePanel?:ReactNode}) {
+export function MoleculeViewer({last,review,renderSource,vibration,onClearVibration,scientificPanel,modePanel,frameLabel,reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{last:unknown;frameLabel?:string;review?:unknown;renderSource?:(source:string,geometry:unknown)=>ReactNode;vibration?:VibrationMode;onClearVibration?:()=>void;scientificPanel?:ReactNode;modePanel?:ReactNode}&ModeReviewOptions) {
   const [source,setSource]=useState('last');const geometry=source==='review'?review:last;
   useEffect(()=>{if(vibration)setSource('last');},[vibration]);
   return <section className="molecule-section" aria-label="三维分子结构"><div className="section-heading"><div><div className="eyebrow">MOLECULAR GEOMETRY</div><h3>结构与振动</h3></div><label>坐标来源<select aria-label="结构来源" value={source} onChange={e=>{onClearVibration?.();setSource(e.target.value);}}><option value="last">{frameLabel??'最后记录结构'}</option>{isGeometry(review)&&<option value="review">Review 选中结构</option>}</select></label></div>
     <p className="muted">{source==='last'?(frameLabel?`${frameLabel} 的坐标；文件展示不表示科学验收。`:'日志最后一个已解析坐标块，不自动等同科学验收结构。'):'历史 Review 明确选中的坐标块；沿用报告的验收范围。'}</p>
-    {!isGeometry(geometry)?<p className="empty compact">暂无可安全展示的坐标。</p>:geometry.atoms.length>2000?<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>:<CoordinateScene key={source} geometry={geometry} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel}/>}
+    {!isGeometry(geometry)?<p className="empty compact">暂无可安全展示的坐标。</p>:geometry.atoms.length>2000?<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>:<CoordinateScene key={source} geometry={geometry} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel} reviewMode={reviewMode} reviewAmplitude={reviewAmplitude} onAtomPick={onAtomPick} onFrame={onFrame}/>}
     {(!isGeometry(geometry)||geometry.atoms.length>2000)&&modePanel}
     {renderSource?.(source,geometry)}
     {scientificPanel}

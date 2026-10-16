@@ -111,6 +111,25 @@ source installation above serves the explicit Vite build.
   ambiguous, reordered, or unsupported displacement data is reported unavailable.
   Animation uses the log's reference coordinates, not potentially rotated XYZ
   coordinates. It is a display aid, not TS or scientific validation.
+- **模式审阅（T55）：** 选择振动模式后，来源面板显示 log 文件名、SHA-256
+  （前 12 位，可展开）、按频率排序的模式序号、原始频率序号、频率和坐标方向。
+  当前解码器仍只支持 Standard orientation，不新增 Input orientation 解析。
+  依次点选两个原子可添加多组距离，编号从 1 开始；可逐对删除。
+  原子对写入 URL 的 `modeScope` / `modePairs` 查询参数（在 `#` 之前），
+  按 study、Attempt、log 哈希和原始模式序号隔离；刷新并重新选择该模式后恢复。
+  平衡、正负位移距离及变化量均按“最大原子位移 = 归一化振幅”计算，默认 0.3 Å。
+  原有动画默认仍为原始打印位移 × 显示幅度（默认 0.45）；勾选“启用审阅模式”后，
+  动画才使用归一化振幅，并显示当前帧距离。关闭审阅模式后恢复原显示幅度。
+  模式整体正负号任意；有限振幅距离变化可能不同于线性导数。
+- **mode-review 报告对照：** 只扫描 `analyses/*.json` 及一层子目录的 JSON，
+  沿用 4 MiB 文件读取上限和逐级 `O_NOFOLLOW` 路径检查；不打开 `source.log`。
+  按 Attempt 和识别字段筛选，数值非有限、缺失必需字段、原子编号越界等问题单独显示。
+  只有当前 log SHA-256、模式序号、频率和坐标方向对应时才带出报告原子对；
+  URL 中已有的选择（含空列表）优先。多份报告由用户选择，显式选择会替换默认原子对。
+  log 哈希不同显示“报告来自另一份 log，不自动带出”。报告振幅先同步到距离面板，
+  正负方向逐项对照；绝对差值大于 0.001 Å 标记“不一致”。手动改振幅后需点击
+  “使用报告振幅进行对照”，避免不同振幅混比。报告损坏不影响动画。
+  数值对照仅说明两处显示是否一致，不作过渡态或反应方向的科学判断。
 - Output logs are paged in 120-line windows; the API accepts up to 500 lines per
   page. Log display supports up to 256 MiB with a 1 MiB line limit. Vibration
   decoding supports up to 32 MiB; other documents up to 4 MiB. Larger files receive
