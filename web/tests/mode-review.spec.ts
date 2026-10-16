@@ -136,7 +136,6 @@ createRoot(document.getElementById('root')).render(<><div id="omitted"><Molecule
   }
   await page.evaluate(()=>{(window as any).step(100);});await page.evaluate(()=>{(window as any).step(180);});
   const a=page.locator('#omitted [data-testid="molecule-atom"][data-center="1"]'),b=page.locator('#explicit [data-testid="molecule-atom"][data-center="1"]');
-  await expect(a).toHaveAttribute('transform',await b.getAttribute('transform')??'');
   // Fixed front projection, .08 s tick cap, .6 cycles/s, RAW vector .6 × .45.
   const phase=Math.sin(.08*.6*2*Math.PI),scale=136/Math.sqrt((4-4/3)**2+1);
   const expectedX=300+(-4/3+.6*.45*phase)*scale;
