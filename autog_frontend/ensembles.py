@@ -10,7 +10,7 @@ import math
 import re
 
 from .geometry import parse_xyz
-from .studies import StudyError, component, finite_float
+from .studies import StudyError, component
 
 MAX_MANIFEST = 4 * 1024 * 1024
 MAX_XYZ = 32 * 1024 * 1024
@@ -48,10 +48,105 @@ def digest(value, field):
 
 def load_json(raw):
     try:
-        return json.loads(raw.decode('utf-8'), parse_float=finite_float,
-                          parse_constant=lambda v: (_ for _ in ()).throw(ValueError(v)))
+        data = json.loads(raw.decode('utf-8'))
+        # Preserve strict rejection outside T70 fields, including unknown fields.
+        # A bad optional number must not hide otherwise usable energies/geometry.
+        def finite(value, path=()):
+            if path in (('descriptors',), ('bin_summary',)) or (
+                    len(path) == 3 and path[0] == 'candidates' and path[2] == 'local'):
+                return
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError('non-finite number')
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    finite(item, (*path, key))
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    finite(item, (*path, index))
+        finite(data)
+        return data
     except (UnicodeError, ValueError, RecursionError):
         raise StudyError('Invalid ensemble JSON: malformed text or non-finite number') from None
+
+
+def validate_descriptors(data):
+    """Validate saved T70 values; never infer angles, bins or lowest energies."""
+    def finite_optional(value, field):
+        if isinstance(value, (float, int)) and not isinstance(value, bool):
+            number(value, field, nullable=False)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                finite_optional(item, field + '.' + key)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                finite_optional(item, f'{field}[{index}]')
+    for key in ('descriptors', 'bin_summary'):
+        finite_optional(data.get(key), key)
+    for row in data['candidates']:
+        finite_optional(row.get('local'), f"candidate {row['candidate']}.local")
+    definitions = data.get('descriptors')
+    fields(definitions, 'dihedral_bins distance_pairs', 'descriptors')
+    dihedrals, pairs = definitions['dihedral_bins'], definitions['distance_pairs']
+    require(isinstance(dihedrals, list), 'descriptors.dihedral_bins')
+    require(isinstance(pairs, list), 'descriptors.distance_pairs')
+
+    def atoms(values, size, field):
+        require(isinstance(values, list) and len(values) == size, field)
+        for value in values:
+            number(value, field, integer=True, nullable=False)
+            require(value >= 1, field)
+        require(len(set(values)) == size, field)
+
+    def numbers(values, size, field):
+        require(isinstance(values, list) and len(values) == size, field + ' length')
+        for value in values:
+            number(value, field, nullable=False)
+
+    def bins(values, field):
+        strings(values, field)
+        require(len(values) == len(dihedrals), field + ' length')
+        for value, definition in zip(values, dihedrals):
+            require(value in definition['names'], field + ' undefined group')
+
+    for index, definition in enumerate(dihedrals):
+        field = f'descriptors.dihedral_bins[{index}]'
+        fields(definition, 'atoms boundaries names', field)
+        atoms(definition['atoms'], 4, field + '.atoms')
+        names, boundaries = definition['names'], definition['boundaries']
+        strings(names, field + '.names')
+        require(len(names) >= 1 and all(names) and len(set(names)) == len(names), field + '.names')
+        numbers(boundaries, len(names), field + '.boundaries')
+        require(all(-180 <= v <= 180 for v in boundaries) and boundaries[-1] - boundaries[0] < 360 and
+                all(a < b for a, b in zip(boundaries, boundaries[1:])), field + '.boundaries')
+    for index, pair in enumerate(pairs):
+        atoms(pair, 2, f'descriptors.distance_pairs[{index}]')
+    for row in data['candidates']:
+        field = f"candidate {row['candidate']}.local"
+        local = row.get('local')
+        fields(local, 'dihedrals bins near_boundary distances', field)
+        numbers(local['dihedrals'], len(dihedrals), field + '.dihedrals')
+        require(all(-180 <= v < 180 for v in local['dihedrals']), field + '.dihedrals')
+        bins(local['bins'], field + '.bins')
+        require(type(local['near_boundary']) is bool, field + '.near_boundary')
+        numbers(local['distances'], len(pairs), field + '.distances')
+        require(all(v >= 0 for v in local['distances']), field + '.distances')
+    # Summary is independently optional; its values are displayed, not recomputed.
+    if 'bin_summary' in data:
+        require(isinstance(data['bin_summary'], list), 'bin_summary')
+        candidates = {row['candidate']: row for row in data['candidates']}
+        for index, row in enumerate(data['bin_summary']):
+            field = f'bin_summary[{index}]'
+            fields(row, 'bins count lowest_candidate lowest_layer', field)
+            bins(row['bins'], field + '.bins')
+            number(row['count'], field + '.count', integer=True, nullable=False)
+            require(row['count'] > 0, field + '.count')
+            lowest, layer = row['lowest_candidate'], row['lowest_layer']
+            number(lowest, field + '.lowest_candidate', integer=True)
+            require(layer in (None, 'thermo', 'opt', 'sp', 'xtb'), field + '.lowest_layer')
+            require((lowest is None) == (layer is None), field + ' lowest pair')
+            if lowest is not None:
+                require(lowest in candidates and candidates[lowest]['local']['bins'] == row['bins'],
+                        field + '.lowest_candidate group')
 
 
 def validate(data):
@@ -140,6 +235,16 @@ def validate(data):
         fields(row, 'layer attempt reason', 'unmatched_attempts[]')
         require(row['layer'] in ('sp', 'opt', 'thermo') and isinstance(row['attempt'], str)
                 and isinstance(row['reason'], str), 'unmatched_attempts[]')
+    if any(key in data for key in ('descriptors', 'bin_summary')) or any('local' in row for row in data['candidates']):
+        # Hide the optional block as a unit: partial arrays can label the wrong
+        # candidate or make a summary link appear to refer to a different group.
+        try:
+            validate_descriptors(data)
+        except StudyError as exc:
+            data = {key: value for key, value in data.items() if key not in ('descriptors', 'bin_summary')}
+            data['candidates'] = [{key: value for key, value in row.items() if key != 'local'}
+                                  for row in data['candidates']]
+            data['descriptor_error'] = str(exc)
     return data
 
 
