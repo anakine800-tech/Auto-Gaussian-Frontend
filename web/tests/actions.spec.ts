@@ -35,7 +35,7 @@ test('new Attempt, automatic input preview/diff, two-step submit through fake ag
  await input.evaluate(element=>element.scrollTop=0);await input.blur();
  await page.getByRole('region',{name:'计算操作'}).screenshot({path:info.outputPath('new-attempt.png')});
  await page.getByRole('button',{name:'保存并新建',exact:true}).click();
- await expect(page).toHaveURL(/#\/butane-demo\/butane-demo-001-browser$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/butane-demo-001-browser$/);
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
  await expect(page.getByTestId('input-diff')).toContainText('# HF/STO-3G SP');
  await expect(page.getByTestId('input-diff')).toContainText('# HF/STO-3G Opt Freq');
@@ -67,7 +67,7 @@ test('unknown has no submit; scheduler residue can cancel; readonly has no actio
  await expect(page.getByRole('button',{name:'取消计算',exact:true})).toBeVisible();
  await page.goto('http://127.0.0.1:18765/#/butane-demo/prepared');
  await expect(page.getByRole('heading',{name:'prepared',exact:true})).toBeVisible();
- await expect(page.locator('header .readonly')).toHaveText('只读');
+ await expect(page.getByRole('banner').getByText('只读',{exact:true})).toHaveText('只读');
  await expect(page.getByRole('region',{name:'计算操作'})).toHaveCount(0);
  expect((await request.post('http://127.0.0.1:18765/api/actions')).status()).toBe(405);
  expect((await request.post('/api/actions')).status()).toBe(403);

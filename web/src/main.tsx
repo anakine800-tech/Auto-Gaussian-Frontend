@@ -5,16 +5,19 @@ import {createRoot} from 'react-dom/client';
 import {display,endpoint,get,object} from './api';
 import {InputFiles,InputSummary,StructureFiles} from './preview-panels';
 import {IRCPage,IRCReports} from './irc-panels';
-import {EnsemblePage} from './ensemble-panels';
-import {readRoute,routeHash} from './routing';
+import {EnsembleList,EnsemblePage} from './ensemble-panels';
+import {readRoute,routeHash,studyHash} from './routing';
 import type {Attempt,Study} from './api';
 import {ServerMonitor} from './server-monitor';
 import {Results,StudyMarkdown,Optimization} from './results-panels';
 import {Analyses,FileView,PagedLog,RelationshipGraph} from './study-panels';
 import {ModeReviewViewer} from './mode-panels';
 import type {ReviewModes} from './mode-panels';
+import {Collapsible,EmptyState,ErrorNotice,StatusBadge,readPreference,savePreference,statusTone} from './ui';
+import {GlobalSearch} from './ui/search';
 import './style.css';
 import './molecule-layout.css';
+import './ui/shell.css';
 
 type Modes=ReviewModes;
 function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare}:{study:string;id:string;revision:number;busy:boolean;onBusy:(v:boolean)=>void;onResult:(r:ActionResult)=>void;autoCompare:boolean}){
@@ -43,25 +46,55 @@ function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare}:{study
 }
 function App(){
  const [busy,setBusy]=useState(false),[actionResult,setActionResult]=useState<ActionResult|null>(null);
- const [route,setRoute]=useState(readRoute);
- useEffect(()=>{const update=()=>setRoute(readRoute());window.addEventListener('hashchange',update);return()=>window.removeEventListener('hashchange',update);},[]);
- const [list,setList]=useState<{studies:{id:string;title:string}[];issues:{path:string;error:string}[]}|null>(null),[study,setStudy]=useState(route.study),[data,setData]=useState<Study|null>(null),[attempt,setAttempt]=useState(route.attempt??''),[tab,setTab]=useState(route.attempt?'attempts':route.structure?'structures':route.ensemble?'ensemble':route.irc?'irc':'results'),[error,setError]=useState(''),[revision,setRevision]=useState(0);
- useEffect(()=>{if(route.server)return;const c=new AbortController();setError('');get<NonNullable<typeof list>>('/api/studies',c.signal).then(v=>{if(!c.signal.aborted){setList(v);setStudy(s=>s||v.studies[0]?.id||'');}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[revision,route.server]);
- useEffect(()=>{if(route.server)return;const c=new AbortController();setData(null);setError('');if(study)get<Study>(endpoint(study),c.signal).then(v=>{if(!c.signal.aborted){setData(v);setAttempt(a=>a||v.attempts[0]?.id||'');}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,revision,route.server]);
- useEffect(()=>{if(route.study){setStudy(route.study);setAttempt(route.attempt??'');setTab(route.attempt?'attempts':route.structure?'structures':route.ensemble?'ensemble':route.irc?'irc':'results');}},[route]);
- const navigate=(parts:string[])=>{window.location.hash=routeHash(parts);};
- const choose=(id:string)=>{setAttempt(id);setTab('attempts');navigate([study,id]);};
- const selectStructure=(parts:string[])=>navigate([study,...parts]);
- const completed=(result:ActionResult)=>{setActionResult(result);setRevision(r=>r+1);if(result.new_attempt)navigate([study,result.new_attempt]);};
- return <><header><div><span className="eyebrow">AUTO-GAUSSIAN</span><h1>Study 查看器</h1><p>{actionToken?'读取本机研究目录 · 操作通过本机 ag':'读取本机研究目录 · 计算提交请使用 ag'}</p></div><nav aria-label="顶部导航"><button aria-current={!route.server?'page':undefined} onClick={()=>navigate(study?[study]:[])}>Studies</button><button aria-current={route.server?'page':undefined} onClick={()=>{window.location.hash='#server';}}>服务器</button></nav><span className="readonly">{actionToken?'可操作（经 ag）':'只读'}</span><button onClick={()=>setRevision(r=>r+1)}>刷新</button></header>{route.server?<main className="server-page"><ServerMonitor revision={revision}/></main>:<div className="workspace"><aside><h2>Studies</h2>{!list&&!error&&<p>读取目录…</p>}{list?.studies.map(s=><button className={study===s.id?'active':''} key={s.id} onClick={()=>{setStudy(s.id);setTab('results');setAttempt('');navigate([s.id]);}}><strong>{s.title}</strong><small>{s.id}</small></button>)}{list?.studies.length===0&&<p>目录中没有可读的 study.md。</p>}{list?.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}</aside><main>{route.error&&<p role="alert">{route.error}</p>}{error&&<p role="alert">{error}</p>}{study&&!data&&!error&&<p role="status">读取 Study…</p>}{data&&<><div className="study-heading"><h2>{data.id}</h2><span>{data.attempts.length} Attempts</span></div><nav aria-label="Study 内容">{[['results','结果'],['overview','研究说明'],['attempts','Attempts'],['graph','关系图'],['structures','结构文件'],['analyses','分析结果']].map(([id,label])=><button key={id} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+ const [route,setRoute]=useState(readRoute),[revision,setRevision]=useState(0);
+ const [list,setList]=useState<{studies:{id:string;title:string}[];issues:{path:string;error:string}[]}|null>(null);
+ const [data,setData]=useState<Study|null>(null),[cache,setCache]=useState<Record<string,Study>>({}),[error,setError]=useState('');
+ const recent=readPreference('last-study','');
+ const study=route.study||list?.studies.find(s=>s.id===recent)?.id||list?.studies[0]?.id||'',view=route.view??'overview';
+ useEffect(()=>{const update=()=>setRoute(readRoute());window.addEventListener('hashchange',update);window.addEventListener('popstate',update);return()=>{window.removeEventListener('hashchange',update);window.removeEventListener('popstate',update);};},[]);
+ useEffect(()=>{
+  if(route.error)return;
+  const c=new AbortController();setError('');
+  get<NonNullable<typeof list>>('/api/studies',c.signal).then(v=>{if(c.signal.aborted)return;setList(v);
+   if(!route.study&&!route.server){const recent=readPreference('last-study','');const id=v.studies.find(s=>s.id===recent)?.id??v.studies[0]?.id;
+    if(id){window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search+studyHash(id));setRoute(readRoute());}}
+  }).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();
+ },[revision,route.server,route.study,route.error]);
+ useEffect(()=>{
+  if(route.server||route.error||!route.study)return;
+  const c=new AbortController();setData(null);setError('');
+  get<Study>(endpoint(route.study),c.signal).then(v=>{if(!c.signal.aborted){setData(v);setCache(old=>({...old,[v.id]:v}));savePreference('last-study',v.id);}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();
+ },[route.study,revision,route.server,route.error]);
+ const navigate=(hash:string)=>{window.location.hash=hash;};
+ const choose=(id:string)=>navigate(routeHash([study,id]));
+ const completed=(result:ActionResult)=>{setActionResult(result);setRevision(r=>r+1);if(result.new_attempt)choose(result.new_attempt);};
+ const top=route.server?'jobs':view==='analysis'?'analysis':view==='files'?'files':'study';
+ const title=list?.studies.find(s=>s.id===study)?.title??study;
+ const attempt=route.attempt??(view==='attempts'?data?.attempts[0]?.id:undefined);
+ const fileTab=route.fileTab??'document';
+ const detail=route.attempt??route.ensemble?.join('/')??route.irc?.join('/')??route.structure?.join('/')??route.report;
+ const back=route.attempt?studyHash(study,'attempts'):view==='analysis'?studyHash(study,'analysis'):studyHash(study,'files',fileTab);
+ return <><header className="app-header">
+ <a className="brand" href={study?studyHash(study):'#/'}><span className="brand-mark" aria-hidden="true">Ag</span><h1>Auto-Gaussian</h1></a>
+ <nav aria-label="顶部导航">{[['jobs','作业'],['study','Study'],['analysis','分析'],['files','文件']].map(([id,label])=><button key={id} aria-current={top===id?'page':undefined} disabled={id!=='jobs'&&!study} onClick={()=>navigate(id==='jobs'?'#/jobs':studyHash(study,...(id==='analysis'?['analysis']:id==='files'?['files']:[])))}>{label}</button>)}</nav>
+ <GlobalSearch studies={Object.values(cache)}/><StatusBadge>{actionToken?'可操作（经 ag）':'只读'}</StatusBadge><button className="refresh" onClick={()=>setRevision(r=>r+1)}>刷新</button>
+ </header>
+ <div className="context-bar"><div><span className="context-label">{route.server?'WORKSPACE':'STUDY'}</span>{route.server?<strong>作业 / 本地监控快照</strong>:<><a href={study?studyHash(study):'#/'}>{title||'选择 Study'}</a>{detail&&<><span className="context-divider">/</span><strong>{detail}</strong></>}</>}</div>{detail&&<a className="back-link" href={back}>← 返回列表</a>}</div>
+ {route.server?<main className="server-page"><ServerMonitor revision={revision}/></main>:<div className="workspace"><aside className="study-sidebar"><Collapsible page="shell" block="studies" title="Study 列表" defaultOpen>
+ {list?.studies.map(s=><button className={study===s.id?'active':''} key={s.id} onClick={()=>navigate(studyHash(s.id))}><strong>{s.title}</strong><small>{s.id}</small></button>)}
+ {list?.studies.length===0&&<EmptyState>目录中没有可读的 study.md。</EmptyState>}{list?.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
+ </Collapsible><p className="sidebar-note">本机研究目录<br/>状态与数值需结合证据审阅</p></aside><main>
+ {route.error&&<ErrorNotice>{route.error}</ErrorNotice>}{error&&<ErrorNotice>{error}</ErrorNotice>}{study&&!data&&!error&&!route.error&&<p role="status">读取 Study…</p>}
+ {data&&!route.error&&<><div className="study-heading"><div><span className="eyebrow">{top==='study'?'STUDY WORKSPACE':top==='analysis'?'ANALYSIS LIBRARY':'STUDY FILES'}</span><h2>{top==='study'?data.id:top==='analysis'?'分析报告':'研究文件'}</h2></div><StatusBadge>{data.attempts.length} Attempts</StatusBadge></div>
+ {top==='study'&&<nav className="section-nav" aria-label="Study 内容"><button aria-current={view==='overview'?'page':undefined} onClick={()=>navigate(studyHash(study))}>概览</button><button aria-current={view==='attempts'?'page':undefined} onClick={()=>navigate(studyHash(study,'attempts'))}>Attempts</button></nav>}
+ {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['document','研究说明'],['structures','结构文件'],['graph','关系图'],['analyses','其他分析文件']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
  {data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
- {tab==='results'&&<><Results key={study} data={data} onSelect={choose} revision={revision}/><IRCReports study={study} revision={revision}/></>}
- {tab==='irc'&&route.irc&&<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>}
- {tab==='ensemble'&&route.ensemble&&<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>}
- {tab==='overview'&&<StudyMarkdown doc={data.study}/>}
- {tab==='attempts'&&<><div className="table-scroll"><table aria-label="Attempt 状态列表"><thead><tr><th>Attempt</th><th>标签</th><th>程序</th><th>状态</th><th>读取问题</th></tr></thead><tbody>{data.attempts.map(a=><tr key={a.id} className={attempt===a.id?'selected':''}><td><button onClick={()=>choose(a.id)}>{a.id}</button></td><td>{a.label??'—'}</td><td>{a.template??'—'}</td><td><span className="state">{a.state}</span></td><td>{[a.manifest.error,a.status.error].filter(Boolean).join(' · ')||'—'}</td></tr>)}</tbody></table></div>{attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt}/>:<p>尚无 Attempt。</p>}</>}
- {tab==='graph'&&<RelationshipGraph graph={data.graph} onSelect={choose}/>}
- {tab==='structures'&&<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={selectStructure} revision={revision}/>}
- {tab==='analyses'&&<Analyses analyses={data.analyses}/>}</>}</main></div>}<ActionOutput result={actionResult}/><footer>{actionToken?'study.md 中的计划和结论仍由 Codex 更新。':'Study 文件保持原样。'}状态与解析数字不自动构成科学结论。</footer></>;
+ {view==='overview'&&<><Results key={study} data={data} onSelect={choose} revision={revision}/><IRCReports study={study} revision={revision}/></>}
+ {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?<Analyses analyses={data.analyses.filter(a=>a.name===route.report)}/>:<><EnsembleList study={study} revision={revision}/><IRCReports study={study} revision={revision}/><Analyses analyses={data.analyses}/></>)}
+ {view==='attempts'&&<><div className="table-scroll"><table aria-label="Attempt 状态列表"><thead><tr><th>Attempt</th><th>标签</th><th>程序</th><th>状态</th><th>读取问题</th></tr></thead><tbody>{data.attempts.map(a=><tr key={a.id} className={attempt===a.id?'selected':''}><td><button onClick={()=>choose(a.id)}>{a.id}</button></td><td>{a.label??'—'}</td><td>{a.template??'—'}</td><td><StatusBadge tone={statusTone(a.state)}>{a.state}</StatusBadge></td><td>{[a.manifest.error,a.status.error].filter(Boolean).join(' · ')||'—'}</td></tr>)}</tbody></table></div>{attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt}/>:<EmptyState>尚无 Attempt。</EmptyState>}</>}
+ {view==='files'&&(fileTab==='document'?<StudyMarkdown doc={data.study}/>:fileTab==='graph'?<RelationshipGraph graph={data.graph} onSelect={choose}/>:fileTab==='structures'||route.structure?<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={parts=>navigate(routeHash([study,...parts]))} revision={revision}/>:<Analyses analyses={data.analyses}/>)}
+ </>}
+ </main></div>}
+ <ActionOutput result={actionResult}/><footer>{actionToken?'study.md 中的计划和结论仍由 Codex 更新。':'Study 文件保持原样。'}状态与解析数字不自动构成科学结论。</footer></>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);

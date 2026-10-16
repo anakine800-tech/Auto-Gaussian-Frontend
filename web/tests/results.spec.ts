@@ -21,7 +21,7 @@ test('results default, sorting, saved thermo and nested representatives',async({
  const writes:string[]=[],errors:string[]=[];
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/#/butane-demo');
- await expect(page.getByRole('button',{name:'结果',exact:true})).toHaveAttribute('aria-current','page');
+ await expect(page.getByRole('button',{name:'概览',exact:true})).toHaveAttribute('aria-current','page');
  const table=page.getByRole('table',{name:'Attempt 结果表'});
  await expect(table).toContainText('-157.0025');await expect(table).toContainText('unknown');
  await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
@@ -34,7 +34,7 @@ test('results default, sorting, saved thermo and nested representatives',async({
  await expect(page.getByLabel('帧号')).toHaveValue('2');
  await page.screenshot({path:info.outputPath('results.png'),fullPage:true});
  await table.locator('tbody tr').filter({hasText:'opt-demo'}).locator('td').nth(1).click();
- await expect(page).toHaveURL(/#\/butane-demo\/opt-demo$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/opt-demo$/);
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
@@ -44,7 +44,7 @@ test('nested analyses deep link and Markdown disables HTML, scripts and outbound
  await page.goto('/#/butane-demo/analyses/cluster-demo/representatives.xyz');
  await expect(page.getByLabel('帧号')).toHaveValue('1');
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
- await page.getByRole('button',{name:'研究说明',exact:true}).click();
+ await page.getByRole('button',{name:'文件',exact:true}).click();await page.getByRole('button',{name:'研究说明',exact:true}).click();
  const md=page.locator('.markdown');
  await expect(md.locator('strong')).toHaveText('Markdown 正常渲染');
  await expect(md.locator('script,img,iframe')).toHaveCount(0);
@@ -86,11 +86,11 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  await expect(page.getByText('需人工确认后 ag cancel',{exact:true})).toBeVisible();
  await expect(page.getByText('运行 ag status 核对',{exact:true})).toBeVisible();
  const first=reads;await page.clock.fastForward(30001);await expect.poll(()=>reads).toBe(first+1);
- expect(apiReads.every(path=>path==='/api/monitor')).toBeTruthy();
+ expect(apiReads.every(path=>['/api/monitor','/api/studies'].includes(path))).toBeTruthy();
  await page.screenshot({path:info.outputPath('server.png'),fullPage:true});
  await page.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'服务器',exact:true}).click();await expect(page.getByRole('heading',{name:'服务器监控',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'作业',exact:true}).click();await expect(page.getByRole('heading',{name:'服务器监控',exact:true})).toBeVisible();
  expect(writes).toEqual([]);
 });
 
@@ -119,7 +119,7 @@ test('three new views fit mobile viewport',async({page})=>{
  for(const path of ['/#/butane-demo','/#/butane-demo/opt-demo','/#server']){
   await page.goto(path);
   if(path.endsWith('opt-demo'))await page.getByRole('button',{name:'优化过程',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Study 查看器'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Auto-Gaussian'})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  }
 });
