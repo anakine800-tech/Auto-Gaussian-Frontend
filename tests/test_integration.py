@@ -27,7 +27,8 @@ class IntegrationTests(unittest.TestCase):
     def healthy(self, study):
         data = self.get('', study).json()
         self.assertTrue(data['study']['data'])
-        self.assertTrue(any(a['name']=='thermo-demo.json' and a['data']['schema']=='ag-thermo/1' for a in data['analyses']))
+        self.assertTrue(any(a['name']=='thermo-demo.json' and a['schema']=='ag-thermo/1' for a in data['analyses']))
+        self.assertEqual(self.get('/reports/thermo-demo.json', study).json()['data']['schema'], 'ag-thermo/1')
         self.assertEqual(self.get('/attempts/opt-demo/optimization/optimization.log', study).status_code, 200)
         self.assertEqual(self.get('/attempts/crest-demo/crest-frames/crest_conformers.xyz', study).status_code, 200)
 

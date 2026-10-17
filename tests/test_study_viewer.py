@@ -43,7 +43,7 @@ class StudyViewerTests(unittest.TestCase):
         self.assertEqual(len(data['attempts']),3)
         self.assertIn({'parent':'anti','child':'gauche','relation':'conformer_of'},data['graph']['edges'])
         self.assertIn({'id':'missing-seed','state':'missing','missing':True},data['graph']['nodes'])
-        thermo=next(x['data'] for x in data['analyses'] if x['name']=='thermo-demo.json')
+        thermo=self.client.get(self.base+'/reports/thermo-demo.json').json()['data']
         self.assertEqual([r['degeneracy'] for r in thermo['rows']],[1,2])
         self.assertAlmostEqual(sum(r['population'] for r in thermo['rows']),1)
         self.assertIn('ensemble_G',thermo)

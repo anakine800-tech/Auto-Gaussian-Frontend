@@ -3,7 +3,7 @@ export type AttemptSummary={id:string;label:string|null;template:string|null;sta
 export type Graph={nodes:{id:string;state:string;missing:boolean}[];edges:{parent:string;child:string;relation:string}[]};
 export type StructureFile={parts:string[];error:string|null};
 export type StudySection={present:boolean;text:string;entries:{text:string;line:number;label?:string;state?:'pending'|'recorded'|'not_applicable'|'unknown'}[]};
-export type Study={id:string;study:Document<string>;sections:Record<string,StudySection>;attempts:AttemptSummary[];graph:Graph;structure_files:StructureFile[];analyses:(Document&{name:string;updated_at:string|null})[];issues:{path:string;error:string}[]};
+export type Study={id:string;study:Document<string>;sections:Record<string,StudySection>;attempts:AttemptSummary[];graph:Graph;structure_files:StructureFile[];analyses:(Document&{name:string;schema:string|null;updated_at:string|null})[];issues:{path:string;error:string}[]};
 export type Attempt={id:string;manifest:Document;status:Document;facts:Document;review:Document<string>;geometry:Document;input_geometry:Document;input_files:{name:string;error:string|null}[];logs:string[];issues:{path:string;error:string}[]};
 export function endpoint(...parts:string[]){return '/api/studies/'+parts.map(encodeURIComponent).join('/');}
 export async function get<T>(url:string,signal:AbortSignal):Promise<T>{

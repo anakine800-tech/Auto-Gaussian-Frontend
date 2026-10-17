@@ -1,3 +1,4 @@
+import {openSection} from './disclosure';
 import {test,expect} from '@playwright/test';
 
 test('list, table/thumbnail/3D linkage, sorting, reasons and saved URL',async({page})=>{
@@ -64,7 +65,7 @@ test('55 candidates paginate and selection survives reload/back',async({page},in
 
 test('CREST controls display energies, relative conversion and unknown comments',async({page},info)=>{
  await page.goto('/#/ensemble-demo/crest-demo');
- const crest=page.getByRole('region',{name:'CREST 输出',exact:true});
+ await openSection(page,'输入文件');const crest=page.getByRole('region',{name:'CREST 输出',exact:true});
  await crest.getByRole('link',{name:'attempts/crest-demo/crest-frames/crest_conformers.xyz',exact:true}).click();
  await expect(crest.getByTestId('frame-comment')).toContainText('能量 -76.0 Hartree');
  await crest.getByRole('button',{name:'下一帧',exact:true}).click();

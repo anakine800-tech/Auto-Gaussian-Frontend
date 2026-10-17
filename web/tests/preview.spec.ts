@@ -1,3 +1,4 @@
+import {openSection} from './disclosure';
 import {test,expect} from '@playwright/test';
 
 test('prepared hash opens input geometry and metadata before submit',async({page},info)=>{
@@ -6,6 +7,7 @@ test('prepared hash opens input geometry and metadata before submit',async({page
  await expect(page.getByRole('heading',{name:'prepared',exact:true})).toBeVisible();
  await expect(page.getByLabel('预览结构')).toHaveValue('input');
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
+ await openSection(page,'输入文件');
  const summary=page.getByRole('region',{name:'输入参数'});
  await expect(summary).toContainText('C4H10');await expect(summary).toContainText('8GB');
  await expect(summary).toContainText('# HF/STO-3G Opt Freq');
@@ -16,7 +18,7 @@ test('prepared hash opens input geometry and metadata before submit',async({page
 
 test('parent input diff highlights route changes',async({page},info)=>{
  await page.goto('/#/butane-demo/prepared');
- await page.getByRole('button',{name:'与父 Attempt 输入对比'}).click();
+ await openSection(page,'输入文件');await page.getByRole('button',{name:'与父 Attempt 输入对比'}).click();
  await expect(page.getByTestId('input-diff')).toContainText('-# HF/STO-3G Opt');
  await expect(page.getByTestId('input-diff')).toContainText('+# HF/STO-3G Opt Freq');
  await expect(page.getByTestId('input-diff').locator('.diff-added').last()).toContainText('Opt Freq');
@@ -52,7 +54,7 @@ test('structure deep link changes frames and shows comments',async({page},info)=
 
 test('keyword search and last termination links locate lines',async({page},info)=>{
  await page.goto('/#/butane-demo/anti');
- await page.getByLabel('日志关键词').fill('Error termination');
+ await openSection(page,'日志搜索');await page.getByLabel('日志关键词').fill('Error termination');
  await page.getByRole('button',{name:'搜索下一处',exact:true}).click();
  await expect(page.locator('.log-match')).toContainText('Error termination first synthetic marker');
  await page.getByRole('button',{name:'搜索下一处',exact:true}).click();
@@ -71,7 +73,7 @@ test('hash history and unknown attempts do not silently select another',async({p
  await page.getByRole('button',{name:'Attempts',exact:true}).click();
  await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'xtb-prepared',exact:true}).click();
  await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/xtb-prepared$/);
- await expect(page.getByRole('region',{name:'输入参数'})).toContainText('C4H10');
+ await openSection(page,'输入文件');await expect(page.getByRole('region',{name:'输入参数'})).toContainText('C4H10');
  await page.goBack();await expect(page.getByRole('table',{name:'Attempt 结果表'})).toBeVisible();
  await page.goBack();await expect(page.getByRole('heading',{name:'prepared',exact:true})).toBeVisible();
  await page.goto('/#/butane-demo/missing-attempt');

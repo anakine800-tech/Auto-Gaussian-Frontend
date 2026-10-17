@@ -1,3 +1,4 @@
+import {openSection} from './disclosure';
 import {test,expect} from '@playwright/test';
 
 test('old entry routes and tabs resolve to the same files',async({page})=>{
@@ -22,7 +23,7 @@ test('old entry routes and tabs resolve to the same files',async({page})=>{
 
 test('cached input and log search selects an exact file without typing requests',async({page})=>{
  await page.goto('/#/s/butane-demo/a/anti');
- await expect(page.getByTestId('raw-log')).toBeVisible();await expect(page.getByTestId('input-text')).toBeVisible();
+ await openSection(page,'日志搜索');await openSection(page,'输入文件');await expect(page.getByTestId('raw-log')).toBeVisible();await expect(page.getByTestId('input-text')).toBeVisible();
  const inputName=await page.getByRole('combobox',{name:'输入文件',exact:true}).inputValue();
  const logName=await page.getByLabel('输出日志',{exact:true}).inputValue();
  await page.getByRole('navigation',{name:'顶部导航'}).getByRole('button',{name:'Study',exact:true}).click();

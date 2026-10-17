@@ -1,3 +1,4 @@
+import {openSection} from './disclosure';
 import {test,expect} from '@playwright/test';
 import type {Page} from '@playwright/test';
 import {spawn} from 'node:child_process';
@@ -37,7 +38,7 @@ test.afterEach(async({page})=>{
  if(page.url().startsWith('http'))expect(await page.evaluate(()=>(window as any).integrationTraffic())).toEqual({writes:[],errors:[]});
 });
 async function decode(page:Page){
- await page.getByRole('button',{name:'解析振动位移'}).click();
+ await openSection(page,'频率与虚频审阅');await page.getByRole('button',{name:'解析振动位移'}).click();
  await page.getByLabel('振动模式',{exact:true}).selectOption('0');
  await page.getByRole('button',{name:'回到参考结构',exact:true}).click();
 }
@@ -45,7 +46,7 @@ async function healthyResults(page:Page,study:string){
  await page.goto(base+'/#/s/'+study+'/attempts');
  await expect(page.getByRole('table',{name:'Attempt 结果表'})).toContainText('opt-demo');
  await page.getByRole('button',{name:'分析',exact:true}).click();
- await expect(page.getByRole('heading',{name:'thermo-demo.json',exact:true})).toBeVisible();
+ await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
  await page.goto(base+'/#/s/'+study+'/attempts');
  await expect(page.getByRole('table',{name:'Attempt 结果表'})).toBeVisible();
 }
@@ -63,7 +64,7 @@ test('results → ensemble → selected 3D → source CREST frames → back rest
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('候选 2 · 第 2 帧');
  await page.getByRole('table',{name:'构象能量表'}).locator('tr[data-candidate="2"]').getByRole('link',{name:'crest-demo'}).click();
  await expect(page).toHaveURL(base+'/#/s/butane-demo/a/crest-demo');
- const crest=page.getByRole('region',{name:'CREST 输出',exact:true});
+ await openSection(page,'输入文件');const crest=page.getByRole('region',{name:'CREST 输出',exact:true});
  await crest.getByRole('link',{name:'attempts/crest-demo/crest-frames/crest_conformers.xyz',exact:true}).click();
  await expect(crest.getByTestId('frame-comment')).toContainText('能量 -76.0 Hartree');
  await crest.getByRole('button',{name:'下一帧',exact:true}).click();
@@ -108,7 +109,7 @@ test('TS frequency → animation → review atom picks → matching saved report
 for(const [study,reason] of [['facts-missing','File not available'],['facts-broken','Malformed']]){
  test(study+' explains the missing facts while structure and other results remain readable',async({page})=>{
   await page.goto(base+'/#/'+study+'/anti');
-  await expect(page.locator('section.file-view').filter({has:page.getByRole('heading',{name:'facts.json',exact:true})})).toContainText(reason);
+  await openSection(page,'来源与哈希');await expect(page.locator('section.file-view').filter({has:page.getByRole('heading',{name:'facts.json',exact:true})})).toContainText(reason);
   await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('3 / 3 原子');
   await healthyResults(page,study);
  });
@@ -133,8 +134,8 @@ test('another-log report explains mismatch while vibration remains usable',async
 });
 test('truncated log explains unavailable displacement but retains raw log and structure',async({page})=>{
  await page.goto(base+'/#/log-truncated/anti');
- await page.getByRole('button',{name:'解析振动位移'}).click();
- await expect(page.getByRole('status').filter({hasText:'No unambiguous supported Gaussian Cartesian vibration table'})).toBeVisible();
+ await openSection(page,'频率与虚频审阅');await page.getByRole('button',{name:'解析振动位移'}).click();
+ await expect(page.getByRole('alert').filter({hasText:'No unambiguous supported Gaussian Cartesian vibration table'})).toBeVisible();
  await expect(page.getByLabel('振动模式',{exact:true})).toHaveCount(0);
  await expect(page.getByTestId('raw-log')).toContainText('Harmonic frequencies');
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('3 / 3 原子');

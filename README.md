@@ -99,9 +99,9 @@ Attempt 详情后，输入、日志和记录文件也会出现在搜索结果中
 折叠状态与既有集合表排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
 Attempt 表的筛选和排序保存在 URL，刷新与返回时保留。
 
-T94 完成框架和兼容层，T95 完成 Study 概览与 Attempt 表；后续按 T96–T98 逐步合并。
+T94 完成框架和兼容层，T95 完成 Study 概览与 Attempt 表，T96 完成 Attempt 详情、操作抽屉与本地快照；后续按 T97–T98 逐步合并。
 设计和验收记录见 [T94](docs/t94/design-checkpoint.md)；待审 / 待签计数、字段来源与
-本次截图见 [T95](docs/t95/overview.md)。
+本次截图、字段规则与负载测量见 [T96](docs/t96/attempt.md)；[T95](docs/t95/overview.md) 截图保留。
 
 ## Files displayed
 

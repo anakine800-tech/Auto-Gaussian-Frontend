@@ -1,3 +1,4 @@
+import {openSection} from './disclosure';
 import {test,expect} from '@playwright/test';
 
 test('local sample time and optional running/queued core totals',async({browser,request},info)=>{
@@ -29,7 +30,7 @@ test('overview, Attempt sorting, saved thermo and nested representatives',async(
  await table.getByRole('button',{name:'电子能 / Eh',exact:false}).click();
  await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
  await page.getByRole('button',{name:'分析',exact:true}).click();
- await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
+ await page.getByRole('link',{name:'thermo-demo.json',exact:true}).click();await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
  await page.getByRole('button',{name:'文件',exact:true}).click();
  await page.getByRole('button',{name:'结构文件',exact:true}).click();
  await page.getByRole('link',{name:'analyses/cluster-demo/representatives.xyz',exact:true}).click();
@@ -48,7 +49,7 @@ test('nested analyses deep link and Markdown disables HTML, scripts and outbound
  const outside:string[]=[];page.on('request',r=>{if(r.url().includes('example.invalid'))outside.push(r.url());});
  await page.goto('/#/butane-demo/analyses/cluster-demo/representatives.xyz');
  await expect(page.getByLabel('帧号')).toHaveValue('1');
- await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
+ await expect(page.getByRole('region',{name:'三维分子结构'}).last()).toContainText('14 / 14 原子');
  await page.getByRole('button',{name:'文件',exact:true}).click();await page.getByRole('button',{name:'研究说明',exact:true}).click();
  const md=page.locator('.markdown');
  await expect(md.locator('strong')).toHaveText('Markdown 正常渲染');
@@ -61,20 +62,20 @@ test('nested analyses deep link and Markdown disables HTML, scripts and outbound
 
 test('optimization chart, convergence, standard/input frames and playback',async({page},info)=>{
  await page.goto('/#/butane-demo/opt-demo');
- await page.getByRole('button',{name:'优化过程',exact:true}).click();
+ await openSection(page,'优化过程');
  await expect(page.getByRole('img',{name:'优化相对能量折线图'})).toBeVisible();
  await expect(page.getByRole('heading',{name:'第 1 段 · 3 步'})).toBeVisible();
  const table=page.getByRole('table',{name:'第 1 段收敛表'});
  await expect(table).toContainText('0.0009');await expect(table).toContainText('NO');
  await page.getByRole('button',{name:'下一步',exact:true}).click();
  await expect(page.getByLabel('第 1 段优化步')).toHaveValue('2');
- await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
+ await expect(page.getByRole('region',{name:'三维分子结构'}).last()).toContainText('14 / 14 原子');
  await page.getByRole('button',{name:'播放优化过程',exact:true}).click();
  await expect(page.getByLabel('第 1 段优化步')).toHaveValue('3');
  await expect(table).toContainText('YES');
  await expect(page.getByRole('button',{name:'播放优化过程',exact:true})).toBeVisible();
  await page.screenshot({path:info.outputPath('optimization.png'),fullPage:true});
- await page.goto('/#/butane-demo/opt-failed');await page.getByRole('button',{name:'优化过程',exact:true}).click();
+ await page.goto('/#/butane-demo/opt-failed');await openSection(page,'优化过程');
  await expect(page.getByRole('article',{name:'优化段 1'})).toContainText('终止：error');
  await page.getByLabel('第 1 段优化步').fill('3');await expect(table).toContainText('NO');
 });
@@ -123,7 +124,7 @@ test('three new views fit mobile viewport',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  for(const path of ['/#/butane-demo','/#/butane-demo/opt-demo','/#server']){
   await page.goto(path);
-  if(path.endsWith('opt-demo'))await page.getByRole('button',{name:'优化过程',exact:true}).click();
+  if(path.endsWith('opt-demo'))await openSection(page,'优化过程');
   await expect(page.getByRole('heading',{name:'Auto-Gaussian'})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  }

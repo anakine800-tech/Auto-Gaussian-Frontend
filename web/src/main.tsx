@@ -1,64 +1,32 @@
 import {useCallback,useEffect,useState} from 'react';
-import {ActionOutput,AttemptActions,actionToken} from './actions';
+import {ActionOutput,actionToken} from './actions';
 import type {ActionResult} from './actions';
 import {createRoot} from 'react-dom/client';
-import {display,endpoint,get,object} from './api';
-import {InputFiles,InputSummary,StructureFiles} from './preview-panels';
+import {endpoint,get} from './api';
+import {StructureFiles} from './preview-panels';
 import {IRCPage,IRCReports} from './irc-panels';
 import {EnsembleList,EnsemblePage} from './ensemble-panels';
 import {routeHash,studyHash} from './routing';
 import type {Attempt,Study} from './api';
 import {ServerMonitor} from './server-monitor';
-import {StudyMarkdown,Optimization} from './results-panels';
-import {Analyses,FileView,PagedLog,RelationshipGraph} from './study-panels';
-import {ModeReviewViewer} from './mode-panels';
-import type {ReviewModes} from './mode-panels';
+import {StudyMarkdown} from './results-panels';
+import {Analyses,RelationshipGraph} from './study-panels';
+import {AttemptView} from './attempt-view';
 import {Collapsible,EmptyState,ErrorNotice,StatusBadge,readPreference,savePreference} from './ui';
 import {GlobalSearch,indexAttempt} from './ui/search';
 import type {AttemptIndex} from './ui/search';
-import type {AttemptFile} from './routing';
 import {goBackToList,locationChanged,returnLocation,useHistoryRoute,useScrollRestore} from './navigation';
 import './ui/tokens.css';
 import './style.css';
 import './molecule-layout.css';
 import './ui/shell.css';
 import './ui/overview.css';
+import './ui/attempt.css';
 import {StudyOverview} from './overview';
 import {AttemptTable} from './attempt-table';
 
-type Modes=ReviewModes;
-function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare,selectedFile,onLoaded}:{selectedFile?:AttemptFile;onLoaded:(study:string,data:Attempt)=>void;study:string;id:string;revision:number;busy:boolean;onBusy:(v:boolean)=>void;onResult:(r:ActionResult)=>void;autoCompare:boolean}){
- const [data,setData]=useState<Attempt|null>(null),[error,setError]=useState(''),[log,setLog]=useState(''),[modes,setModes]=useState<Modes|null>(null),[modeError,setModeError]=useState(''),[selected,setSelected]=useState<number|null>(null),[decode,setDecode]=useState(false),[geometrySource,setGeometrySource]=useState('input'),[attemptTab,setAttemptTab]=useState('details');
- useEffect(()=>{const c=new AbortController();setData(null);setError('');setLog('');setModes(null);setSelected(null);setDecode(false);get<Attempt>(endpoint(study,'attempts',id),c.signal).then(v=>{if(!c.signal.aborted){setData(v);onLoaded(study,v);setLog(v.logs[0]??'');const state=object(v.status.data)?v.status.data.state:'';setGeometrySource(['prepared','submitting'].includes(String(state))||!v.geometry.data?'input':'final');}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,id,revision]);
- useEffect(()=>{const c=new AbortController();setModes(null);setModeError('');setSelected(null);if(decode&&log)get<Modes>(endpoint(study,'attempts',id,'vibrations',log),c.signal).then(v=>{if(!c.signal.aborted)setModes(v);}).catch(e=>{if(!c.signal.aborted)setModeError(e.message);});return()=>c.abort();},[decode,log,study,id,revision]);
- useEffect(()=>{
-  if(!data||!selectedFile)return;
-  setAttemptTab('details');
-  if(selectedFile.kind==='logs'){setLog(data.logs.includes(selectedFile.name)?selectedFile.name:'');setDecode(false);setSelected(null);}
-  if(selectedFile.name==='final.xyz')setGeometrySource('final');
-  const frame=requestAnimationFrame(()=>document.getElementById(selectedFile.kind==='inputs'?'attempt-inputs':selectedFile.kind==='logs'?'attempt-logs':selectedFile.name==='final.xyz'?'attempt-structure':`record-${selectedFile.name}`)?.scrollIntoView({block:'start'}));
-  return()=>cancelAnimationFrame(frame);
- },[data,selectedFile?.kind,selectedFile?.name]);
- if(error)return <p role="alert">{error}</p>;if(!data)return <p role="status">读取 Attempt…</p>;
- const vibration=selected!==null?modes?.modes[selected]:undefined;
- return <section className="attempt-detail"><h2>{id}</h2><p>所属集群：{display(object(data.manifest.data)?data.manifest.data.cluster??'default':null)}</p><nav aria-label="Attempt 内容"><button aria-current={attemptTab==='details'?'page':undefined} onClick={()=>setAttemptTab('details')}>Attempt 详情</button><button aria-current={attemptTab==='optimization'?'page':undefined} onClick={()=>setAttemptTab('optimization')}>优化过程</button></nav>{attemptTab==='optimization'?<>{data.logs.length?<><label>优化日志 <select aria-label="优化日志" value={log} onChange={e=>setLog(e.target.value)}>{data.logs.map(l=><option key={l}>{l}</option>)}</select></label>{log&&<Optimization key={log+revision} study={study} attempt={id} log={log} revision={revision}/>}</>:<p>尚无 outputs 日志。</p>}</>:<><div id="attempt-structure" className="structure-preview">
- <div><label>预览结构 <select aria-label="预览结构" value={geometrySource} onChange={e=>{setGeometrySource(e.target.value);setSelected(null);}}><option value="input">输入结构</option><option value="final" disabled={!data.geometry.data}>最终结构 · final.xyz</option></select></label>
- <ModeReviewViewer study={study} attempt={id} log={log} packet={modes} revision={revision} key={vibration?'vibration':geometrySource} last={vibration?modes?.reference_geometry:geometrySource==='input'?data.input_geometry.data:data.geometry.data} frameLabel={vibration?'Gaussian 振动参考坐标':geometrySource==='input'?'输入结构':'最终结构 · final.xyz'} vibration={vibration} onClearVibration={()=>setSelected(null)}/>
- {geometrySource==='input'&&data.input_geometry.error&&<p className="notice">{data.input_geometry.error}</p>}
- {geometrySource==='final'&&data.geometry.error&&<p className="notice">final.xyz：{data.geometry.error}</p>}</div>
- <InputSummary input={data.input_geometry} manifest={data.manifest}/></div>
- {actionToken&&<AttemptActions study={study} data={data} revision={revision} busy={busy} onBusy={onBusy} onResult={onResult}/>}
- <div id="attempt-inputs"><InputFiles requestedName={selectedFile?.kind==='inputs'?selectedFile.name:undefined} study={study} attempt={id} data={data} autoCompare={autoCompare}/></div>
- <details open={selectedFile?.kind==='record'&&['manifest.json','status.json'].includes(selectedFile.name)?true:undefined}><summary>manifest.json 与 status.json</summary><div className="columns"><FileView title="status.json" doc={data.status}/><FileView title="manifest.json" doc={data.manifest}/></div></details>
- <section id="attempt-logs"><h3>Gaussian 振动与日志</h3><p className="muted">振动使用所选日志中的 Standard orientation 与原始打印位移。显示动画不代表过渡态验收。</p>{data.logs.length?<>
- <label>输出日志 <select aria-label="输出日志" value={log} onChange={e=>{setLog(e.target.value);setDecode(false);setSelected(null);}}>{data.logs.map(l=><option key={l}>{l}</option>)}</select></label>
- <button onClick={()=>setDecode(true)} disabled={decode}>解析振动位移</button>
- {modeError&&<p role="status" className="notice">{modeError}</p>}{decode&&!modes&&!modeError&&<p role="status">解析振动…</p>}
- {modes&&<label>振动模式 <select aria-label="振动模式" value={selected??''} onChange={e=>setSelected(e.target.value===''?null:Number(e.target.value))}><option value="">返回所选结构</option>{modes.modes.map((m,i)=><option key={i} value={i}>模式 {m.mode_number} · {m.frequency_cm1} cm⁻¹</option>)}</select></label>}
- {selectedFile?.kind==='logs'&&!data.logs.includes(selectedFile.name)&&<ErrorNotice>指定日志不存在：{selectedFile.name}</ErrorNotice>}{log&&<PagedLog key={log+revision} study={study} attempt={id} log={log}/>}</>:<p>尚无 outputs 日志。</p>}</section>
- <FileView title="facts.json" doc={data.facts}/><FileView title="review.md" doc={data.review}/>{data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}</>}</section>;
-}
 function App(){
+ useEffect(()=>{const bars=['.app-header','.context-bar'].map(s=>document.querySelector<HTMLElement>(s));const observer=new ResizeObserver(()=>bars.forEach((bar,i)=>{if(bar)document.documentElement.style.setProperty(i?'--context-height':'--header-height',`${bar.getBoundingClientRect().height}px`);}));bars.forEach(bar=>bar&&observer.observe(bar));return()=>observer.disconnect();},[]);
  const [busy,setBusy]=useState(false),[actionResult,setActionResult]=useState<ActionResult|null>(null);
  const route=useHistoryRoute();
  const [revision,setRevision]=useState(0),[attemptIndex,setAttemptIndex]=useState<Record<string,AttemptIndex>>({});
@@ -102,14 +70,14 @@ function App(){
  {list?.studies.length===0&&<EmptyState>目录中没有可读的 study.md。</EmptyState>}{list?.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
  </Collapsible><p className="sidebar-note">本机研究目录<br/>状态与数值需结合证据审阅</p></aside><main>
  {route.error&&<ErrorNotice>{route.error}</ErrorNotice>}{error&&<ErrorNotice>{error}</ErrorNotice>}{study&&!data&&!error&&!route.error&&<p role="status">读取 Study…</p>}
- {data&&!route.error&&<><div className="study-heading"><div><span className="eyebrow">{top==='study'?'STUDY WORKSPACE':top==='analysis'?'ANALYSIS LIBRARY':'STUDY FILES'}</span><h2>{top==='study'?data.id:top==='analysis'?'分析报告':'研究文件'}</h2></div><StatusBadge>{data.attempts.length} Attempts</StatusBadge></div>
+ {data&&!route.error&&<>{!attempt&&<div className="study-heading"><div><span className="eyebrow">{top==='study'?'STUDY WORKSPACE':top==='analysis'?'ANALYSIS LIBRARY':'STUDY FILES'}</span><h2>{top==='study'?data.id:top==='analysis'?'分析报告':'研究文件'}</h2></div><StatusBadge>{data.attempts.length} Attempts</StatusBadge></div>}
  {top==='study'&&<nav className="section-nav" aria-label="Study 内容"><button aria-current={view==='overview'?'page':undefined} onClick={()=>navigate(studyHash(study))}>概览</button><button aria-current={view==='attempts'?'page':undefined} onClick={()=>navigate(studyHash(study,'attempts'))}>Attempts</button></nav>}
  {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['document','研究说明'],['structures','结构文件'],['graph','关系图'],['analyses','其他分析文件']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
  {data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
  {view==='overview'&&<StudyOverview key={study} data={data}/>}
- {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses analyses={data.analyses.filter(a=>a.name===route.report)}/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<><EnsembleList study={study} revision={revision}/><IRCReports study={study} revision={revision}/><Analyses analyses={data.analyses}/></>)}
+ {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<><EnsembleList study={study} revision={revision}/><IRCReports study={study} revision={revision}/><Analyses study={study} analyses={data.analyses}/></>)}
  {view==='attempts'&&(attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt} selectedFile={route.attemptFile} onLoaded={onLoaded}/>:<AttemptTable key={study} data={data}/>)}
- {view==='files'&&(route.report?(data.analyses.some(a=>a.name===route.report)?<Analyses analyses={data.analyses.filter(a=>a.name===route.report)}/>:<ErrorNotice>找不到分析文件：{route.report}</ErrorNotice>):fileTab==='document'?<StudyMarkdown doc={data.study}/>:fileTab==='graph'?<RelationshipGraph graph={data.graph} onSelect={choose}/>:fileTab==='structures'||route.structure?<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={parts=>navigate(routeHash([study,...parts]))} revision={revision}/>:<Analyses analyses={data.analyses}/>)}
+ {view==='files'&&(route.report?(data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>找不到分析文件：{route.report}</ErrorNotice>):fileTab==='document'?<StudyMarkdown doc={data.study}/>:fileTab==='graph'?<RelationshipGraph graph={data.graph} onSelect={choose}/>:fileTab==='structures'||route.structure?<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={parts=>navigate(routeHash([study,...parts]))} revision={revision}/>:<Analyses study={study} analyses={data.analyses}/>)}
  </>}
  </main></div>}
  <ActionOutput result={actionResult}/><footer>{actionToken?'study.md 中的计划和结论仍由 Codex 更新。':'Study 文件保持原样。'}状态与解析数字不自动构成科学结论。</footer></>;

@@ -25,10 +25,11 @@ export function AttemptTable({data}:{data:Study}){
   const x=a.values[sort],y=b.values[sort];if(x===null)return y===null?a.attempt.id.localeCompare(b.attempt.id):1;if(y===null)return -1;
   return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true}))*direction||a.attempt.id.localeCompare(b.attempt.id);
  });
- const columns:TableColumn<Row>[]=fields.map(([key,label],index)=>({key,label,optional:index>=9,sort:sort===key?(direction===1?'ascending':'descending'):'none',onSort:()=>change({sort:key,order:sort===key&&direction===1?'desc':'asc'}),render:r=>{
+ const columns:TableColumn<Row>[]=fields.map(([key,label],index)=>({key,label,className:['energy','free','imag','cores'].includes(key)?'numeric':undefined,optional:index>=9,sort:sort===key?(direction===1?'ascending':'descending'):'none',onSort:()=>change({sort:key,order:sort===key&&direction===1?'desc':'asc'}),render:r=>{
   const value=r.values[key],a=r.attempt;
   if(key==='id')return <a href={routeHash([data.id,a.id])}>{a.id}</a>;
   if(key==='status')return <><StatusBadge tone={statusTone(a.state)}>{a.state}</StatusBadge>{pendingReview(a)&&<span className="attention-note">待审阅</span>}</>;
+  if(['energy','free'].includes(key)&&typeof value==='number')return <span title={String(value)}>{value.toFixed(6)}</span>;
   if(key==='method')return <span className="method-abbreviation" title={display(value)}>{display(value)}</span>;
   if(key==='convergence')return value?<StatusBadge tone={value==='✓'?'ok':'bad'}>{value}</StatusBadge>:'—';
   return display(value);
