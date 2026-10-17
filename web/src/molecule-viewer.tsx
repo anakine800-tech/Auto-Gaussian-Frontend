@@ -14,7 +14,7 @@ export type VibrationFrame={phase:number;displacementScale:number};
 export type ModeReviewOptions={reviewMode?:boolean;reviewAmplitude?:number;onAtomPick?:(center:number)=>void;onFrame?:(frame:VibrationFrame)=>void};
 type Display='ball-stick'|'tube'|'wire';
 type Measurement='distance'|'angle'|'torsion';
-function CoordinateScene({geometry,vibration,onClearVibration,modePanel,reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{geometry:Geometry;vibration?:VibrationMode;onClearVibration?:()=>void;modePanel?:ReactNode}&ModeReviewOptions) {
+function CoordinateScene({geometry,vibration,onClearVibration,modePanel,highlightedAtoms=[],reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{geometry:Geometry;vibration?:VibrationMode;onClearVibration?:()=>void;modePanel?:ReactNode;highlightedAtoms?:number[]}&ModeReviewOptions) {
   const [playing,setPlaying]=useState(false),[phase,setPhase]=useState(0),[amplitude,setAmplitude]=useState(.45),[speed,setSpeed]=useState(.6);
   const clock=useRef(0);
   useEffect(()=>{clock.current=0;setPhase(0);setPlaying(Boolean(vibration));},[vibration]);
@@ -58,7 +58,7 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,reviewMo
     const coords={x1:a.px+(b.px-a.px)*t,y1:a.py+(b.py-a.py)*t,x2:a.px+(b.px-a.px)*u,y2:a.py+(b.py-a.py)*u};
     primitives.push({depth:a.depth+(b.depth-a.depth)*(t+u)/2,key:`bond-${a.center}-${b.center}-${i}`,node:<g data-testid={i===0?'molecule-bond':undefined} data-pair={`${a.center}-${b.center}`} className="display-bond"><line {...coords} stroke={color} strokeWidth={width} strokeLinecap="butt"/>{display!=='wire'&&<line {...coords} stroke={highlight} strokeWidth={width*.25} strokeLinecap="butt"/>}<title>距离推测连接 · {a.center}–{b.center} · {bond.distance.toFixed(4)} Å（无键级）</title></g>});
   }}
-  for(const a of projected){const original=originals.get(a.center)!;primitives.push({depth:a.depth,key:`atom-${a.center}`,node:<g data-testid="molecule-atom" data-center={a.center} transform={`translate(${a.px} ${a.py})`}><circle r={radius(a.atomic_number)} fill={display==='wire'?(colors[a.atomic_number]??'#976abc'):`url(#${uid}-atom-${a.atomic_number})`} stroke={selected.includes(a.center)?'#862e91':'#4e465e'} strokeOpacity={selected.includes(a.center)?1:.26} strokeWidth={selected.includes(a.center)?3:1}/><title>{symbols[a.atomic_number]} · {a.center}: {original.x}, {original.y}, {original.z} Å</title></g>});}
+  for(const a of projected){const original=originals.get(a.center)!;primitives.push({depth:a.depth,key:`atom-${a.center}`,node:<g data-testid="molecule-atom" data-center={a.center} data-highlighted={highlightedAtoms.includes(a.center)} transform={`translate(${a.px} ${a.py})`}><circle r={radius(a.atomic_number)} fill={display==='wire'?(colors[a.atomic_number]??'#976abc'):`url(#${uid}-atom-${a.atomic_number})`} stroke={selected.includes(a.center)?'var(--accent)':'var(--ink)'} strokeOpacity={selected.includes(a.center)?1:.26} strokeWidth={selected.includes(a.center)?3:1}/><title>{symbols[a.atomic_number]} · {a.center}: {original.x}, {original.y}, {original.z} Å</title></g>});}
   primitives.sort((a,b)=>a.depth-b.depth||a.key.localeCompare(b.key));
   const overlayPoints=selected.map(c=>c===null?null:positions.get(c));
   return <div className={`molecule-viewer ${large?'expanded-view':''}`}>
@@ -70,7 +70,7 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,reviewMo
       onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}}>
       <defs>{[...new Set(visible.map(a=>a.atomic_number))].map(n=><radialGradient id={`${uid}-atom-${n}`} key={n} cx="29%" cy="23%" r="78%"><stop offset="0" stopColor="#fff"/><stop offset=".25" stopColor={colors[n]??'#976abc'}/><stop offset=".68" stopColor={colors[n]??'#976abc'}/><stop offset="1" stopColor={n===1?'#9b9fae':'#202537'}/></radialGradient>)}</defs>
       {primitives.map(p=><g key={p.key}>{p.node}</g>)}
-      {overlayPoints.slice(1).map((p,i)=>{const prev=overlayPoints[i];return p&&prev?<line key={i} x1={prev.px} y1={prev.py} x2={p.px} y2={p.py} stroke="#9637a7" strokeWidth="2" strokeDasharray="4 4" className="measurement-overlay"/>:null;})}
+      {overlayPoints.slice(1).map((p,i)=>{const prev=overlayPoints[i];return p&&prev?<line key={i} x1={prev.px} y1={prev.py} x2={p.px} y2={p.py} stroke="var(--accent)" strokeWidth="2" strokeDasharray="4 4" className="measurement-overlay"/>:null;})}
       {projected.map(a=>labels!=='none'?<text key={a.center} x={a.px} y={a.py+radius(a.atomic_number)+15} textAnchor="middle" className="atom-label">{labels==='number'?'':symbols[a.atomic_number]}{labels==='element'?'':a.center}</text>:null)}
       {[['X',1,0,0,'#c34458'],['Y',0,1,0,'#3d9354'],['Z',0,0,1,'#4675d9']].map(([label,x,y,z,color])=>{const p=orient(Number(x),Number(y),Number(z));return <g key={String(label)}><line x1="43" y1="326" x2={43+p.x*27} y2={326-p.y*27} stroke={String(color)} strokeWidth="2"/><text x={43+p.x*38} y={329-p.y*38} fill={String(color)} className="model-axis">{label}</text></g>;})}
       {visible.length===0&&<text x="300" y="185" textAnchor="middle" className="atom-label">请显示氢原子以查看此结构</text>}
@@ -95,12 +95,12 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,reviewMo
     </details></div>
   </div>;
 }
-export function MoleculeViewer({last,review,renderSource,vibration,onClearVibration,scientificPanel,modePanel,frameLabel,reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{last:unknown;frameLabel?:string;review?:unknown;renderSource?:(source:string,geometry:unknown)=>ReactNode;vibration?:VibrationMode;onClearVibration?:()=>void;scientificPanel?:ReactNode;modePanel?:ReactNode}&ModeReviewOptions) {
+export function MoleculeViewer({last,review,renderSource,vibration,onClearVibration,scientificPanel,modePanel,frameLabel,highlightedAtoms=[],reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{last:unknown;frameLabel?:string;highlightedAtoms?:number[];review?:unknown;renderSource?:(source:string,geometry:unknown)=>ReactNode;vibration?:VibrationMode;onClearVibration?:()=>void;scientificPanel?:ReactNode;modePanel?:ReactNode}&ModeReviewOptions) {
   const [source,setSource]=useState('last');const geometry=source==='review'?review:last;
   useEffect(()=>{if(vibration)setSource('last');},[vibration]);
   return <section className="molecule-section" aria-label="三维分子结构"><div className="section-heading"><div><div className="eyebrow">MOLECULAR GEOMETRY</div><h3>结构与振动</h3></div><label>坐标来源<select aria-label="结构来源" value={source} onChange={e=>{onClearVibration?.();setSource(e.target.value);}}><option value="last">{frameLabel??'最后记录结构'}</option>{isGeometry(review)&&<option value="review">Review 选中结构</option>}</select></label></div>
     <p className="muted">{source==='last'?(frameLabel?`${frameLabel} 的坐标；文件展示不表示科学验收。`:'日志最后一个已解析坐标块，不自动等同科学验收结构。'):'历史 Review 明确选中的坐标块；沿用报告的验收范围。'}</p>
-    {!isGeometry(geometry)?<p className="empty compact">暂无可安全展示的坐标。</p>:geometry.atoms.length>2000?<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>:<CoordinateScene key={source} geometry={geometry} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel} reviewMode={reviewMode} reviewAmplitude={reviewAmplitude} onAtomPick={onAtomPick} onFrame={onFrame}/>}
+    {!isGeometry(geometry)?<p className="empty compact">暂无可安全展示的坐标。</p>:geometry.atoms.length>2000?<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>:<CoordinateScene key={source} geometry={geometry} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel} highlightedAtoms={highlightedAtoms} reviewMode={reviewMode} reviewAmplitude={reviewAmplitude} onAtomPick={onAtomPick} onFrame={onFrame}/>}
     {(!isGeometry(geometry)||geometry.atoms.length>2000)&&modePanel}
     {renderSource?.(source,geometry)}
     {scientificPanel}

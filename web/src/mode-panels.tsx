@@ -1,3 +1,4 @@
+import {locationChanged} from './navigation';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {ComponentProps} from 'react';
 import {endpoint,get} from './api';
@@ -32,7 +33,7 @@ function readPairs(scope:string,atoms:Atom[]):Pair[]{
 function savePairs(scope:string,pairs:Pair[]){
  // Keep the existing hash router unchanged; query parameters precede the hash.
  const url=new URL(window.location.href);url.searchParams.set('modeScope',scope);url.searchParams.set('modePairs',pairs.map(p=>p.join('-')).join(','));
- window.history.replaceState(null,'',url);
+ window.history.replaceState({...window.history.state,agScroll:window.scrollY},'',url);locationChanged();
 }
 const formatted=(value:number)=>Number.isFinite(value)?value.toFixed(3):'无法计算';
 
@@ -74,7 +75,7 @@ function ReviewScene({study,attempt,log,packet,revision,...viewer}:{study:string
  };
  const panel=<section aria-label="模式审阅面板">
   <h3>模式来源与原子对距离</h3>
-  <dl><dt>log 文件</dt><dd>{packet.log_name??log}</dd><dt>log SHA-256</dt><dd><details><summary>{packet.log_sha256?.slice(0,12)??'未知'}（展开）</summary><code style={{overflowWrap:'anywhere'}}>{packet.log_sha256??'未知'}</code></details></dd>
+  <dl><dt>log 文件</dt><dd>{packet.log_name??log}</dd><dt>log SHA-256</dt><dd><details><summary>{packet.log_sha256?.slice(0,12)??'未知'}（展开）</summary><code className="break-anywhere">{packet.log_sha256??'未知'}</code></details></dd>
    <dt>按频率排序的模式序号 / 原始频率序号</dt><dd>{mode.sorted_mode_index??'未知'} / {mode.source_mode_index??'未知'}</dd><dt>频率</dt><dd>{mode.frequency_cm1} cm⁻¹</dd><dt>坐标方向</dt><dd>{packet.orientation==='standard'?'Standard orientation':packet.orientation==='input'?'Input orientation':'未知'}</dd></dl>
   <label><input type="checkbox" aria-label="启用审阅模式" checked={review} onChange={e=>{setReview(e.target.checked);setFrame(null);}}/>启用审阅模式</label>
   <p>{review?'动画振幅定义：最大原子位移 = 归一化振幅。':'动画振幅定义：原始打印位移 × 显示幅度；实时距离仅在审阅模式显示。'}</p>

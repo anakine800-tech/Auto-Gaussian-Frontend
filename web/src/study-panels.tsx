@@ -1,19 +1,20 @@
 import {useEffect,useId,useState} from 'react';
 import {display,endpoint,get,object} from './api';
 import type {Document,Graph} from './api';
+import {ActionBar,DataTable} from './ui';
 
 export function FileView({title,doc}:{title:string;doc:Document}){
- return <section className="file-view"><h3>{title}</h3>{doc.error?<p role="status" className="notice">{doc.error}</p>:<pre>{typeof doc.data==='string'?doc.data:JSON.stringify(doc.data,null,2)}</pre>}</section>;
+ return <section className="file-view" id={`record-${title}`}><h3>{title}</h3>{doc.error?<p role="status" className="notice">{doc.error}</p>:<pre>{typeof doc.data==='string'?doc.data:JSON.stringify(doc.data,null,2)}</pre>}</section>;
 }
 export function RelationshipGraph({graph,onSelect}:{graph:Graph;onSelect:(id:string)=>void}){
  const marker=useId();const count=graph.nodes.length;
  const points=new Map(graph.nodes.map((n,i)=>[n.id,{x:460+330*Math.cos(2*Math.PI*i/Math.max(1,count)),y:270+195*Math.sin(2*Math.PI*i/Math.max(1,count))}]));
  return <section><h2>Attempt 关系图</h2><p className="muted">箭头由 parent 指向 child，标签来自 manifest.parents[].relation。缺失父节点保留显示。</p>{count===0?<p>暂无 Attempt。</p>:<>
- <div className="graph-scroll"><svg className="graph" viewBox="0 0 920 540" role="img" aria-label="Attempt 关系图"><defs><marker id={marker} markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="#547c89"/></marker></defs>
- {graph.edges.map((e,i)=>{const a=points.get(e.parent)!,b=points.get(e.child)!;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;return <g key={i}><line x1={a.x} y1={a.y} x2={b.x-18*dx/d} y2={b.y-18*dy/d} stroke="#547c89" strokeWidth="2" markerEnd={`url(#${marker})`}/><text x={(a.x+b.x)/2} y={(a.y+b.y)/2-7} textAnchor="middle">{e.relation}</text></g>;})}
- {graph.nodes.map(n=>{const p=points.get(n.id)!;return <g key={n.id}><circle cx={p.x} cy={p.y} r="17" fill={n.missing?'#d39b54':'#176c70'}/><text x={p.x} y={p.y+35} textAnchor="middle">{n.id}</text><text x={p.x} y={p.y+52} textAnchor="middle" className="muted">{n.state}</text></g>;})}</svg></div>
+ <div className="graph-scroll"><svg className="graph" viewBox="0 0 920 540" role="img" aria-label="Attempt 关系图"><defs><marker id={marker} markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="var(--accent)"/></marker></defs>
+ {graph.edges.map((e,i)=>{const a=points.get(e.parent)!,b=points.get(e.child)!;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;return <g key={i}><line x1={a.x} y1={a.y} x2={b.x-18*dx/d} y2={b.y-18*dy/d} stroke="var(--accent)" strokeWidth="2" markerEnd={`url(#${marker})`}/><text x={(a.x+b.x)/2} y={(a.y+b.y)/2-7} textAnchor="middle">{e.relation}</text></g>;})}
+ {graph.nodes.map(n=>{const p=points.get(n.id)!;return <g key={n.id}><circle cx={p.x} cy={p.y} r="17" fill={n.missing?'var(--warn)':'var(--accent)'}/><text x={p.x} y={p.y+35} textAnchor="middle">{n.id}</text><text x={p.x} y={p.y+52} textAnchor="middle" className="muted">{n.state}</text></g>;})}</svg></div>
  <ul className="graph-nodes">{graph.nodes.map(n=><li key={n.id}>{n.missing?<span>{n.id} · 缺失父节点</span>:<button onClick={()=>onSelect(n.id)}>{n.id} · {n.state}</button>}</li>)}</ul>
- <table><thead><tr><th>Parent</th><th>Relation</th><th>Child</th></tr></thead><tbody>{graph.edges.map((e,i)=><tr key={i}><td>{e.parent}</td><td>{e.relation||'—'}</td><td>{e.child}</td></tr>)}</tbody></table></> }</section>;
+ <DataTable label="Attempt 关系列表" rows={graph.edges.map((edge,i)=>({...edge,key:i}))} rowKey={edge=>edge.key} columns={[{key:'parent',label:'Parent',render:e=>e.parent},{key:'relation',label:'Relation',render:e=>e.relation||'—'},{key:'child',label:'Child',render:e=>e.child}]}/></> }</section>;
 }
 export function Analyses({analyses}:{analyses:(Document&{name:string})[]}){
  return <section><h2>分析结果</h2>{analyses.length===0&&<p>尚无 dedup、cluster 或 thermo 结果。</p>}{analyses.map(a=>{
@@ -36,5 +37,5 @@ export function PagedLog({study,attempt,log}:{study:string;attempt:string;log:st
  return <section aria-label="日志分页"><h3>{log}</h3>
  <div className="log-search"><label>关键词 <input aria-label="日志关键词" value={query} maxLength={256} onChange={e=>{setQuery(e.target.value);setMatch(null);setSearch(null);setSearching(false);setMessage('');}} onKeyDown={e=>{if(e.key==='Enter')find(query);}}/></label><button disabled={!query||searching} onClick={()=>find(query)}>搜索下一处</button><button disabled={searching} onClick={()=>find('Error termination',true)}>最后一次 Error termination</button><button disabled={searching} onClick={()=>find('Normal termination',true)}>最后一次 Normal termination</button></div>
  {searching?<p role="status">搜索日志…</p>:message&&<p role="status">{message}</p>}
- {error?<p role="alert">{error}</p>:data?<><p>共 {data.total_lines} 行 · {data.total_lines?data.start+1:0}–{Math.min(data.start+data.limit,data.total_lines)} 行</p><div className="actions"><button disabled={start===0} onClick={()=>{setStart(Math.max(0,start-120));setMatch(null);}}>上一页</button><button disabled={start+120>=data.total_lines} onClick={()=>{setStart(start+120);setMatch(null);}}>下一页</button></div><pre data-testid="raw-log">{data.text?logLines.map((line,i)=><span className={start+i===match?'log-match':undefined} key={i}>{line}{i<logLines.length-1?'\n':''}</span>):'日志为空。'}</pre></>:<p role="status">读取日志…</p>}</section>;
+ {error?<p role="alert">{error}</p>:data?<><p>共 {data.total_lines} 行 · {data.total_lines?data.start+1:0}–{Math.min(data.start+data.limit,data.total_lines)} 行</p><ActionBar label="日志分页操作"><button disabled={start===0} onClick={()=>{setStart(Math.max(0,start-120));setMatch(null);}}>上一页</button><button disabled={start+120>=data.total_lines} onClick={()=>{setStart(start+120);setMatch(null);}}>下一页</button></ActionBar><pre data-testid="raw-log">{data.text?logLines.map((line,i)=><span className={start+i===match?'log-match':undefined} key={i}>{line}{i<logLines.length-1?'\n':''}</span>):'日志为空。'}</pre></>:<p role="status">读取日志…</p>}</section>;
 }

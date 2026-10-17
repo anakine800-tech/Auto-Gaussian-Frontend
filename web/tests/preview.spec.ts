@@ -69,7 +69,7 @@ test('hash history and unknown attempts do not silently select another',async({p
  await page.goto('/#/butane-demo/prepared');
  await expect(page.getByLabel('预览结构')).toHaveValue('input');
  await page.getByRole('button',{name:'xtb-prepared',exact:true}).click();
- await expect(page).toHaveURL(/#\/butane-demo\/xtb-prepared$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/xtb-prepared$/);
  await expect(page.getByRole('region',{name:'输入参数'})).toContainText('C4H10');
  await page.goBack();await expect(page.getByRole('heading',{name:'prepared',exact:true})).toBeVisible();
  await page.goto('/#/butane-demo/missing-attempt');

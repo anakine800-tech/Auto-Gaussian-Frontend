@@ -75,11 +75,30 @@ cd '<FRONTEND_DIRECTORY>'
   --studies-root '<STUDIES_ROOT>' --ui-directory '<FRONTEND_DIRECTORY>/web/dist'
 ```
 
-从“结果”打开构象集合、选择候选并查看三维结构，再通过来源 Attempt 链接打开
+从 Study 概览或“分析”打开构象集合、选择候选并查看三维结构，再通过来源 Attempt 链接打开
 CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点击“解析振动位移”，
-选中虚频后可启用审阅模式。服务器页只读取已保存的 monitor 快照；缺失时按提示
+选中虚频后可启用审阅模式。“作业”页只读取已保存的 monitor 快照；缺失时按提示
 单独运行采样器。合并后的实际 study 检查由负责人完成，仅在 PR 评论记录“可用”
 或“有问题（类别）”，不上传研究截图或数值。
+
+## 四个入口与链接
+
+- **作业**：`#/jobs`，显示本地 monitor 快照。
+- **Study**：`#/s/<study>` 为现有结果概览；`/attempts` 为 Attempt 列表，
+  `/a/<attempt>` 为详情。首页打开上次访问的 Study，无记录时取列表第一项。
+- **分析**：`#/s/<study>/analysis`；集合、IRC 和普通分析文件分别使用
+  `/analysis/ensemble/<报告>`、`/analysis/irc/<报告>`、`/analysis/file/<文件>`。
+- **文件**：`#/s/<study>/files`；研究说明、结构文件、关系图和其他分析文件。
+
+旧 hash 自动替换为新链接，不增加重定向历史。候选、路径点和旧集合筛选参数保留。
+上下文栏“返回列表”恢复来源页面的筛选、排序和滚动；浏览器后退同样可用。
+全局搜索只检索当前浏览器会话已读取的 Study、Attempt 标签和文件名；读取过
+Attempt 详情后，输入、日志和记录文件也会出现在搜索结果中。输入关键词不发请求，
+选择结果时才读取目标。页面刷新会清空内存搜索索引。
+折叠状态与排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
+
+T94 仅完成框架和兼容层；各页内容改版按 T95–T98 逐步合并。
+设计和验收记录见 [T94](docs/t94/design-checkpoint.md)。
 
 ## Files displayed
 
@@ -88,7 +107,7 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
   清单最多 4 MiB，XYZ 最多 32 MiB / 1000 帧 / 每帧 500 原子，超限报错。
   只读清单同目录的 `inputs.xyz.file`，核对文件与候选几何 SHA-256；不跟随 `path`。
   数值不作科学判断，不重算布居；不能跨路线比较的 xTB 值按路线展开。
-  选中项保存在 `#/study/ensembles/group/name.json?candidate=1`，缩略图每页最多 50 个、可见时绘制。
+  选中项保存在 `#/s/study/analysis/ensemble/group/name.json?candidate=1`，缩略图每页最多 50 个、可见时绘制。
 - CREST Attempt 的 `outputs/crest_conformers.xyz`、`crest_best.xyz` 和
   `crest_ensemble.xyz` 可逐帧查看，沿用上述 XYZ 限制。注释中首个可解析的浮点数
   按 Hartree 显示，无数值则未知；相对最低已知帧按 627.5094740631 换算 kcal/mol。

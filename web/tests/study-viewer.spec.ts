@@ -2,16 +2,16 @@ import {test,expect} from '@playwright/test';
 
 test('study navigation, saved thermo, missing parents and unknown status',async({page})=>{
  await page.goto('/');
- await expect(page.getByRole('heading',{name:'Study 查看器'})).toBeVisible();
- await page.getByRole('button',{name:'研究说明',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Auto-Gaussian'})).toBeVisible();
+ await page.getByRole('button',{name:'文件',exact:true}).click();await page.getByRole('button',{name:'研究说明',exact:true}).click();
  await expect(page.getByText('仅用于查看器测试；能量与振动数据为虚构，不是研究结果。',{exact:false})).toBeVisible();
- await page.getByRole('button',{name:'分析结果',exact:true}).click();
+ await page.getByRole('button',{name:'分析',exact:true}).click();
  const table=page.getByRole('table',{name:'热化学表'});
  await expect(table).toContainText('简并度');await expect(table).toContainText('50.000%');
  await expect(page.getByText('ensemble_G', {exact:false}).first()).toContainText('-157.00065446');
  await expect(page.getByRole('heading',{name:'dedup-demo.json'})).toBeVisible();
  await expect(page.getByRole('heading',{name:'cluster-demo.json'})).toBeVisible();
- await page.getByRole('button',{name:'关系图',exact:true}).click();
+ await page.getByRole('button',{name:'文件',exact:true}).click();await page.getByRole('button',{name:'关系图',exact:true}).click();
  await expect(page.getByRole('img',{name:'Attempt 关系图'})).toBeVisible();
  await expect(page.getByText('missing-seed · 缺失父节点')).toBeVisible();
  await page.getByRole('button',{name:'waiting · unknown'}).click();
@@ -46,7 +46,7 @@ test('all UI traffic is read-only, old controls absent and refresh works',async(
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/');
- for(const name of ['Attempts','关系图','分析结果','研究说明'])await page.getByRole('button',{name,exact:true}).click();
+ for(const name of ['Attempts','文件','关系图','分析','文件','研究说明'])await page.getByRole('button',{name,exact:true}).click();
  await page.getByRole('button',{name:'刷新',exact:true}).click();
  await expect(page.getByRole('heading',{name:'study.md'})).toBeVisible();
  for(const name of ['提交','取消作业','任务中心','项目库','归档导入','连接集群'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);

@@ -29,7 +29,7 @@ test('list, table/thumbnail/3D linkage, sorting, reasons and saved URL',async({p
  await expect(viewer.getByTestId('atom-distance')).toContainText('0.950');
  await expect(page.getByText('sp · unmatched-demo · 未匹配候选')).toBeVisible();
  await table.getByRole('link',{name:'crest-demo'}).first().click();
- await expect(page).toHaveURL(/#\/ensemble-demo\/crest-demo$/);
+ await expect(page).toHaveURL(/#\/s\/ensemble-demo\/a\/crest-demo$/);
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
 

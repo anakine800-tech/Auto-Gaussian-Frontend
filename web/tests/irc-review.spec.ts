@@ -42,7 +42,7 @@ test('chart point selects actual frame, highlights atoms, restores URL and histo
  await page.goto(base+'/#/irc-demo/irc-reviews/review.json?direction=forward&point=0');
  const energy=page.getByRole('region',{name:'能量曲线',exact:true});
  await energy.locator('circle[data-direction="reverse"][data-point="2"]').click();
- await expect(page).toHaveURL(base+'/#/irc-demo/irc-reviews/review.json?direction=reverse&point=2');
+ await expect(page).toHaveURL(base+'/#/s/irc-demo/analysis/irc/review.json?direction=reverse&point=2');
  await expect(page.getByTestId('irc-selected')).toHaveText('reverse 点 2 · XYZ 帧 2（从 0 开始）');
  const atom=page.locator('.irc-structure [data-testid="molecule-atom"][data-center="1"] circle');
  await expect(atom).toHaveCSS('stroke','rgb(189, 91, 17)');
