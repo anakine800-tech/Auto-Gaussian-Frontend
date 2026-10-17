@@ -128,9 +128,10 @@ test('removed parent cluster requires an explicit choice and disabled Gaussian c
 
 test('server reads both physical synthetic cluster caches',async({page})=>{
  await page.goto('/#server');
- await expect(page.getByRole('region',{name:'集群 default',exact:true})).toContainText('synthetic-node');
- const batch=page.getByRole('region',{name:'集群 batch',exact:true});
+ for(const name of ['default','batch'])await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:`集群 ${name} · 节点、队列与警告`}).click();
+ await expect(page.getByRole('region',{name:'集群 default 详细信息',exact:true})).toContainText('synthetic-node');
+ const batch=page.getByRole('region',{name:'集群 batch 详细信息',exact:true});
  await expect(batch).toContainText('预算 1000 · 已用 1.5 · 预留 2 核时');
  await expect(batch).toContainText('存储占用：1024 KiB');
- await expect(batch).toContainText('运行 16 · 排队 0 · 总上限 96');
+ await expect(page.getByRole('region',{name:'集群 batch',exact:true})).toContainText('运行 16 · 排队 0 · 总上限 96');
 });
