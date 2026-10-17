@@ -24,12 +24,12 @@ function Disclosure({storageKey,title,children,defaultOpen=false}:{storageKey:st
  const [open,setOpen]=useState(()=>{const saved=readPreference(storageKey,'');return saved==='true'?true:saved==='false'?false:defaultOpen;});
  return <details className="Collapsible" open={open}><summary onClick={e=>{e.preventDefault();const value=!open;setOpen(value);savePreference(storageKey,String(value));}}>{title}</summary>{children}</details>;
 }
-export type TableColumn<Row>={key:string;label:string;render:(row:Row)=>ReactNode;optional?:boolean;defaultVisible?:boolean};
+export type TableColumn<Row>={key:string;label:string;render:(row:Row)=>ReactNode;optional?:boolean;defaultVisible?:boolean;onSort?:()=>void;sort?:'ascending'|'descending'|'none'};
 export function DataTable<Row>({label,rows,columns,rowKey}:{label:string;rows:Row[];columns:TableColumn<Row>[];rowKey:(row:Row)=>Key}){
  const [choices,setChoices]=useState<Record<string,boolean>>({});
  const visible=columns.filter(c=>!c.optional||(choices[c.key]??c.defaultVisible??false));
  return <div className="DataTable">{columns.some(c=>c.optional)&&<details className="column-picker"><summary>显示列</summary><fieldset><legend>{label}的可选列</legend>{columns.filter(c=>c.optional).map(c=><label key={c.key}><input type="checkbox" checked={choices[c.key]??c.defaultVisible??false} onChange={e=>setChoices({...choices,[c.key]:e.target.checked})}/>{c.label}</label>)}</fieldset></details>}
- <div className="table-scroll"><table aria-label={label}><thead><tr>{visible.map(c=><th key={c.key} scope="col">{c.label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={rowKey(row)}>{visible.map(c=><td key={c.key}>{c.render(row)}</td>)}</tr>)}</tbody></table></div>{rows.length===0&&<EmptyState>暂无记录。</EmptyState>}</div>;
+ <div className="table-scroll"><table aria-label={label}><thead><tr>{visible.map(c=><th key={c.key} scope="col" aria-sort={c.sort}>{c.onSort?<button onClick={c.onSort}>{c.label}{c.sort==='ascending'?' ↑':c.sort==='descending'?' ↓':''}</button>:c.label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={rowKey(row)}>{visible.map(c=><td key={c.key}>{c.render(row)}</td>)}</tr>)}</tbody></table></div>{rows.length===0&&<EmptyState>暂无记录。</EmptyState>}</div>;
 }
 export function Drawer({open,onClose,title,children}:{open:boolean;onClose:()=>void;title:string;children:ReactNode}){
  const ref=useRef<HTMLDialogElement>(null),id=useId();

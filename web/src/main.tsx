@@ -9,11 +9,11 @@ import {EnsembleList,EnsemblePage} from './ensemble-panels';
 import {routeHash,studyHash} from './routing';
 import type {Attempt,Study} from './api';
 import {ServerMonitor} from './server-monitor';
-import {Results,StudyMarkdown,Optimization} from './results-panels';
+import {StudyMarkdown,Optimization} from './results-panels';
 import {Analyses,FileView,PagedLog,RelationshipGraph} from './study-panels';
 import {ModeReviewViewer} from './mode-panels';
 import type {ReviewModes} from './mode-panels';
-import {Collapsible,EmptyState,ErrorNotice,StatusBadge,readPreference,savePreference,statusTone} from './ui';
+import {Collapsible,EmptyState,ErrorNotice,StatusBadge,readPreference,savePreference} from './ui';
 import {GlobalSearch,indexAttempt} from './ui/search';
 import type {AttemptIndex} from './ui/search';
 import type {AttemptFile} from './routing';
@@ -22,6 +22,9 @@ import './ui/tokens.css';
 import './style.css';
 import './molecule-layout.css';
 import './ui/shell.css';
+import './ui/overview.css';
+import {StudyOverview} from './overview';
+import {AttemptTable} from './attempt-table';
 
 type Modes=ReviewModes;
 function AttemptView({study,id,revision,busy,onBusy,onResult,autoCompare,selectedFile,onLoaded}:{selectedFile?:AttemptFile;onLoaded:(study:string,data:Attempt)=>void;study:string;id:string;revision:number;busy:boolean;onBusy:(v:boolean)=>void;onResult:(r:ActionResult)=>void;autoCompare:boolean}){
@@ -84,7 +87,7 @@ function App(){
  const completed=(result:ActionResult)=>{setActionResult(result);setRevision(r=>r+1);if(result.new_attempt)choose(result.new_attempt);};
  const top=route.server?'jobs':view==='analysis'?'analysis':view==='files'?'files':'study';
  const title=list?.studies.find(s=>s.id===study)?.title??study;
- const attempt=route.attempt??(view==='attempts'?data?.attempts[0]?.id:undefined);
+ const attempt=route.attempt;
  const fileTab=route.fileTab??'document';
  const detail=route.attempt??route.ensemble?.join('/')??route.irc?.join('/')??route.structure?.join('/')??route.report;
  const back=route.attempt?studyHash(study,'attempts'):view==='analysis'?studyHash(study,'analysis'):studyHash(study,'files',fileTab);
@@ -103,9 +106,9 @@ function App(){
  {top==='study'&&<nav className="section-nav" aria-label="Study 内容"><button aria-current={view==='overview'?'page':undefined} onClick={()=>navigate(studyHash(study))}>概览</button><button aria-current={view==='attempts'?'page':undefined} onClick={()=>navigate(studyHash(study,'attempts'))}>Attempts</button></nav>}
  {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['document','研究说明'],['structures','结构文件'],['graph','关系图'],['analyses','其他分析文件']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
  {data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
- {view==='overview'&&<><Results key={study} data={data} onSelect={choose} revision={revision}/><IRCReports study={study} revision={revision}/></>}
+ {view==='overview'&&<StudyOverview key={study} data={data}/>}
  {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses analyses={data.analyses.filter(a=>a.name===route.report)}/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<><EnsembleList study={study} revision={revision}/><IRCReports study={study} revision={revision}/><Analyses analyses={data.analyses}/></>)}
- {view==='attempts'&&<><div className="table-scroll"><table aria-label="Attempt 状态列表"><thead><tr><th>Attempt</th><th>标签</th><th>程序</th><th>状态</th><th>读取问题</th></tr></thead><tbody>{data.attempts.map(a=><tr key={a.id} className={attempt===a.id?'selected':''}><td><button onClick={()=>choose(a.id)}>{a.id}</button></td><td>{a.label??'—'}</td><td>{a.template??'—'}</td><td><StatusBadge tone={statusTone(a.state)}>{a.state}</StatusBadge></td><td>{[a.manifest.error,a.status.error].filter(Boolean).join(' · ')||'—'}</td></tr>)}</tbody></table></div>{attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt} selectedFile={route.attemptFile} onLoaded={onLoaded}/>:<EmptyState>尚无 Attempt。</EmptyState>}</>}
+ {view==='attempts'&&(attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt} selectedFile={route.attemptFile} onLoaded={onLoaded}/>:<AttemptTable key={study} data={data}/>)}
  {view==='files'&&(route.report?(data.analyses.some(a=>a.name===route.report)?<Analyses analyses={data.analyses.filter(a=>a.name===route.report)}/>:<ErrorNotice>找不到分析文件：{route.report}</ErrorNotice>):fileTab==='document'?<StudyMarkdown doc={data.study}/>:fileTab==='graph'?<RelationshipGraph graph={data.graph} onSelect={choose}/>:fileTab==='structures'||route.structure?<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={parts=>navigate(routeHash([study,...parts]))} revision={revision}/>:<Analyses analyses={data.analyses}/>)}
  </>}
  </main></div>}

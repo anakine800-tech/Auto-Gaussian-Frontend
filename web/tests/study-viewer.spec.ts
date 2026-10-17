@@ -15,13 +15,15 @@ test('study navigation, saved thermo, missing parents and unknown status',async(
  await expect(page.getByRole('img',{name:'Attempt 关系图'})).toBeVisible();
  await expect(page.getByText('missing-seed · 缺失父节点')).toBeVisible();
  await page.getByRole('button',{name:'waiting · unknown'}).click();
- await expect(page.getByRole('table',{name:'Attempt 状态列表'})).toContainText('unknown');
+ await page.getByText('manifest.json 与 status.json',{exact:true}).click();
+ await expect(page.locator('#record-status\\.json')).toContainText('unknown');
  await expect(page.getByRole('heading',{name:'waiting',exact:true})).toBeVisible();
  await expect(page.getByText('尚无 outputs 日志。')).toBeVisible();
 });
 
 test('final.xyz molecule, Gaussian vectors, animation and exact log pages',async({page},testInfo)=>{
  await page.goto('/');await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'anti',exact:true}).click();
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
  await expect(page.getByTestId('raw-log')).toContainText('Synthetic pagination line');
  const first=await page.getByTestId('raw-log').textContent();
@@ -56,6 +58,7 @@ test('all UI traffic is read-only, old controls absent and refresh works',async(
 test('mobile study, attempts and molecule stay usable',async({page},testInfo)=>{
  await page.setViewportSize({width:390,height:844});await page.goto('/');
  await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'anti',exact:true}).click();
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  await page.screenshot({path:testInfo.outputPath('mobile.png'),fullPage:true});
@@ -64,6 +67,7 @@ test('mobile study, attempts and molecule stay usable',async({page},testInfo)=>{
 test('malformed log leaves final.xyz and saved facts available',async({page})=>{
  await page.route('**/vibrations/*',route=>route.fulfill({status:422,contentType:'application/json',body:JSON.stringify({detail:'No unambiguous supported Gaussian Cartesian vibration table'})}));
  await page.goto('/');await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'anti',exact:true}).click();
  await page.getByRole('button',{name:'解析振动位移'}).click();
  await expect(page.getByText('No unambiguous supported Gaussian Cartesian vibration table')).toBeVisible();
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');

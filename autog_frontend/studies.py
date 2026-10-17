@@ -5,6 +5,7 @@ an escaping symlink between validation and open. Limits prevent a malformed loca
 file from exhausting the viewer. There is no cache, index, or derived-file write.
 """
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import errno
 import difflib
 import hashlib
@@ -22,6 +23,7 @@ from .optimization import parse_optimization
 from .monitor import validate_monitor
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
+from .study_summary import parse_sections
 
 
 class StudyError(Exception):
@@ -133,6 +135,25 @@ class Studies:
             result.append({'id': name, 'title': title})
         return {'studies': result, 'issues': issues}
 
+    def review_state(self, base):
+        try:
+            return 'present' if self.read((*base, 'review.md')).decode('utf-8').strip() else 'empty'
+        except StudyError as exc:
+            return 'missing' if exc.status == 404 else 'unreadable'
+        except UnicodeError:
+            return 'unreadable'
+
+    def analysis_document(self, study, parts):
+        path = (study, 'analyses', *parts)
+        doc = self.document(path, parts[-1].endswith('.json'))
+        updated = None
+        try:
+            with self.open_file(path) as stream:
+                updated = datetime.fromtimestamp(os.fstat(stream.fileno()).st_mtime, timezone.utc).isoformat()
+        except (StudyError, ValueError, OverflowError):
+            pass
+        return {'name': '/'.join(parts), **doc, 'updated_at': updated}
+
     def study(self, study):
         component(study)
         with self.open_dir((study,)):
@@ -149,7 +170,7 @@ class Studies:
             attempts.append({'id': name, 'label': m.get('label') if isinstance(m.get('label'), str) else None,
                              'template': m.get('template') if isinstance(m.get('template'), str) else None,
                              'state': s.get('state') if isinstance(s.get('state'), str) else 'unavailable', 'manifest': manifest, 'status': status,
-                             'facts': self.document((*base, 'facts.json'), True)})
+                             'facts': self.document((*base, 'facts.json'), True), 'review_state': self.review_state(base)})
             if m.get('attempt_id', name) != name:
                 issues.append({'path': f'attempts/{name}', 'error': 'manifest attempt_id differs from directory; graph uses directory ID'})
             parents = m.get('parents', [])
@@ -172,8 +193,21 @@ class Studies:
             if error:
                 issues.append({'path': f'analyses/{name}', 'error': error})
             elif name.endswith(('.json', '.md', '.csv', '.txt')):
-                analyses.append({'name': name, **self.document((study, 'analyses', name), name.endswith('.json'))})
-        return {'id': study, 'study': self.document((study, 'study.md')), 'attempts': attempts,
+                analyses.append(self.analysis_document(study, (name,)))
+        # The same one-subdirectory depth already used by ensemble/IRC viewers.
+        for folder, error in self.names((study, 'analyses'), directories=True):
+            if error:
+                continue  # Root symlinks were reported above; never follow them.
+            try:
+                for name, error in self.names((study, 'analyses', folder)):
+                    if error:
+                        issues.append({'path': f'analyses/{folder}/{name}', 'error': error})
+                    elif name.endswith(('.json', '.md', '.csv', '.txt')):
+                        analyses.append(self.analysis_document(study, (folder, name)))
+            except StudyError as exc:
+                issues.append({'path': f'analyses/{folder}', 'error': str(exc)})
+        document = self.document((study, 'study.md'))
+        return {'id': study, 'study': document, 'sections': parse_sections(document['data']), 'attempts': attempts,
                 'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
 
     def attempt(self, study, attempt):
