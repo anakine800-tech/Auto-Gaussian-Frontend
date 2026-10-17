@@ -1,5 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {endpoint,get} from './api';
+import {locationChanged} from './navigation';
+import {readPreference,savePreference} from './ui';
 import {routeHash} from './routing';
 import {MoleculeViewer} from './molecule-viewer';
 import type {Atom} from './molecule-math';
@@ -21,12 +23,12 @@ export function EnsembleList({study,revision}:{study:string;revision:number}){
 function Thumbnail({row,atoms,selected,onSelect}:{row:Candidate;atoms:Atom[];selected:boolean;onSelect:()=>void}){
  const ref=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{const canvas=ref.current;if(!canvas)return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){drawThumbnail(canvas,atoms);observer.disconnect();}});observer.observe(canvas);return()=>observer.disconnect();},[atoms]);
- return <button aria-label={`候选 ${row.candidate} 缩略图`} aria-pressed={selected} onClick={onSelect} style={{padding:6,border:selected?'3px solid #176c70':'3px solid transparent',background:'#f3f7f6',color:'#243e40',borderRadius:8}}><canvas ref={ref} width={160} height={130} style={{display:'block',maxWidth:'100%'}}/>候选 {row.candidate}</button>;
+ return <button aria-label={`候选 ${row.candidate} 缩略图`} aria-pressed={selected} onClick={onSelect} className="candidate-thumbnail"><canvas ref={ref} width={160} height={130}/>候选 {row.candidate}</button>;
 }
 type Filters={bins:string[][];near:boolean};
 const dihedralLabel=(atoms:number[])=>`二面角 ${atoms.join('–')}`;
 function readFilters(scope:string,definitions?:Descriptors):Filters{
- const params=new URLSearchParams(window.location.search),active=params.get('ensembleScope')===scope;
+ const params=new URLSearchParams(window.location.search),active=[scope,scope.replace('#/s/','#/').replace('/analysis/ensemble/','/ensembles/')].includes(params.get('ensembleScope')??'');
  return {bins:definitions?.dihedral_bins.map((d,i)=>active?params.getAll(`ensembleBin${i}`).filter(v=>d.names.includes(v)):[])??[],near:active&&params.get('ensembleNearBoundary')==='1'};
 }
 function EnsembleContent({data,study,parts,candidate}:{data:Ensemble;study:string;parts:string[];candidate?:number}){
@@ -45,9 +47,9 @@ function EnsembleContent({data,study,parts,candidate}:{data:Ensemble;study:strin
    next.bins.forEach((names,i)=>names.forEach(name=>location.searchParams.append(`ensembleBin${i}`,name)));
    if(next.near)location.searchParams.set('ensembleNearBoundary','1');
   }
-  window.history.pushState(null,'',location);setFilters(next);setPage(0);
+  window.history.pushState({...window.history.state,agScroll:window.scrollY},'',location);locationChanged();setFilters(next);setPage(0);
  };
- const [sort,setSort]=useState({key:'candidate',direction:1}),[page,setPage]=useState(0);
+ const [sort,setSort]=useState(()=>{const [key,direction]=readPreference('sort:'+scope,'candidate:1').split(':');return {key:['candidate','xtb','sp','opt','thermo'].includes(key)?key:'candidate',direction:direction==='-1'?-1:1};}),[page,setPage]=useState(0);
  const selected=candidate??m.candidates[0]?.candidate;
  const energy=(row:Candidate,key:string):number|null=>key==='xtb'?row.xtb_relative_kcal:key==='sp'?row.sp?.relative_kcal??null:key==='opt'?row.opt?.relative_kcal??null:key==='thermo'?row.thermo?.relative_G_kcal??null:row.candidate;
  const filtered=m.descriptors?m.candidates.filter(r=>(!filters.near||r.local!.near_boundary)&&filters.bins.every((names,i)=>!names.length||names.includes(r.local!.bins[i]))):m.candidates;
@@ -57,7 +59,7 @@ function EnsembleContent({data,study,parts,candidate}:{data:Ensemble;study:strin
  const shown=rows.slice(currentPage*50,(currentPage+1)*50),row=m.candidates.find(r=>r.candidate===selected);
  const choose=(id:number)=>{window.location.hash=url(study,parts,id);};
  const reason=(r:Candidate,layer?:Layer|null)=>[r.missing.length?'missing: '+r.missing.join(', '):'',layer?.ambiguous?'ambiguous: '+layer.attempts.join(', '):'',...r.notes].filter(Boolean).join(' · ')||'未提供';
- const sortButton=(key:string,label:string)=><button onClick={()=>{setSort(s=>({key,direction:s.key===key?-s.direction:1}));setPage(0);}}>{label}{sort.key===key?(sort.direction===1?' ↑':' ↓'):''}</button>;
+ const sortButton=(key:string,label:string)=><button onClick={()=>{setSort(s=>{const next={key,direction:s.key===key?-s.direction:1};savePreference('sort:'+scope,`${key}:${next.direction}`);return next;});setPage(0);}}>{label}{sort.key===key?(sort.direction===1?' ↑':' ↓'):''}</button>;
  return <section aria-label="构象集合页"><h2>{m.label??parts.at(-1)}</h2><a href={routeHash([study])}>返回结果</a>
  {m.descriptor_error&&<p role="alert">局部构象数据不可用：{m.descriptor_error}</p>}
  {m.warnings.map((warning,i)=><p role="note" className="notice" key={i}>{warning}</p>)}
@@ -75,7 +77,7 @@ function EnsembleContent({data,study,parts,candidate}:{data:Ensemble;study:strin
  <td title={reason(r,r.sp)}>{value(r.sp?.relative_kcal)}</td><td title={reason(r,r.opt)}>{r.opt?.termination??''}{r.opt?.n_imaginary!=null?` / ${r.opt.n_imaginary}`:''}{r.opt?.ambiguous?' ambiguous':''}</td><td title={reason(r,r.opt)}>{value(r.opt?.relative_kcal)}</td>
  <td title={reason(r)}>{value(r.thermo?.relative_G_kcal)}</td><td title={reason(r)}>{r.thermo?.population==null?'':`${r.thermo.population*100}%`}</td><td>{r.missing.join(', ')}{r.notes.length>0&&<details onClick={e=>e.stopPropagation()}><summary>备注</summary>{r.notes.map((note,i)=><p key={i}>{note}</p>)}</details>}</td>{m.descriptors&&<>{r.local!.bins.map((bin,i)=><td key={`angle-${i}`} title={`${r.local!.dihedrals[i]}°`}>{bin}</td>)}<td>{r.local!.near_boundary?'是 ⚑':'否'}</td>{r.local!.distances.map((distance,i)=><td key={`distance-${i}`}>{distance.toFixed(3)}</td>)}</>}</tr>)}</tbody></table></div>
  <div className="frame-controls" aria-label="候选分页"><button disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}>上一组</button><span>第 {currentPage+1} / {Math.max(1,Math.ceil(rows.length/50))} 页 · 每页最多 50 个</span><button disabled={(currentPage+1)*50>=rows.length} onClick={()=>setPage(currentPage+1)}>下一组</button></div>
- <div role="group" aria-label="候选缩略图" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(172px,1fr))',gap:12,margin:'16px 0'}}>{shown.map(r=><Thumbnail key={r.candidate} row={r} atoms={data.frames[r.xyz_frame-1].geometry.atoms} selected={r.candidate===selected} onSelect={()=>choose(r.candidate)}/>)}</div>
+ <div role="group" aria-label="候选缩略图" className="thumbnail-grid">{shown.map(r=><Thumbnail key={r.candidate} row={r} atoms={data.frames[r.xyz_frame-1].geometry.atoms} selected={r.candidate===selected} onSelect={()=>choose(r.candidate)}/>)}</div>
  {row?<><h3>当前候选 {row.candidate}</h3><MoleculeViewer key={row.candidate} last={data.frames[row.xyz_frame-1].geometry} frameLabel={`候选 ${row.candidate} · 第 ${row.xyz_frame} 帧`}/></>:<p role="alert">{candidate===undefined?'清单没有候选。':'URL 中的候选不存在。'}</p>}
  {m.descriptors&&m.bin_summary&&<section aria-label="分组汇总"><h3>分组汇总</h3><p className="muted">完整清单的保存值，不随筛选重算；最低能候选不代表科学验收。</p><div className="table-scroll"><table aria-label="分组汇总表"><thead><tr><th>分组组合（按二面角列顺序）</th><th>候选数</th><th>最低能候选</th><th>所用层级</th></tr></thead><tbody>{m.bin_summary.map((group,i)=><tr key={i}><td>{group.bins.join(' / ')||'未定义二面角分组'}</td><td>{group.count}</td><td>{group.lowest_candidate===null?'未提供':<a href={url(study,parts,group.lowest_candidate)} onClick={()=>{updateFilters({bins:m.descriptors!.dihedral_bins.map(()=>[]),near:false});const index=rows.findIndex(r=>r.candidate===group.lowest_candidate);if(index>=0)setPage(Math.floor(index/50));}}>候选 {group.lowest_candidate}</a>}</td><td>{group.lowest_layer??'未提供'}</td></tr>)}</tbody></table></div></section>}
  <h3>未匹配的 Attempts</h3>{m.unmatched_attempts.length?<ul>{m.unmatched_attempts.map((a,i)=><li key={i}>{a.layer} · {a.attempt} · {a.reason}</li>)}</ul>:<p>无记录。</p>}

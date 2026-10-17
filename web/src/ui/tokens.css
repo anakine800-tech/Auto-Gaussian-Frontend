@@ -1,0 +1,12 @@
+/* T94: one visual vocabulary for shell and existing pages. */
+:root {
+ --accent:#14666b;--accent-soft:#e5f1ef;--ink:#243a40;--muted:#667a7f;--line:#dce5e5;
+ --surface:#fff;--surface-soft:#f5f8f8;
+ --ok:#23724a;--ok-bg:#eaf5ef;--warn:#8b5e16;--warn-bg:#fff4dc;
+ --bad:#a93c38;--bad-bg:#fff0ee;--info:#286c97;--info-bg:#eaf3fa;--neutral:#627479;--neutral-bg:#eef2f3;
+ --fs-xs:11px;--fs-sm:12px;--fs-md:13px;--fs-lg:16px;--fs-kpi:24px;
+ --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-6:24px;--radius:7px;
+ --sidebar:#f0f5f4;--shadow:#243a401a;--overlay:#243a404d;--highlight:#bd5b11;--highlight-glow:#e3a236;
+ font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+ font-size:var(--fs-md);color:var(--ink);background:var(--surface-soft);font-variant-numeric:tabular-nums;
+}

@@ -71,6 +71,7 @@ test('all referenced CSS variables are defined',()=>{
  const defined=new Set([...all.matchAll(/(--[\w-]+)\s*:/g)].map(m=>m[1]));
  const missing=files.flatMap(file=>[...readFileSync(file,'utf8').matchAll(/var\((--[\w-]+)/g)].filter(m=>!defined.has(m[1])).map(m=>`${file.slice(source.length+1)}: ${m[1]}`));
  expect(missing).toEqual([]);
+ expect(files.filter(f=>f.endsWith('.tsx')).filter(f=>/<style\b|style=\{/.test(readFileSync(f,'utf8')))).toEqual([]);
 });
 
 

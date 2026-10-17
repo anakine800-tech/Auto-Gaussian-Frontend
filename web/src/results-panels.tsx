@@ -1,3 +1,4 @@
+import {readPreference,savePreference} from './ui';
 import {Children,isValidElement,useEffect,useState} from 'react';
 import type {ReactNode} from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -30,7 +31,7 @@ function values(a:AttemptSummary){
  return [a.id,a.label,a.state,facts.route??a.template,facts.termination,energies.scf,facts.n_imag,low,energies.g].map(v=>typeof v==='string'||typeof v==='number'?v:null);
 }
 export function Results({data,onSelect,revision}:{data:Study;onSelect:(id:string)=>void;revision:number}){
- const [sort,setSort]=useState({column:0,direction:1});
+ const [sort,setSort]=useState(()=>{const [column,direction]=readPreference('sort:results:'+data.id,'0:1').split(':');return {column:/^[0-8]$/.test(column)?Number(column):0,direction:direction==='-1'?-1:1};});
  const files=data.structure_files.filter(f=>f.parts[0]==='analyses');
  const [selected,setSelected]=useState<string[]|null>(files.find(f=>!f.error)?.parts??null);
  const rows=data.attempts.map(a=>({a,cells:values(a)})).sort((a,b)=>{
@@ -39,7 +40,7 @@ export function Results({data,onSelect,revision}:{data:Study;onSelect:(id:string
   return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y)))*sort.direction;
  });
  return <section aria-label="结果总览"><h2>结果总览</h2><p className="muted">数值来自 facts.json；标签、模板和状态来自 manifest / status。空值表示未提供。</p>
- <div className="table-scroll"><table aria-label="Attempt 结果表"><thead><tr>{columns.map((c,i)=><th key={c} aria-sort={sort.column===i?(sort.direction===1?'ascending':'descending'):'none'}><button onClick={()=>setSort(s=>({column:i,direction:s.column===i?-s.direction:1}))}>{c}{sort.column===i?(sort.direction===1?' ↑':' ↓'):''}</button></th>)}</tr></thead><tbody>{rows.map(({a,cells})=><tr key={a.id} onClick={()=>onSelect(a.id)} className="result-row">{cells.map((v,i)=><td key={i}>{i===0?<button onClick={e=>{e.stopPropagation();onSelect(a.id);}}>{a.id}</button>:display(v)}</td>)}</tr>)}</tbody></table></div>
+ <div className="table-scroll"><table aria-label="Attempt 结果表"><thead><tr>{columns.map((c,i)=><th key={c} aria-sort={sort.column===i?(sort.direction===1?'ascending':'descending'):'none'}><button onClick={()=>setSort(s=>{const next={column:i,direction:s.column===i?-s.direction:1};savePreference('sort:results:'+data.id,`${i}:${next.direction}`);return next;})}>{c}{sort.column===i?(sort.direction===1?' ↑':' ↓'):''}</button></th>)}</tr></thead><tbody>{rows.map(({a,cells})=><tr key={a.id} onClick={()=>onSelect(a.id)} className="result-row">{cells.map((v,i)=><td key={i}>{i===0?<button onClick={e=>{e.stopPropagation();onSelect(a.id);}}>{a.id}</button>:display(v)}</td>)}</tr>)}</tbody></table></div>
  {data.attempts.filter(a=>a.facts.error||a.manifest.error||a.status.error).map(a=><p className="muted" key={a.id}>{a.id}：{[a.facts.error,a.manifest.error,a.status.error].filter(Boolean).join(' · ')}</p>)}
  <EnsembleList study={data.id} revision={revision}/>
  <Analyses analyses={data.analyses.filter(a=>object(a.data)&&a.data.schema==='ag-thermo/1')}/>
@@ -55,10 +56,10 @@ function EnergyChart({steps,selected,onSelect}:{steps:Step[];selected:number;onS
  const min=Math.min(...energies),max=Math.max(...energies),span=max-min||1;
  const x=(i:number)=>70+i*700/Math.max(1,steps.length-1),y=(v:number)=>210-(v-min)/span*160;
  return <svg viewBox="0 0 820 265" className="energy-chart" role="img" aria-label="优化相对能量折线图">
- <text x="16" y="20">ΔE / kcal·mol⁻¹（首步 = 0）</text><path d="M70 40 V215 H790" fill="none" stroke="#7b9395"/>
+ <text x="16" y="20">ΔE / kcal·mol⁻¹（首步 = 0）</text><path d="M70 40 V215 H790" fill="none" stroke="var(--muted)"/>
  <text x="8" y="55">{max.toFixed(3)}</text><text x="8" y="212">{min.toFixed(3)}</text>
- <polyline points={energies.map((v,i)=>`${x(i)},${y(v)}`).join(' ')} fill="none" stroke="#176c70" strokeWidth="3"/>
- {energies.map((v,i)=><g key={i}><circle cx={x(i)} cy={y(v)} r={selected===i?7:4} fill={selected===i?'#ba6529':'#176c70'} onClick={()=>onSelect(i)}><title>步 {i+1}: {v.toFixed(6)} kcal/mol</title></circle>{(steps.length<=20||i===selected)&&<text x={x(i)} y="237" textAnchor="middle">{i+1}</text>}</g>)}<text x="740" y="259">优化步</text></svg>;
+ <polyline points={energies.map((v,i)=>`${x(i)},${y(v)}`).join(' ')} fill="none" stroke="var(--accent)" strokeWidth="3"/>
+ {energies.map((v,i)=><g key={i}><circle cx={x(i)} cy={y(v)} r={selected===i?7:4} fill={selected===i?'var(--warn)':'var(--accent)'} onClick={()=>onSelect(i)}><title>步 {i+1}: {v.toFixed(6)} kcal/mol</title></circle>{(steps.length<=20||i===selected)&&<text x={x(i)} y="237" textAnchor="middle">{i+1}</text>}</g>)}<text x="740" y="259">优化步</text></svg>;
 }
 function OptimizationSegment({segment}:{segment:Segment}){
  const [index,setIndex]=useState(0),[playing,setPlaying]=useState(false);

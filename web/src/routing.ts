@@ -1,4 +1,5 @@
-export type Route={study:string;view?:'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;attempt?:string;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
+export type AttemptFile={kind:'inputs'|'logs'|'record';name:string};
+export type Route={study:string;view?:'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
 const hash=(parts:string[])=>'#/'+parts.map(encodeURIComponent).join('/');
 // Existing page links keep their object identity while adopting the new shell.
 export function routeHash(parts:string[]):string{
@@ -6,6 +7,7 @@ export function routeHash(parts:string[]):string{
  const [study,kind,...rest]=parts;
  if(!kind)return hash(['s',study]);
  if(kind==='ensembles'||kind==='irc-reviews')return hash(['s',study,'analysis',kind==='ensembles'?'ensemble':'irc',...rest]);
+ if(kind==='analyses'&&!rest.at(-1)?.endsWith('.xyz'))return hash(['s',study,'analysis','file',...rest]);
  if(kind==='structures'||kind==='analyses')return hash(['s',study,'files',kind,...rest]);
  return hash(['s',study,'a',kind]);
 }
@@ -23,14 +25,23 @@ export function readRoute():Route{
   if(parts[0]!=='s'){
    const valid=parts.length<=2||(['ensembles','irc-reviews','analyses'].includes(parts[1])&&[3,4].includes(parts.length))||(parts[1]==='structures'&&parts.length===4);
    if(!valid)throw Error();
-   window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search+routeHash(parts)+query);
+   const tab=new URLSearchParams(query||window.location.search).get('tab');
+   const tabs:Record<string,string[]>={results:[],overview:['files','document'],attempts:['attempts'],graph:['files','graph'],structures:['files','structures'],analyses:['analysis'],ensembles:['analysis'],'irc-reviews':['analysis']};
+   const target=parts.length===1&&tab&&Object.hasOwn(tabs,tab)?studyHash(parts[0],...tabs[tab]):routeHash(parts);
+   window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search+target+query);
    return readRoute();
   }
   const [,study,section,...rest]=parts;
   if(!study)throw Error();
   if(!section)return {study,view:'overview'};
   if(section==='attempts'&&!rest.length)return {study,view:'attempts'};
-  if(section==='a'&&rest.length===1)return {study,view:'attempts',attempt:rest[0]};
+  if(section==='a'&&rest.length===1){
+   const params=new URLSearchParams(query),kind=params.get('fileKind'),name=params.get('file');
+   if(kind===null&&name===null)return {study,view:'attempts',attempt:rest[0]};
+   if(params.getAll('fileKind').length!==1||params.getAll('file').length!==1||!['inputs','logs','record'].includes(kind??'')||!name||name==='.'||name==='..'||/[\/\\\0]/.test(name))throw Error();
+   if(kind==='record'&&!['manifest.json','status.json','facts.json','review.md','final.xyz'].includes(name))throw Error();
+   return {study,view:'attempts',attempt:rest[0],attemptFile:{kind:kind as AttemptFile['kind'],name}};
+  }
   if(section==='analysis'){
    if(!rest.length)return {study,view:'analysis'};
    if(![2,3].includes(rest.length))throw Error();
@@ -50,7 +61,7 @@ export function readRoute():Route{
   if(section==='files'){
    if(!rest.length)return {study,view:'files',fileTab:'document'};
    if(rest.length===1&&['document','graph','structures','analyses'].includes(rest[0]))return {study,view:'files',fileTab:rest[0]};
-   if(rest[0]==='structures'&&rest.length===3||rest[0]==='analyses'&&[2,3].includes(rest.length))return {study,view:'files',fileTab:rest[0],structure:rest};
+   if(rest[0]==='structures'&&rest.length===3||rest[0]==='analyses'&&[2,3].includes(rest.length))return rest[0]==='analyses'&&!rest.at(-1)?.endsWith('.xyz')?{study,view:'files',fileTab:'analyses',report:rest.slice(1).join('/')}:{study,view:'files',fileTab:rest[0],structure:rest};
   }
  }catch{/* Invalid URLs remain visible as an error, not a file request. */}
  return {study:'',error:'无法打开链接：Study / Attempt / 结构文件路径格式不正确。'};

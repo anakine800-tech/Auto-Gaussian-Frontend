@@ -2,19 +2,21 @@ import {useEffect,useState} from 'react';
 import {display,endpoint,get,object} from './api';
 import type {Attempt,Document,StructureFile} from './api';
 import {MoleculeViewer} from './molecule-viewer';
+import {Collapsible,FactGrid} from './ui';
 
 type InputFile={name:string;text:string;sha256:string;size_bytes:number;manifest_sha256:string|null;hash_matches:boolean|null};
 type Diff={lines:string[];truncated:boolean;identical:boolean;parent_final_newline:boolean;input_final_newline:boolean};
 export function InputSummary({input,manifest}:{input:Document;manifest:Document}){
  const data=object(input.data)?input.data:null,m=object(manifest.data)?manifest.data:{};
  return <section className="input-summary" aria-label="输入参数"><h3>输入参数 · 与确认摘要对照</h3>{data?<>
- <dl>{[['输入文件',data.name],['分子式',data.formula],['原子数',data.n_atoms],['电荷',data.charge],['多重度',data.multiplicity],['%nprocshared',data.nprocshared],['%mem',data.mem],['完整 route',data.route],['资源档位',m.tier],['档位核数',m.cores],['档位内存 / GB',m.mem_gb],['walltime',m.walltime]].map(([name,value])=><div key={String(name)}><dt>{String(name)}</dt><dd>{display(value)}</dd></div>)}</dl>
+ <FactGrid facts={[['输入文件',data.name],['分子式',data.formula],['原子数',data.n_atoms],['电荷',data.charge],['多重度',data.multiplicity],['%nprocshared',data.nprocshared],['%mem',data.mem],['完整 route',data.route],['资源档位',m.tier],['档位核数',m.cores],['档位内存 / GB',m.mem_gb],['walltime',m.walltime]].map(([name,value])=>({label:String(name),value:display(value)}))}/>
  {!data.route&&<p>XYZ 的电荷/多重度由 manifest.template_params 提供；Gaussian route 与 Link0 不适用。</p>}
- <details><summary>输入哈希与提交摘要</summary><p>文件 SHA-256：<code>{display(data.sha256)}</code></p><p>manifest SHA-256：<code>{display(data.manifest_sha256)}</code></p><p>bundle SHA-256：<code>{display(m.bundle_sha256)}</code></p><p>远程相对目录：{display(m.remote_dir)}</p><pre>{JSON.stringify(m.science??m.template_params??{},null,2)}</pre></details>
+ <Collapsible page="attempt" block="input-hashes" title="输入哈希与提交摘要"><p>文件 SHA-256：<code>{display(data.sha256)}</code></p><p>manifest SHA-256：<code>{display(data.manifest_sha256)}</code></p><p>bundle SHA-256：<code>{display(m.bundle_sha256)}</code></p><p>远程相对目录：{display(m.remote_dir)}</p><pre>{JSON.stringify(m.science??m.template_params??{},null,2)}</pre></Collapsible>
  <p className={data.hash_matches===false?'notice':'muted'}>{data.hash_matches===true?'输入文件哈希与 manifest 一致。':data.hash_matches===false?'输入文件哈希与 manifest 不一致，请核对确认摘要。':'manifest 未记录可核对的输入哈希。'}</p></>:<p className="notice" role="status">{input.error??'无法预览：输入信息缺失'}</p>}</section>;
 }
-export function InputFiles({study,attempt,data,autoCompare=false}:{study:string;attempt:string;data:Attempt;autoCompare?:boolean}){
- const [name,setName]=useState((autoCompare?data.input_files.find(f=>f.name.endsWith('.gjf')):null)?.name??data.input_files[0]?.name??''),[file,setFile]=useState<InputFile|null>(null),[error,setError]=useState('');
+export function InputFiles({study,attempt,data,autoCompare=false,requestedName}:{requestedName?:string;study:string;attempt:string;data:Attempt;autoCompare?:boolean}){
+ const [name,setName]=useState(requestedName??(autoCompare?data.input_files.find(f=>f.name.endsWith('.gjf')):null)?.name??data.input_files[0]?.name??''),[file,setFile]=useState<InputFile|null>(null),[error,setError]=useState('');
+ useEffect(()=>{if(requestedName)setName(requestedName);},[requestedName]);
  const manifest=object(data.manifest.data)?data.manifest.data:{};
  const parents=Array.isArray(manifest.parents)?manifest.parents.filter(object).map(p=>p.attempt_id).filter((p):p is string=>typeof p==='string'):[];
  const [compare,setCompare]=useState(autoCompare),[parent,setParent]=useState(parents[0]??''),[parentData,setParentData]=useState<Attempt|null>(null),[parentFile,setParentFile]=useState(''),[diff,setDiff]=useState<Diff|null>(null),[diffError,setDiffError]=useState('');
