@@ -27,6 +27,20 @@ test('quick comparison matches T82 protocol normalization and relative energy un
  expect(result.rows[1].relativeElectronic).toBeCloseTo(1.2550189481262,8);expect(result.rows[1].relativeFree).toBeCloseTo(1.8825284221893,8);
  (b.facts.data as any).energies.g=null;expect(compareAttempts([a,b]).rows[1].relativeFree).toBeNull();
 });
+test('comparison keeps saved termination and imaginary count without inferring completion or changing energies',()=>{
+ for(const [termination,nImag,expectedTermination,expectedImag] of [
+  ['normal',0,'normal',0],['error',2,'error',2],['incomplete',1,'incomplete',1],['unknown',null,'unknown',null],
+  [undefined,undefined,null,null],[null,null,null,null],['',-1,null,null],['   ',1.5,null,null],
+  [true,'0',null,null],[{},false,null,null],['future_status',NaN,'future_status',null],['normal',Infinity,'normal',null],
+ ] as const){
+  const a=attempt('a'),b=attempt('b',-75.998,-75.897);
+  Object.assign(b.facts.data as object,{termination,n_imag:nImag,frequencies_cm1:[-100,-50]});
+  b.status.data={state:'finished',termination:'normal',n_imag:0};
+  const result=compareAttempts([a,b]);expect(result.differences).toEqual([]);
+  expect(result.rows[1].termination).toBe(expectedTermination);expect(result.rows[1].nImag).toBe(expectedImag);
+  expect(result.rows[1].relativeElectronic).toBeCloseTo(1.2550189481262,8);expect(result.rows[1].relativeFree).toBeCloseTo(1.8825284221893,8);
+ }
+});
 for(const [field,value,diagnostic] of [
  ['route','# B3LYP/STO-3G Freq','方法不同'],['route','# HF/6-31G Freq','基组不同'],['route','# HF/STO-3G EmpiricalDispersion=GD3BJ','色散不同'],
  ['route','# HF/STO-3G SCRF=(SMD,Solvent=Water)','溶剂'],['route','# HF/STO-3G 6D','基函数形式不同'],
@@ -50,12 +64,38 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T98 li
  for(const title of ['构象集合','IRC','热化学 / 能量剖面','通道覆盖','TS 标签','NCI'])await fullyVisible(page.getByRole('heading',{name:title,exact:true}),page);
  await fullyVisible(page.locator('.analysis-groups'),page);expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await expect(page.locator('body')).not.toContainText('已验证');await page.screenshot({path:info.outputPath(`analysis-${size.width}x${size.height}.png`)});
  await page.getByRole('link',{name:'profile-demo.json',exact:true}).click();await expect(page).toHaveURL(/analysis\/thermo\/profile-demo.json$/);await expect(page.locator('pre')).toContainText('ddG_barrier_kcal');await page.goBack();
- await page.route('**/api/studies/butane-demo/attempts/*',async route=>{const id=route.request().url().split('/').at(-1)!;if(['anti','gauche'].includes(id))await route.fulfill({json:attempt(id,id==='anti'?-157:-156.998,id==='anti'?-156.9:-156.897)});else await route.continue();});
+ await page.route('**/api/studies/butane-demo/attempts/*',async route=>{const id=route.request().url().split('/').at(-1)!;if(['anti','gauche'].includes(id)){const data=attempt(id,id==='anti'?-157:-156.998,id==='anti'?-156.9:-156.897);Object.assign(data.facts.data as object,{termination:id==='anti'?'normal':'error',n_imag:id==='anti'?0:2});await route.fulfill({json:data});}else await route.continue();});
  await page.getByRole('button',{name:'Study',exact:true}).click();await page.getByRole('button',{name:'Attempts',exact:true}).click();
  await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await page.getByRole('checkbox',{name:'比较 gauche',exact:true}).check();await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'});await expect(dialog.getByRole('table')).toContainText('1.255');await expect(dialog.getByRole('table')).toContainText('1.883');await fullyVisible(dialog.getByRole('table'),page);await page.screenshot({path:info.outputPath(`comparison-${size.width}x${size.height}.png`)});
+ const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'}),table=dialog.getByRole('table');await expect(table).toContainText('1.255');await expect(table).toContainText('1.883');
+ await expect(table.getByRole('columnheader')).toHaveText(['Attempt','termination','n_imag','E / Eh','G / Eh','ΔE / kcal/mol','ΔG / kcal/mol']);
+ await expect(table.getByRole('row').nth(1).getByRole('cell')).toHaveText(['anti','normal','0','-157.000000','-156.900000','0.000','0.000']);
+ await expect(table.getByRole('row').nth(2).getByRole('cell')).toHaveText(['gauche','error','2','-156.998000','-156.897000','1.255','1.883']);
+ await expect(table.getByText('normal',{exact:true})).toHaveClass(/tone-neutral/);await expect(table.getByText('error',{exact:true})).toHaveClass(/tone-bad/);
+ await expect(table.getByRole('row').nth(1).getByRole('cell').nth(2)).toHaveCSS('text-align','right');
+ await fullyVisible(table,page);for(const header of await table.getByRole('columnheader').all())await fullyVisible(header,page);
+ for(const selector of ['.Drawer','.quick-comparison .table-scroll'])expect(await page.locator(selector).evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await page.screenshot({path:info.outputPath(`comparison-${size.width}x${size.height}.png`)});
  await page.getByRole('button',{name:'关闭抽屉'}).click();await page.getByRole('checkbox',{name:'比较 waiting',exact:true}).check();await page.getByRole('button',{name:'快速比较（3）',exact:true}).click();await expect(dialog).toContainText('拒绝快速比较');await expect(dialog.getByRole('table')).toHaveCount(0);
  expect(writes).toEqual([]);expect(errors).toEqual([]);
+});
+test('comparison displays incomplete, unknown and missing facts without falling back to status',async({page})=>{
+ let saved=false;const writes:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
+ await page.route('**/api/studies/butane-demo/attempts/*',async route=>{
+  const id=route.request().url().split('/').at(-1)!;const data=attempt(id);
+  data.status.data={state:'finished',termination:'normal',n_imag:0};
+  Object.assign(data.facts.data as object,saved?{termination:id==='anti'?'incomplete':'unknown',n_imag:id==='anti'?1:null}:{frequencies_cm1:[-100]});
+  await route.fulfill({json:data});
+ });
+ await page.goto('/#/s/butane-demo/attempts');for(const id of ['anti','gauche'])await page.getByRole('checkbox',{name:`比较 ${id}`,exact:true}).check();
+ const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'});
+ await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
+ for(const row of [1,2])await expect(dialog.getByRole('row').nth(row).getByRole('cell')).toHaveText([row===1?'anti':'gauche','—','—','-76.000000','-75.900000','0.000','0.000']);
+ await page.getByRole('button',{name:'关闭抽屉'}).click();saved=true;await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
+ await expect(dialog.getByRole('row').nth(1).getByRole('cell')).toHaveText(['anti','incomplete','1','-76.000000','-75.900000','0.000','0.000']);
+ await expect(dialog.getByRole('row').nth(2).getByRole('cell')).toHaveText(['gauche','unknown','—','-76.000000','-75.900000','0.000','0.000']);
+ for(const status of ['incomplete','unknown'])await expect(dialog.getByText(status,{exact:true})).toHaveClass(/tone-warn/);
+ expect(writes).toEqual([]);
 });
 test('Attempt retains one usable structure selection, with all structure interactions',async({page})=>{
  await page.goto('/#/s/butane-demo/a/anti');await expect(page.getByLabel('预览结构',{exact:true})).toHaveCount(1);await expect(page.getByLabel('结构来源',{exact:true})).toHaveCount(0);await page.getByLabel('预览结构',{exact:true}).selectOption('input');await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('输入结构');await page.getByLabel('预览结构',{exact:true}).selectOption('final');await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('最终结构');
