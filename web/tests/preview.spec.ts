@@ -30,9 +30,9 @@ test('existing final geometry can switch to input and back',async({page})=>{
  await page.goto('/#/butane-demo/anti');
  await expect(page.getByLabel('预览结构')).toHaveValue('final');
  await page.getByLabel('预览结构').selectOption('input');
- await expect(page.getByLabel('结构来源')).toContainText('输入结构');
+ await expect(page.getByRole('region',{name:'三维分子结构',exact:true})).toContainText('输入结构');
  await page.getByLabel('预览结构').selectOption('final');
- await expect(page.getByLabel('结构来源')).toContainText('final.xyz');
+ await expect(page.getByRole('region',{name:'三维分子结构',exact:true})).toContainText('final.xyz');
 });
 
 test('structure deep link changes frames and shows comments',async({page},info)=>{

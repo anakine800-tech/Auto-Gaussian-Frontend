@@ -97,6 +97,10 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     def grouped_report(study: str, group: str, name: str):
         return store.report(study, (group, name))
 
+    @app.get('/api/studies/{study}/reports/ts-labels/{name}/{filename}')
+    def ts_label_report(study: str, name: str, filename: str):
+        return store.report(study, ('ts-labels', name, filename))
+
     @app.get('/api/studies/{study}/attempts/{attempt}/snapshots')
     def snapshots(study: str, attempt: str):
         return store.snapshots(study, attempt)

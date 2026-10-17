@@ -93,3 +93,11 @@ test('incomplete direction preserves unresolved and unknown statuses',async({pag
  await expect(side).toContainText('not_met');await expect(side).toContainText('unknown');
  await expect(page.getByRole('region',{name:'能量曲线',exact:true})).toContainText('corrector_failed');
 });
+
+for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T98 IRC unified components ${size.width}x${size.height}`,async({page},info)=>{
+ await page.setViewportSize(size);await page.goto(base+'/#/s/irc-demo/analysis/irc/review.json');
+ const heading=page.getByRole('heading',{name:'IRC 查看 · review.json',exact:true});await expect(heading).toBeVisible();
+ const bounds=(await heading.boundingBox())!;expect(bounds.y).toBeGreaterThanOrEqual(0);expect(bounds.y+bounds.height).toBeLessThanOrEqual(size.height);
+ await expect(page.getByTestId('forward-count')).toBeVisible();await expect(page.getByTestId('reverse-count')).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await page.screenshot({path:info.outputPath(`irc-${size.width}x${size.height}.png`)});
+});

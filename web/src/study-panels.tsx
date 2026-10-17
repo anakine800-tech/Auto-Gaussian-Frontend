@@ -1,9 +1,9 @@
+import {analysisLink} from './analysis-summary';
 import {useEffect,useId,useState} from 'react';
 import {display,endpoint,get,object} from './api';
 import type {Document,Graph} from './api';
 import type {FactLocation} from './attempt-facts';
-import {studyHash} from './routing';
-import {ActionBar,DataTable,ErrorNotice} from './ui';
+import {ActionBar,DataTable,ErrorNotice,StatusBadge} from './ui';
 
 export function FileView({title,doc}:{title:string;doc:Document}){
  return <section className="file-view" id={`record-${title}`}><h3>{title}</h3>{doc.error?<p role="status" className="notice">{doc.error}</p>:<pre>{typeof doc.data==='string'?doc.data:JSON.stringify(doc.data,null,2)}</pre>}</section>;
@@ -18,11 +18,11 @@ export function RelationshipGraph({graph,onSelect}:{graph:Graph;onSelect:(id:str
  <ul className="graph-nodes">{graph.nodes.map(n=><li key={n.id}>{n.missing?<span>{n.id} · 缺失父节点</span>:<button onClick={()=>onSelect(n.id)}>{n.id} · {n.state}</button>}</li>)}</ul>
  <DataTable label="Attempt 关系列表" rows={graph.edges.map((edge,i)=>({...edge,key:i}))} rowKey={edge=>edge.key} columns={[{key:'parent',label:'Parent',render:e=>e.parent},{key:'relation',label:'Relation',render:e=>e.relation||'—'},{key:'child',label:'Child',render:e=>e.child}]}/></> }</section>;
 }
-export function Analyses({study,analyses,selected=false}:{study:string;analyses:(Document&{name:string})[];selected?:boolean}){
+export function Analyses({study,analyses,selected=false}:{study:string;analyses:(Document&{name:string;schema?:string|null})[];selected?:boolean}){
  const name=selected?analyses[0]?.name:undefined;
  const [doc,setDoc]=useState<Document|null>(null),[error,setError]=useState('');
  useEffect(()=>{const c=new AbortController();setDoc(null);setError('');if(name)get<Document>(endpoint(study,'reports',...name.split('/')),c.signal).then(v=>{if(!c.signal.aborted)setDoc(v);}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,name]);
- if(!selected)return <section><h2>分析结果</h2>{analyses.length?analyses.map(a=><p key={a.name}><a href={studyHash(study,'analysis','file',...a.name.split('/'))}>{a.name}</a>{a.error&&<ErrorNotice>{a.error}</ErrorNotice>}</p>):<p>尚无 dedup、cluster 或 thermo 结果。</p>}</section>;
+ if(!selected)return <section><h2>分析结果</h2>{analyses.length?analyses.map(a=><p key={a.name}><a href={analysisLink(study,a.name,a.schema)}>{a.name}</a>{a.error&&<ErrorNotice>{a.error}</ErrorNotice>}</p>):<p>尚无 dedup、cluster 或 thermo 结果。</p>}</section>;
  if(error)return <ErrorNotice>{error}</ErrorNotice>;
  if(!doc)return <p role="status">读取报告正文…</p>;
  return <AnalysisDocuments analyses={[{...doc,name:name!}]}/>;
@@ -30,7 +30,7 @@ export function Analyses({study,analyses,selected=false}:{study:string;analyses:
 function AnalysisDocuments({analyses}:{analyses:(Document&{name:string})[]}){
  return <section><h2>分析结果</h2>{analyses.length===0&&<p>尚无 dedup、cluster 或 thermo 结果。</p>}{analyses.map(a=>{
  const data=object(a.data)?a.data:null;const rows=data&&Array.isArray(data.rows)?data.rows:null;
- return <article key={a.name}><h3>{a.name}</h3>{a.error?<p className="notice">{a.error}</p>:data?.schema==='ag-thermo/1'&&rows?<>
+ return <article key={a.name}><h3>{a.name}</h3>{a.name.startsWith('ts-labels/')&&a.name.endsWith('/channel-suggestions.csv')&&<StatusBadge tone="warn">建议，待确认</StatusBadge>}{a.error?<p className="notice">{a.error}</p>:data?.schema==='ag-thermo/1'&&rows?<>
  <p className="muted">只展示已保存的热化学结果；布居仅针对提供的构象集合。</p>
  <div className="thermo-summary"><span>ensemble_G <strong>{display(data.ensemble_G)}</strong> Hartree</span><span>weighted_mean_G <strong>{display(data.weighted_mean_G)}</strong> Hartree</span></div>
  <div className="table-scroll"><table aria-label="热化学表"><thead><tr>{['Attempt','简并度','E / Eh','ZPE / Eh','H / Eh','qh_H / Eh','qh_G / Eh','ΔG / kcal·mol⁻¹','布居'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((r,i)=>object(r)?<tr key={i}>{['attempt_id','degeneracy','E','ZPE','H','qh_H','qh_G','relative_G_kcal'].map(k=><td key={k}>{display(r[k])}</td>)}<td>{typeof r.population==='number'?(r.population*100).toFixed(3)+'%':'—'}</td></tr>:null)}</tbody></table></div>

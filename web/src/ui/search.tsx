@@ -1,3 +1,4 @@
+import {analysisLink} from '../analysis-summary';
 import {useState} from 'react';
 import type {Attempt,Study} from '../api';
 import {routeHash,studyHash} from '../routing';
@@ -15,7 +16,7 @@ export function GlobalSearch({studies,attempts}:{studies:Study[];attempts:Attemp
  if(needle)for(const study of studies){
   for(const a of study.attempts)if(`${a.id} ${a.label??''}`.toLocaleLowerCase().includes(needle))hits.push({label:a.id,detail:`${study.id} · ${a.label??'Attempt'}`,href:routeHash([study.id,a.id])});
   for(const f of study.structure_files)if(f.parts.join('/').toLocaleLowerCase().includes(needle))hits.push({label:f.parts.at(-1)!,detail:study.id+' · '+f.parts.join('/'),href:routeHash([study.id,...f.parts])});
-  for(const f of study.analyses)if(f.name.toLocaleLowerCase().includes(needle))hits.push({label:f.name,detail:study.id+' · 分析文件',href:studyHash(study.id,'analysis','file',...f.name.split('/'))});
+  for(const f of study.analyses)if(f.name.toLocaleLowerCase().includes(needle))hits.push({label:f.name,detail:study.id+' · 分析文件',href:analysisLink(study.id,f.name,f.schema)});
   if('study.md'.includes(needle))hits.push({label:'study.md',detail:study.id,href:studyHash(study.id,'files')});
   for(const a of attempts.filter(a=>a.study===study.id&&study.attempts.some(row=>row.id===a.id)))for(const f of a.files)if(f.name.toLocaleLowerCase().includes(needle))hits.push({label:f.name,detail:`${study.id} / ${a.id} · ${f.kind}`,href:routeHash([study.id,a.id])+'?'+new URLSearchParams({fileKind:f.kind,file:f.name})});
  }

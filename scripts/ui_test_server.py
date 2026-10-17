@@ -17,7 +17,9 @@ with tempfile.TemporaryDirectory() as directory:
         app=create_app(studies,ui,enable_actions=True,ag=fake)
         uvicorn.run(app,host='127.0.0.1',port=18766,access_log=False,proxy_headers=False)
     else:
-        create_results_studies(root)
+        study=create_results_studies(root)
+        from tests.analysis_fixture import add_analysis_reports
+        add_analysis_reports(study)
         from tests.ensemble_fixture import create_ensemble_study
         create_ensemble_study(root)
         app=create_app(root,ui)

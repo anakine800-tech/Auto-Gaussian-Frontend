@@ -42,8 +42,9 @@ test('legacy exact links replace history and preserve both query locations',asyn
 });
 
 test('search reads only cached studies and navigates Attempts and filenames',async({page})=>{
- await page.goto('/#/s/butane-demo');await expect(page.getByRole('region',{name:'要处理的事'})).toContainText('opt-demo');
- await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
+ // The Attempt table loads Study metadata without visible report conclusions.
+ // Requests after this point can therefore be attributed to typing in search.
+ await page.goto('/#/s/butane-demo/attempts');await expect(page.getByRole('table',{name:'Attempt 结果表'})).toContainText('opt-demo');
  const requests:string[]=[];page.on('request',r=>requests.push(r.url()));
  await page.getByRole('textbox',{name:'全局搜索'}).fill('opt-demo');
  const results=page.getByRole('region',{name:'搜索结果'});

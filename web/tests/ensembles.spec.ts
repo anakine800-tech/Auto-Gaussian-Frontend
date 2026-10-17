@@ -152,3 +152,12 @@ test('invalid optional values keep energies and geometry; old manifests stay unc
  await expect(page.getByRole('alert')).toHaveCount(0);
  await expect(page.getByRole('region',{name:'局部构象筛选'})).toHaveCount(0);
 });
+
+for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T98 ensemble unified components ${size.width}x${size.height}`,async({page},info)=>{
+ await page.setViewportSize(size);await page.goto('/#/s/ensemble-demo/analysis/ensemble/ensemble.json');
+ const heading=page.getByRole('heading',{name:'合成水集合',exact:true}),table=page.getByRole('table',{name:'构象能量表'});
+ await expect(heading).toBeVisible();await expect(table).toBeVisible();
+ const box=(await table.locator('thead').boundingBox())!;expect(box.y).toBeGreaterThanOrEqual(0);expect(box.y+box.height).toBeLessThanOrEqual(size.height);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await expect(page.locator('body')).not.toContainText('已验证');
+ await page.screenshot({path:info.outputPath(`ensemble-${size.width}x${size.height}.png`)});
+});

@@ -40,7 +40,7 @@ test('final.xyz molecule, Gaussian vectors, animation and exact log pages',async
  await expect(page.getByTestId('vibration-controls')).toContainText('已暂停');
  await page.getByRole('button',{name:'关闭模式',exact:true}).click();
  await expect(page.getByTestId('vibration-controls')).toHaveCount(0);
- await expect(page.getByLabel('结构来源')).toContainText('final.xyz');
+ await expect(page.getByRole('region',{name:'三维分子结构',exact:true})).toContainText('final.xyz');
  await page.screenshot({path:testInfo.outputPath('desktop.png'),fullPage:true});
 });
 

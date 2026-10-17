@@ -4,6 +4,7 @@ Descriptor-relative O_NOFOLLOW traversal prevents a directory being replaced by
 an escaping symlink between validation and open. Limits prevent a malformed local
 file from exhausting the viewer. There is no cache, index, or derived-file write.
 """
+import codecs
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import errno
@@ -24,6 +25,9 @@ from .monitor import validate_monitor
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
 from .study_summary import parse_sections
+
+
+TS_LABEL_FILES = ('labels.json', 'labels.md', 'channel-suggestions.csv')
 
 
 class StudyError(Exception):
@@ -170,7 +174,6 @@ class Studies:
                 if parts[-1].endswith('.json'):
                     raw = stream.read(64*1024)
                     # A partial final Unicode character is irrelevant to earlier fields.
-                    import codecs
                     prefix = codecs.getincrementaldecoder('utf-8')().decode(raw, final=info.st_size <= len(raw))
                     decoder = json.JSONDecoder(parse_float=finite_float, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
                     if info.st_size <= len(raw):
@@ -205,7 +208,8 @@ class Studies:
         return result
 
     def report(self, study, parts):
-        if len(parts) not in (1, 2) or not parts[-1].endswith(('.json', '.md', '.csv', '.txt')):
+        fixed_ts = len(parts) == 3 and parts[0] == 'ts-labels' and parts[2] in TS_LABEL_FILES
+        if not fixed_ts and (len(parts) not in (1, 2) or not parts[-1].endswith(('.json', '.md', '.csv', '.txt'))):
             raise StudyError('Unsupported analysis document', 400)
         return self.analysis_document(component(study), tuple(component(p) for p in parts))
 
@@ -267,6 +271,22 @@ class Studies:
             if error:
                 continue  # Root symlinks were reported above; never follow them.
             try:
+                # T98: only T91's three fixed filenames get a second directory.
+                # No recursion or discovery of arbitrary files inside each name.
+                if folder == 'ts-labels':
+                    for label, error in self.names((study, 'analyses', folder), directories=True):
+                        if error:
+                            issues.append({'path': f'analyses/{folder}/{label}', 'error': error})
+                            continue
+                        for filename in TS_LABEL_FILES:
+                            parts = (folder, label, filename)
+                            try:
+                                with self.open_file((study, 'analyses', *parts)):
+                                    pass
+                            except StudyError as exc:
+                                if exc.status == 404:
+                                    continue
+                            analyses.append(self.analysis_summary(study, parts))
                 for name, error in self.names((study, 'analyses', folder)):
                     if error:
                         issues.append({'path': f'analyses/{folder}/{name}', 'error': error})

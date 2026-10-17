@@ -1,11 +1,13 @@
+import {AnalysisLibrary} from './analysis-panels';
+import './ui/analysis.css';
 import {useCallback,useEffect,useState} from 'react';
 import {ActionOutput,actionToken} from './actions';
 import type {ActionResult} from './actions';
 import {createRoot} from 'react-dom/client';
 import {endpoint,get} from './api';
 import {StructureFiles} from './preview-panels';
-import {IRCPage,IRCReports} from './irc-panels';
-import {EnsembleList,EnsemblePage} from './ensemble-panels';
+import {IRCPage} from './irc-panels';
+import {EnsemblePage} from './ensemble-panels';
 import {routeHash,studyHash} from './routing';
 import type {Attempt,Study} from './api';
 import {ServerMonitor} from './server-monitor';
@@ -75,7 +77,7 @@ function App(){
  {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['document','研究说明'],['structures','结构文件'],['graph','关系图'],['analyses','其他分析文件']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
  {data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
  {view==='overview'&&<StudyOverview key={study} data={data}/>}
- {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<><EnsembleList study={study} revision={revision}/><IRCReports study={study} revision={revision}/><Analyses study={study} analyses={data.analyses}/></>)}
+ {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<AnalysisLibrary data={data}/>)}
  {view==='attempts'&&(attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt} selectedFile={route.attemptFile} onLoaded={onLoaded}/>:<AttemptTable key={study} data={data}/>)}
  {view==='files'&&(route.report?(data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>找不到分析文件：{route.report}</ErrorNotice>):fileTab==='document'?<StudyMarkdown doc={data.study}/>:fileTab==='graph'?<RelationshipGraph graph={data.graph} onSelect={choose}/>:fileTab==='structures'||route.structure?<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={parts=>navigate(routeHash([study,...parts]))} revision={revision}/>:<Analyses study={study} analyses={data.analyses}/>)}
  </>}
