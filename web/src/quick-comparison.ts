@@ -29,7 +29,7 @@ function protocol(value:unknown):Record<string,string>{
 }
 const finite=(v:unknown):number|null=>typeof v==='number'&&Number.isFinite(v)?v:null;
 const record=(v:unknown)=>object(v)?v:{};
-export type ComparisonRow={id:string;electronic:number|null;free:number|null;relativeElectronic:number|null;relativeFree:number|null};
+export type ComparisonRow={id:string;termination:string|null;nImag:number|null;electronic:number|null;free:number|null;relativeElectronic:number|null;relativeFree:number|null};
 export type Comparison={differences:string[];rows:ComparisonRow[];protocol:Record<string,string>};
 export function compareAttempts(attempts:Attempt[]):Comparison{
  const differences:string[]=[],specifications:Record<string,string>[]=[];
@@ -50,7 +50,7 @@ export function compareAttempts(attempts:Attempt[]):Comparison{
    requireValue(record(f.units).energy==='Hartree','能量单位必须明确为 Hartree');
    specifications.push(spec);
   }catch(error){differences.push(`${a.id}：${(error as Error).message}`);specifications.push({});}
-  return {id:a.id,electronic:finite(e.scf),free:finite(e.g),relativeElectronic:null,relativeFree:null};
+  return {id:a.id,termination:typeof f.termination==='string'&&f.termination.trim()?f.termination:null,nImag:typeof f.n_imag==='number'&&Number.isSafeInteger(f.n_imag)&&f.n_imag>=0?f.n_imag:null,electronic:finite(e.scf),free:finite(e.g),relativeElectronic:null,relativeFree:null};
  });
  if(attempts.length<2)differences.push('至少选择两个 Attempt');
  if(!differences.length){for(const key of Object.keys(specifications[0]))if(new Set(specifications.map(s=>s[key])).size>1)differences.push(`${key}不同：${attempts.map((a,i)=>`${a.id} = ${specifications[i][key]}`).join('；')}`);}
