@@ -45,9 +45,9 @@ warnings 每项
 - detail: string（原样显示，例如“需人工确认后 ag cancel”“运行 ag status 核对”）
 
 前端显示规则
-- now - sampled_at > 3 × interval_seconds 时标红“数据已过期”；interval_seconds 为 null 时显示采样时间，不判断是否过期。
+- now - sampled_at > 3 × interval_seconds 时以 warn 标记“数据已过期”；interval_seconds 为 null 时超过 600 秒标为过期（T87）；均使用严格大于边界，并每秒更新页面时钟。
 - ok=false：顶部显示 error 和 last_ok_at，下方显示上一次成功的数据，并注明“非最新”。
-- study/attempt 不为 null 时可点击，跳转到 #/<study>/<attempt>。
+- study/attempt 不为 null 时可点击，跳转到 #/s/<study>/a/<attempt>。
 - 必填字段缺失或字段类型不符时显示“快照格式不正确”，不能崩溃。
 
 T7e / T19 增量适配：当前多集群生产端字段以
@@ -57,3 +57,5 @@ mem/walltime_limit/start_time。命名集群快照位于 `.ag-monitor/<name>/lat
 Slurm `cluster` 可含 budget（core_hours/used/reserved，单位核时）、expires、
 storage_kib、expiry_warning、hardware_capacity_known。缺失/null 保持未知；
 失败时保留的预算和存储须显示非最新；hardware_capacity_known=false 时不能使用占位零推断容量。
+
+T97 的作业表、快照摘要和待取回分组口径见 [作业页](t97/jobs.md)。
