@@ -15,7 +15,7 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`four e
   await page.getByRole('navigation',{name:'顶部导航'}).getByRole('button',{name:entry,exact:true}).click();
   await expect(page.getByRole('heading',{name:ready,exact:true})).toBeVisible();
   if(entry==='作业')await expect(page.getByRole('table',{name:'本人作业表'})).toBeVisible();
-  if(entry==='分析')await expect(page.getByRole('heading',{name:'thermo-demo.json',exact:true})).toBeVisible();
+  if(entry==='分析')await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
   if(entry==='文件')await expect(page.getByRole('heading',{name:'study.md',exact:true})).toBeVisible();
   await page.evaluate(()=>window.scrollTo(0,0));
   await fullyVisible(page.locator('.app-header'),page);await fullyVisible(page.locator('.context-bar'),page);

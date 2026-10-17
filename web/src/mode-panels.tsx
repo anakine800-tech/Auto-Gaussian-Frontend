@@ -1,3 +1,4 @@
+import {createPortal} from 'react-dom';
 import {locationChanged} from './navigation';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {ComponentProps} from 'react';
@@ -37,7 +38,7 @@ function savePairs(scope:string,pairs:Pair[]){
 }
 const formatted=(value:number)=>Number.isFinite(value)?value.toFixed(3):'无法计算';
 
-function ReviewScene({study,attempt,log,packet,revision,...viewer}:{study:string;attempt:string;log:string;packet:ReviewModes;revision:number}&ComponentProps<typeof MoleculeViewer>){
+function ReviewScene({study,attempt,log,packet,revision,reviewTarget,...viewer}:{study:string;attempt:string;log:string;packet:ReviewModes;revision:number;reviewTarget?:HTMLElement|null}&ComponentProps<typeof MoleculeViewer>){
  const mode=viewer.vibration!;
  const atoms=isGeometry(viewer.last)?viewer.last.atoms:[];
  const scope=JSON.stringify([study,attempt,log,packet.log_sha256,mode.source_mode_index??mode.mode_number]);
@@ -104,10 +105,10 @@ function ReviewScene({study,attempt,log,packet,revision,...viewer}:{study:string
   </>}
   {response?.issues.map((issue,i)=><p className="notice" key={i}>{issue.name}：{issue.error}</p>)}
  </section>;
- return <MoleculeViewer {...viewer} reviewMode={review} reviewAmplitude={amplitude} onAtomPick={pick} onFrame={onFrame} scientificPanel={panel}/>;
+ return <MoleculeViewer {...viewer} reviewMode={review} reviewAmplitude={amplitude} onAtomPick={pick} onFrame={onFrame} scientificPanel={reviewTarget?createPortal(panel,reviewTarget):panel}/>;
 }
 
-export function ModeReviewViewer({study,attempt,log,packet,revision,...viewer}:{study:string;attempt:string;log:string;packet:ReviewModes|null;revision:number}&ComponentProps<typeof MoleculeViewer>){
+export function ModeReviewViewer({study,attempt,log,packet,revision,reviewTarget,...viewer}:{study:string;attempt:string;log:string;packet:ReviewModes|null;revision:number;reviewTarget?:HTMLElement|null}&ComponentProps<typeof MoleculeViewer>){
  if(!packet||!viewer.vibration||!isGeometry(viewer.last))return <MoleculeViewer {...viewer}/>;
- return <ReviewScene key={`${study}/${attempt}/${log}/${packet.log_sha256}`} study={study} attempt={attempt} log={log} packet={packet} revision={revision} {...viewer}/>;
+ return <ReviewScene key={`${study}/${attempt}/${log}/${packet.log_sha256}`} study={study} attempt={attempt} log={log} packet={packet} revision={revision} reviewTarget={reviewTarget} {...viewer}/>;
 }

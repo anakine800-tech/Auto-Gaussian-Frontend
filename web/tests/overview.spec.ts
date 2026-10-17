@@ -124,8 +124,8 @@ test('saved values retain their source and missing timestamps are not inferred',
  await page.route('**/api/studies/butane-demo',r=>r.fulfill({json:data}));
  await page.goto('/#/s/butane-demo/attempts?type=xtb');
  const row=page.getByRole('table',{name:'Attempt 结果表'}).locator('tbody tr');
- await expect(row.locator('td').nth(5)).toHaveText('-12.345');await expect(row.locator('td').nth(8)).toHaveText('—');
- await expect(row.locator('[title]')).toHaveAttribute('title',a.manifest.data.science.method_basis);
+ await expect(row.locator('td').nth(5)).toHaveText('-12.345000');await expect(row.locator('td').nth(8)).toHaveText('—');
+ await expect(row.locator('.method-abbreviation[title]')).toHaveAttribute('title',a.manifest.data.science.method_basis);
  await page.getByText('显示列',{exact:true}).click();await page.getByRole('checkbox',{name:'提交时间',exact:true}).check();
  await expect(row.locator('td').last()).toHaveText('—');
  await page.goto('/#/s/ensemble-demo');

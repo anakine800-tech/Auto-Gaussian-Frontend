@@ -1,5 +1,7 @@
 /* T94: one visual vocabulary for shell and existing pages. */
 :root {
+ --attempt-scene-height:190px;--attempt-prefix-height:0px;--attempt-actions-height:0px;
+ --header-row-height:46px;--header-height:46px;--context-height:39px;
  --accent:#14666b;--accent-soft:#e5f1ef;--ink:#243a40;--muted:#667a7f;--line:#dce5e5;
  --surface:#fff;--surface-soft:#f5f8f8;
  --ok:#23724a;--ok-bg:#eaf5ef;--warn:#8b5e16;--warn-bg:#fff4dc;
@@ -10,3 +12,4 @@
  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
  font-size:var(--fs-md);color:var(--ink);background:var(--surface-soft);font-variant-numeric:tabular-nums;
 }
+.attempt-detail{--attempt-card-height:calc(100dvh - var(--header-height) - var(--context-height) - var(--attempt-prefix-height) - var(--attempt-actions-height) - var(--space-4));}

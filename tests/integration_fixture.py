@@ -101,6 +101,7 @@ if __name__ == '__main__':
         create_integration_study(root)
         actions = '--actions' in sys.argv
         if actions:
+            write_json(root/'butane-demo/attempts/anti/status.json', {'state':'finished'})
             fake = make_fake(home)
             write_json(home/'control.json', dict(stdout=json.dumps(FETCH_RESULT)+'\n'))
         app = create_app(root, Path(__file__).resolve().parents[1]/'web/dist',

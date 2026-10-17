@@ -60,6 +60,9 @@ def create_results_studies(root):
     (folder/'representatives.xyz').write_bytes((study/'analyses'/'representatives.xyz').read_bytes())
     for i, report in enumerate(sorted((study/'analyses').glob('*.json'))):
         os.utime(report, (1767312000+i*3600, 1767312000+i*3600))
-    monitor=root/'.ag-monitor';monitor.mkdir()
+    snap=study/'attempts/anti/snapshots/synthetic-capture';snap.mkdir(parents=True)
+    (snap/'snapshot.json').write_text(json.dumps({'schema':'ag-log-snapshot/1','attempt_id':'anti','created_at':'2026-01-01T12:00:00+00:00','file':'butane.log','read_bytes':128,'remote_size':256,'truncated':True,'sha256':'a'*64,'notice':'运行中快照，不是结果，不能用于签字或分析。','progress':{'program':'gaussian','scope':'captured_fragment','scf_done_count':2,'last_step_number':1}}))
+    (snap/'butane.log').write_text('RAW_SNAPSHOT_LOG_SENTINEL')
+    monitor=root/'.ag-monitor' ;monitor.mkdir()
     (monitor/'latest.json').write_text(json.dumps(monitor_snapshot()))
     return study

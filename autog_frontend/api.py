@@ -89,6 +89,18 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     def study(study: str):
         return store.study(study)
 
+    @app.get('/api/studies/{study}/reports/{name}')
+    def report(study: str, name: str):
+        return store.report(study, (name,))
+
+    @app.get('/api/studies/{study}/reports/{group}/{name}')
+    def grouped_report(study: str, group: str, name: str):
+        return store.report(study, (group, name))
+
+    @app.get('/api/studies/{study}/attempts/{attempt}/snapshots')
+    def snapshots(study: str, attempt: str):
+        return store.snapshots(study, attempt)
+
     @app.get('/api/studies/{study}/attempts/{attempt}')
     def attempt(study: str, attempt: str):
         return store.attempt(study, attempt)

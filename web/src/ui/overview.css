@@ -9,7 +9,8 @@
 .report-list li{padding:var(--space-3) 0;border-top:1px solid var(--line);overflow-wrap:anywhere}.report-list span{display:block;margin-top:var(--space-1)}
 .study-overview>.Collapsible{padding:var(--space-3) var(--space-4);margin:var(--space-3) 0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .section-source{white-space:pre-wrap;overflow-wrap:anywhere}.attempt-table .table-scroll table{table-layout:fixed;width:100%;min-width:0}
-.attempt-table .table-scroll{max-height:none;overflow:visible}.attempt-table .table-scroll th{top:85px}
+.attempt-table .table-scroll{max-height:none;overflow:visible}.attempt-table .table-scroll th{top:calc(var(--header-height) + var(--context-height))}
+.attempt-table .numeric,.attempt-table .numeric button{text-align:right;font-variant-numeric:tabular-nums}
 .attempt-table th,.attempt-table td{overflow-wrap:anywhere;vertical-align:top;padding:var(--space-2)}.attempt-table th button{padding:0;white-space:normal;text-align:left}
 .attempt-table .ActionBar{margin-bottom:var(--space-3)}.attempt-table input[type=checkbox]{margin-right:var(--space-1)}.attempt-table .column-picker{margin:var(--space-2) 0}
 .attempt-table .column-picker fieldset{display:flex;gap:var(--space-3);flex-wrap:wrap}.attempt-table>.Collapsible{margin-top:var(--space-4)}

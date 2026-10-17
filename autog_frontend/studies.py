@@ -154,6 +154,74 @@ class Studies:
             pass
         return {'name': '/'.join(parts), **doc, 'updated_at': updated}
 
+    def analysis_summary(self, study, parts):
+        """Bounded header hint for navigation; only the detail read validates JSON.
+
+        Do not deserialize megabytes of scientific rows for a filename list.
+        If schema is beyond the first 64 KiB, leave its type unknown.
+        """
+        result = dict(name='/'.join(parts), data=None, error=None, updated_at=None, schema=None)
+        try:
+            with self.open_file((study, 'analyses', *parts)) as stream:
+                info = os.fstat(stream.fileno())
+                result['updated_at'] = datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()
+                if info.st_size > 4*1024*1024:
+                    raise StudyError('File exceeds display size limit', 413)
+                if parts[-1].endswith('.json'):
+                    raw = stream.read(64*1024)
+                    # A partial final Unicode character is irrelevant to earlier fields.
+                    import codecs
+                    prefix = codecs.getincrementaldecoder('utf-8')().decode(raw, final=info.st_size <= len(raw))
+                    decoder = json.JSONDecoder(parse_float=finite_float, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+                    if info.st_size <= len(raw):
+                        data = decoder.decode(prefix)
+                        if not isinstance(data, dict):
+                            raise ValueError()
+                        result['schema'] = data.get('schema') if isinstance(data.get('schema'), str) else None
+                    else:
+                        rest = prefix.lstrip()
+                        if rest.startswith('{'):
+                            rest = rest[1:].lstrip()
+                            while rest:
+                                try:
+                                    key, end = decoder.raw_decode(rest)
+                                    rest = rest[end:].lstrip()
+                                    if not isinstance(key, str) or not rest.startswith(':'):
+                                        break
+                                    value, end = decoder.raw_decode(rest[1:].lstrip())
+                                    rest = rest[1:].lstrip()[end:].lstrip()
+                                    if key == 'schema' and isinstance(value, str) and rest.startswith((',', '}')):
+                                        result['schema'] = value
+                                        break
+                                    if not rest.startswith(','):
+                                        break
+                                    rest = rest[1:].lstrip()
+                                except ValueError:
+                                    break
+        except (UnicodeError, ValueError, OverflowError):
+            result['error'] = 'Malformed UTF-8 or JSON object'
+        except StudyError as exc:
+            result['error'] = str(exc)
+        return result
+
+    def report(self, study, parts):
+        if len(parts) not in (1, 2) or not parts[-1].endswith(('.json', '.md', '.csv', '.txt')):
+            raise StudyError('Unsupported analysis document', 400)
+        return self.analysis_document(component(study), tuple(component(p) for p in parts))
+
+    def snapshots(self, study, attempt):
+        base = (component(study), 'attempts', component(attempt))
+        with self.open_dir(base):
+            pass
+        snapshots = []
+        for name, error in self.names((*base, 'snapshots'), directories=True):
+            doc = dict(data=None, error=error) if error else self.document((*base, 'snapshots', name, 'snapshot.json'), True)
+            if doc['data'] is not None and (doc['data'].get('schema') != 'ag-log-snapshot/1'
+                                           or doc['data'].get('attempt_id') != attempt):
+                doc = dict(data=None, error='Snapshot schema or Attempt identity does not match')
+            snapshots.append(dict(name=name, **doc))
+        return dict(snapshots=snapshots)
+
     def study(self, study):
         component(study)
         with self.open_dir((study,)):
@@ -193,7 +261,7 @@ class Studies:
             if error:
                 issues.append({'path': f'analyses/{name}', 'error': error})
             elif name.endswith(('.json', '.md', '.csv', '.txt')):
-                analyses.append(self.analysis_document(study, (name,)))
+                analyses.append(self.analysis_summary(study, (name,)))
         # The same one-subdirectory depth already used by ensemble/IRC viewers.
         for folder, error in self.names((study, 'analyses'), directories=True):
             if error:
@@ -203,7 +271,7 @@ class Studies:
                     if error:
                         issues.append({'path': f'analyses/{folder}/{name}', 'error': error})
                     elif name.endswith(('.json', '.md', '.csv', '.txt')):
-                        analyses.append(self.analysis_document(study, (folder, name)))
+                        analyses.append(self.analysis_summary(study, (folder, name)))
             except StudyError as exc:
                 issues.append({'path': f'analyses/{folder}', 'error': str(exc)})
         document = self.document((study, 'study.md'))

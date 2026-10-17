@@ -1,3 +1,4 @@
+import {openSection} from './disclosure';
 import {test,expect} from '@playwright/test';
 import type {Page} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
@@ -17,7 +18,7 @@ async function open(page:Page,reports:any[]=[],issues:any[]=[]){
  await page.goto('/#/butane-demo/anti');await decode(page);
 }
 async function decode(page:Page){
- await page.getByRole('button',{name:'解析振动位移'}).click();
+ await openSection(page,'频率与虚频审阅');await page.getByRole('button',{name:'解析振动位移'}).click();
  await page.getByLabel('振动模式',{exact:true}).selectOption('0');
  await page.getByRole('button',{name:'回到参考结构',exact:true}).click();
 }

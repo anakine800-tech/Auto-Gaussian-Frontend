@@ -19,17 +19,18 @@ export function FactGrid({facts}:{facts:Fact[]}){return <dl className="FactGrid"
 export function EmptyState({children}:{children:ReactNode}){return <p className="EmptyState">{children}</p>;}
 export function ErrorNotice({children}:{children:ReactNode}){return <p className="ErrorNotice" role="alert">{children}</p>;}
 export function ActionBar({children,label='页面操作',danger}:{children:ReactNode;label?:string;danger?:ReactNode}){return <div className="ActionBar" role="group" aria-label={label}>{children}{danger&&<div className="danger">{danger}</div>}</div>;}
-export function Collapsible({page,block,...props}:{page:string;block:string;title:string;children:ReactNode;defaultOpen?:boolean}){return <Disclosure key={page+':'+block} storageKey={`collapse:${page}:${block}`} {...props}/>;}
-function Disclosure({storageKey,title,children,defaultOpen=false}:{storageKey:string;title:string;children:ReactNode;defaultOpen?:boolean}){
+export function Collapsible({page,block,...props}:{page:string;block:string;title:string;children:ReactNode;defaultOpen?:boolean;reveal?:number}){return <Disclosure key={page+':'+block} storageKey={`collapse:${page}:${block}`} {...props}/>;}
+function Disclosure({storageKey,title,children,defaultOpen=false,reveal=0}:{storageKey:string;title:string;children:ReactNode;defaultOpen?:boolean;reveal?:number}){
  const [open,setOpen]=useState(()=>{const saved=readPreference(storageKey,'');return saved==='true'?true:saved==='false'?false:defaultOpen;});
+ useEffect(()=>{if(reveal)setOpen(true);},[reveal]);
  return <details className="Collapsible" open={open}><summary onClick={e=>{e.preventDefault();const value=!open;setOpen(value);savePreference(storageKey,String(value));}}>{title}</summary>{children}</details>;
 }
-export type TableColumn<Row>={key:string;label:string;render:(row:Row)=>ReactNode;optional?:boolean;defaultVisible?:boolean;onSort?:()=>void;sort?:'ascending'|'descending'|'none'};
+export type TableColumn<Row>={key:string;label:string;render:(row:Row)=>ReactNode;className?:string;optional?:boolean;defaultVisible?:boolean;onSort?:()=>void;sort?:'ascending'|'descending'|'none'};
 export function DataTable<Row>({label,rows,columns,rowKey}:{label:string;rows:Row[];columns:TableColumn<Row>[];rowKey:(row:Row)=>Key}){
  const [choices,setChoices]=useState<Record<string,boolean>>({});
  const visible=columns.filter(c=>!c.optional||(choices[c.key]??c.defaultVisible??false));
  return <div className="DataTable">{columns.some(c=>c.optional)&&<details className="column-picker"><summary>显示列</summary><fieldset><legend>{label}的可选列</legend>{columns.filter(c=>c.optional).map(c=><label key={c.key}><input type="checkbox" checked={choices[c.key]??c.defaultVisible??false} onChange={e=>setChoices({...choices,[c.key]:e.target.checked})}/>{c.label}</label>)}</fieldset></details>}
- <div className="table-scroll"><table aria-label={label}><thead><tr>{visible.map(c=><th key={c.key} scope="col" aria-sort={c.sort}>{c.onSort?<button onClick={c.onSort}>{c.label}{c.sort==='ascending'?' ↑':c.sort==='descending'?' ↓':''}</button>:c.label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={rowKey(row)}>{visible.map(c=><td key={c.key}>{c.render(row)}</td>)}</tr>)}</tbody></table></div>{rows.length===0&&<EmptyState>暂无记录。</EmptyState>}</div>;
+ <div className="table-scroll"><table aria-label={label}><thead><tr>{visible.map(c=><th key={c.key} className={c.className} scope="col" aria-sort={c.sort}>{c.onSort?<button onClick={c.onSort}>{c.label}{c.sort==='ascending'?' ↑':c.sort==='descending'?' ↓':''}</button>:c.label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={rowKey(row)}>{visible.map(c=><td key={c.key} className={c.className}>{c.render(row)}</td>)}</tr>)}</tbody></table></div>{rows.length===0&&<EmptyState>暂无记录。</EmptyState>}</div>;
 }
 export function Drawer({open,onClose,title,children}:{open:boolean;onClose:()=>void;title:string;children:ReactNode}){
  const ref=useRef<HTMLDialogElement>(null),id=useId();

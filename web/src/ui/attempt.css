@@ -1,0 +1,31 @@
+.attempt-detail{min-width:0}.attempt-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-2)}.attempt-heading h2{margin:0;font-size:var(--fs-lg)}
+.attempt-detail>.attempt-actions{padding:0;border:0;margin:var(--space-2) 0 var(--space-3)}
+.attempt-first-screen{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:var(--space-3);align-items:start}
+.attempt-first-screen>.Panel{margin:0;min-width:0;padding:var(--space-3)}
+.attempt-facts .FactGrid{margin:var(--space-2) 0;gap:var(--space-2)}.attempt-facts .FactGrid dt{font-size:var(--fs-sm);align-self:center}.attempt-facts .FactGrid dd{min-width:0;line-height:1.45}.attempt-facts .fact-source{padding:var(--space-1);margin-left:var(--space-1)}
+.fact-method{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fact-warnings{border-top:1px solid var(--line);padding-top:var(--space-2);font-size:var(--fs-sm);color:var(--warn)}
+.attempt-structure .molecule-section{margin:var(--space-2) 0 0;padding:0;border:0}.attempt-structure .section-heading{margin:0;gap:var(--space-2)}.attempt-structure .section-heading .eyebrow{display:none}.attempt-structure .section-heading h3{margin:0;font-size:var(--fs-sm)}
+.attempt-structure .molecule-viewer{grid-template-columns:minmax(0,1fr);padding:var(--space-2);gap:var(--space-1)}.attempt-structure .molecule-stage svg{width:100%;max-height:none}.attempt-structure .molecule-viewer.expanded-view .molecule-stage svg{height:calc(var(--attempt-scene-height) * 2)}.attempt-structure .model-hint{margin:var(--space-1) 0}.attempt-structure .molecule-tools{min-width:0}
+.attempt-detail>.Collapsible{border-top:1px solid var(--line);padding:var(--space-3) 0;margin-top:var(--space-2)}.attempt-detail>.Collapsible>summary{font-weight:600}.attempt-detail .Collapsible>section{min-width:0}.attempt-detail .table-scroll{max-width:100%}
+.attempt-first-screen [id],.attempt-detail .Collapsible [id]{scroll-margin-top:calc(var(--header-height) + var(--context-height) + var(--space-4))}
+.attempt-actions .Drawer form{margin:0}.attempt-actions .Drawer fieldset{min-width:0}.attempt-actions .Drawer dl{overflow-wrap:anywhere}
+@media(max-width:740px){.attempt-first-screen{grid-template-columns:minmax(0,1fr)}.attempt-heading{align-items:start;flex-direction:column}.attempt-facts .fact-emphasis{font-size:var(--fs-lg)}}
+.attempt-structure label{margin:var(--space-1) var(--space-2) var(--space-1) 0}.attempt-structure .molecule-stage svg{height:var(--attempt-scene-height)}.attempt-structure .interaction-help,.attempt-structure .structure-tools{margin:var(--space-1) 0}.attempt-structure .molecule-tools{padding-left:var(--space-2)}
+main:has(.attempt-detail){padding-top:var(--space-3)}.attempt-structure>h2{margin-bottom:var(--space-1)}
+/* Reserve space from measured shell/action heights, with a real scene minimum.
+   Expanded interactive tools may grow the card; the default reading view fits. */
+@media(min-width:741px){
+ .attempt-structure{height:var(--attempt-card-height);display:flex;flex-direction:column}
+ .attempt-structure>h2{flex:none}.attempt-structure #attempt-structure{display:flex;flex-direction:column;flex:1;min-height:0}
+ .attempt-structure #attempt-structure>label{flex:none;align-self:start}
+ .attempt-structure .molecule-section{display:flex;flex-direction:column;flex:1;min-height:0}
+ .attempt-structure .section-heading,.attempt-structure .molecule-section>p{flex:none}
+ .attempt-structure .molecule-section>p{margin:var(--space-1) 0}
+ .attempt-structure .molecule-viewer{display:flex;flex-direction:column;flex:1;min-height:0;padding:var(--space-1);gap:var(--space-1)}
+ .attempt-structure .molecule-viewport{display:flex;flex-direction:column;flex:1;min-height:0;width:100%}
+ .attempt-structure .molecule-stage{display:flex;flex-direction:column;flex:1;min-height:0}
+ .attempt-structure .molecule-stage svg{flex:1;height:0;min-height:var(--attempt-scene-height);max-width:none}
+ .attempt-structure .scene-caption,.attempt-structure .model-hint,.attempt-structure .interaction-help,.attempt-structure .molecule-tools{flex:none}
+ .attempt-structure .molecule-tools{padding:0;border:0;width:100%}
+ .attempt-structure:has(.structure-tools[open],.interaction-help[open],.vibration-controls,.expanded-view){height:auto;min-height:var(--attempt-card-height)}
+}
