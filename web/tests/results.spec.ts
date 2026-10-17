@@ -87,12 +87,13 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  await page.goto('/#server');
  await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('00:03:12 / 01:00:00');
  await expect(page.locator('.core-count')).toHaveText('8 / 44');
+ await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:'集群 default · 节点、队列与警告'}).click();
  await expect(page.getByRole('table',{name:'节点表'})).toContainText('synthetic-node');
  await expect(page.getByRole('table',{name:'队列表'})).toContainText('demo');
  await expect(page.getByText('需人工确认后 ag cancel',{exact:true})).toBeVisible();
  await expect(page.getByText('运行 ag status 核对',{exact:true})).toBeVisible();
  const first=reads;await page.clock.fastForward(30001);await expect.poll(()=>reads).toBe(first+1);
- expect(apiReads.every(path=>['/api/monitor','/api/studies'].includes(path))).toBeTruthy();
+ expect(apiReads.every(path=>path==='/api/monitor'||path==='/api/studies'||/^\/api\/studies\/[^/]+(?:\/attempts\/[^/]+\/snapshots)?$/.test(path))).toBeTruthy();
  await page.screenshot({path:info.outputPath('server.png'),fullPage:true});
  await page.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
@@ -141,7 +142,8 @@ test('two cluster sections show Slurm optional fields and retained data honestly
   {name:'batch',source:'named',ambiguous:false,snapshot:batch,error:null}];
  await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:rows}}));
  await page.goto('/#server');
- const section=page.getByRole('region',{name:'集群 batch',exact:true});
+ await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:'集群 batch · 节点、队列与警告'}).click();
+ const section=page.getByRole('region',{name:'集群 batch 详细信息',exact:true});
  await expect(page.getByRole('region',{name:'集群 default',exact:true})).toBeVisible();
  await expect(section).toContainText('预算 100 · 已用 1.5 · 预留 2.25 核时');
  await expect(section).toContainText('到期日期：2099-01-01');
