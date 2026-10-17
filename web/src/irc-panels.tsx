@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {endpoint,get} from './api';
-import {StatusBadge,statusTone} from './ui';
+import {Collapsible,ErrorNotice,FactGrid,Panel,StatusBadge,statusTone} from './ui';
 import {routeHash} from './routing';
 import {MoleculeViewer} from './molecule-viewer';
 import type {Geometry} from './molecule-viewer';
@@ -20,12 +20,6 @@ const value=(v:unknown):string=>v===null||v===undefined?'未提供':typeof v==='
 const url=(study:string,parts:string[],direction:Direction,point:number)=>routeHash([study,'irc-reviews',...parts])+`?direction=${direction}&point=${point}`;
 function Saved({data}:{data:unknown}){return <details><summary>原始依据、文件与行号</summary><pre>{JSON.stringify(data,null,2)}</pre></details>;}
 function StatusValue({status}:{status:Status}){return <StatusBadge tone={statusTone(status)}><span><code>{status}</code><br/>{labels[status]}</span></StatusBadge>;}
-
-export function IRCReports({study,revision}:{study:string;revision:number}){
- const [data,setData]=useState<{reports:{name:string;group:string|null}[];issues:{name:string;error:string}[]}|null>(null),[error,setError]=useState('');
- useEffect(()=>{const c=new AbortController();setData(null);setError('');get<NonNullable<typeof data>>(endpoint(study,'irc-reviews'),c.signal).then(v=>{if(!c.signal.aborted)setData(v);}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,revision]);
- return <section aria-label="IRC 报告列表"><h3>IRC 报告</h3>{error?<p role="alert">{error}</p>:!data?<p>读取 IRC 报告…</p>:<>{data.reports.length?<ul>{data.reports.map(r=><li key={(r.group??'')+r.name}><a href={url(study,[...(r.group?[r.group]:[]),r.name],'forward',0)}>{[r.group,r.name].filter(Boolean).join('/')}</a></li>)}</ul>:<p>暂无可读 IRC 报告。</p>}{data.issues.map((r,i)=><p key={i} className="notice">{r.name}：{r.error}</p>)}</>}</section>;
-}
 
 type Curve={direction:Direction;points:Point[];color:string};
 function PathChart({sides,pair,choose,selected}:{sides:Record<Direction,Side>;pair?:string;choose:(direction:Direction,point:number)=>void;selected:{direction:Direction;point:number}}){
@@ -82,12 +76,12 @@ function IRCContent({packet,study,parts,direction,point}:{packet:Packet;study:st
  const pair=r.pairs.find(p=>p.join('-')===highlight)??r.pairs[0];
  const choose=(d:Direction,p:number)=>{window.location.hash=url(study,parts,d,p);};
  const geometry=selected?.geometry_frame===null||selected?.geometry_frame===undefined?null:packet.trajectories[direction].frames[selected.geometry_frame].geometry;
- return <section className="irc-page" aria-label="IRC 查看页">
+ return <div className="irc-page" role="region" aria-label="IRC 查看页">
 
- <h2>IRC 查看 · {parts.join('/')}</h2><a href={routeHash([study])}>返回结果</a>
+ <Panel title={`IRC 查看 · ${parts.join('/')}`}><a href={routeHash([study])}>返回结果</a>
  <p className="notice" role="note">{r.notice}</p><p>TS：{r.ts} · forward：{sides.forward.attempt} · reverse：{sides.reverse.attempt}</p>
  <p>方法口径：{Object.entries(r.protocol).map(([k,v])=>`${k}: ${value(v)}`).join(' · ')}</p>
- <details open><summary>报告阈值</summary><dl>{Object.entries(r.thresholds).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl></details>
+ <Collapsible page="irc" block="thresholds" title="报告阈值" defaultOpen><FactGrid facts={Object.entries(r.thresholds).map(([label,value])=>({label,value}))}/></Collapsible>
  {directions.map(d=><p key={d} data-testid={`${d}-count`}>{d}：非零路径点 {sides[d].points.filter(p=>p.point!==0).length} · 含 TS 点数 {sides[d].points.length} · XYZ 帧数 {sides[d].path_geometry.frame_count} · {packet.trajectories[d].hash_status}</p>)}
  <p className="muted">曲线使用报告保存值；能量基准为各方向第 0 点，TS facts 对照见判据下方。缺失能量留空断线；TS 位于横轴 0。</p>
  <PathChart sides={sides} selected={{direction,point}} choose={choose}/>
@@ -101,12 +95,12 @@ function IRCContent({packet,study,parts,direction,point}:{packet:Packet;study:st
  {!selected?<p role="alert">URL 中的路径点不存在。</p>:<><p data-testid="irc-selected">{direction} 点 {point} · XYZ 帧 {value(selected.geometry_frame)}（从 0 开始）</p><p>相对能量：{value(selected.relative_energy_kcal_mol)} kcal/mol · 日志：{side.log.path} · 能量行 {value(selected.energy_line)} · 几何行 {value(selected.geometry_line)} · {selected.geometry_kind}</p>{geometry?<MoleculeViewer highlightedAtoms={pair} last={geometry} frameLabel={`${direction} 点 ${point} · 帧 ${selected.geometry_frame}`}/>:<p role="status">此点缺少几何，未借用其他帧。</p>}</>}
  </section>
  {directions.map(d=><Criteria key={d} direction={d} side={sides[d]}/>)}
- <details><summary>报告输入哈希（只显示来源，不打开文件）</summary><pre>{JSON.stringify(r.inputs,null,2)}</pre></details>
- </section>;
+ <Collapsible page="irc" block="inputs" title="报告输入哈希（只显示来源，不打开文件）"><pre>{JSON.stringify(r.inputs,null,2)}</pre></Collapsible></Panel>
+ </div>;
 }
 
 export function IRCPage({study,parts,direction,point,revision}:{study:string;parts:string[];direction:Direction;point:number;revision:number}){
  const [packet,setPacket]=useState<Packet|null>(null),[error,setError]=useState('');const location=parts.join('/');
  useEffect(()=>{const c=new AbortController();setPacket(null);setError('');get<Packet>(endpoint(study,'irc-reviews',...parts),c.signal).then(v=>{if(!c.signal.aborted)setPacket(v);}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,location,revision]);
- return error?<p role="alert">{error}</p>:packet?<IRCContent packet={packet} study={study} parts={parts} direction={direction} point={point}/>:<p role="status">读取 IRC 报告与路径 XYZ…</p>;
+ return error?<ErrorNotice>{error}</ErrorNotice>:packet?<IRCContent packet={packet} study={study} parts={parts} direction={direction} point={point}/>:<p role="status">读取 IRC 报告与路径 XYZ…</p>;
 }

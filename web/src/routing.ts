@@ -44,7 +44,8 @@ export function readRoute():Route{
   }
   if(section==='analysis'){
    if(!rest.length)return {study,view:'analysis'};
-   if(![2,3].includes(rest.length))throw Error();
+   const fixedTS=rest.length===4&&rest[0]==='ts'&&rest[1]==='ts-labels'&&['labels.json','labels.md','channel-suggestions.csv'].includes(rest[3]);
+   if(![2,3].includes(rest.length)&&!fixedTS)throw Error();
    const params=new URLSearchParams(query);
    if(rest[0]==='ensemble'){
     const id=params.get('candidate');
