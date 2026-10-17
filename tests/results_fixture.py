@@ -1,6 +1,7 @@
 """Invented small-molecule and scheduler records; never live cluster data."""
 from datetime import datetime, timezone
 import json
+import os
 from tests.study_fixture import ATOMS, create_preview_studies
 
 
@@ -46,16 +47,19 @@ def monitor_snapshot():
 def create_results_studies(root):
     study=create_preview_studies(root)
     with (study/'study.md').open('a') as f:
+        f.write('\n## 待你决定\n- 合成示例：是否进入下一轮人工审阅。\n\n## 里程碑签字\n| 里程碑 | 展示并确认的对象 | 日期 | 签字人 | 人的确认原意 |\n|---|---|---|---|---|\n| 结构 | 合成正丁烷 | 2026-01-01 | Synthetic reviewer | 仅为查看器演示 |\n| 代表构象集合 | 合成集合 | 待签 | 待签 | 待确认 |\n| 最终结果 | 虚构能量 | 待签 | 待签 | 待确认 |\n\n## 进度日志\n- 2026-01-02：准备合成数据，等待人工审阅演示。\n')
         f.write('\n## 安全检查\n**Markdown 正常渲染**\n\n[当前阻塞](#当前阻塞) [外部链接](https://example.invalid) [脚本链接](javascript:alert(1))\n\n<script>window.syntheticXss=1</script>\n<img src="x" onerror="window.syntheticXss=1">\n\n![外部图片](https://example.invalid/image.png)\n')
     for name,converged in [('opt-demo',True),('opt-failed',False)]:
         base=study/'attempts'/name
         (base/'outputs').mkdir(parents=True)
         (base/'outputs'/'optimization.log').write_text(opt_log(converged))
-        (base/'manifest.json').write_text(json.dumps({'label':'Synthetic optimization','template':'gaussian','parents':[]}))
-        (base/'status.json').write_text(json.dumps({'state':'fetched'}))
-        (base/'facts.json').write_text(json.dumps({'schema':'ag-facts/1','route':'# HF/STO-3G Opt Freq','termination':'normal' if converged else 'error','energies':{'scf':-157.0025,'g':-156.91} if converged else {'scf':-157.0025},'n_imag':0 if converged else None,'frequencies_low':[100,200,300] if converged else []}))
+        (base/'manifest.json').write_text(json.dumps({'label':'Synthetic optimization','template':'gaussian','parents':[], 'cluster':'default', 'cores':8, 'science':{'method_basis':'HF/STO-3G'}}))
+        (base/'status.json').write_text(json.dumps({'state':'fetched','elapsed':'00:03:12'}))
+        (base/'facts.json').write_text(json.dumps({'schema':'ag-facts/1','route':'# HF/STO-3G Opt Freq','opt_converged':converged,'termination':'normal' if converged else 'error','energies':{'scf':-157.0025,'g':-156.91} if converged else {'scf':-157.0025},'n_imag':0 if converged else None,'frequencies_low':[100,200,300] if converged else []}))
     folder=study/'analyses'/'cluster-demo';folder.mkdir()
     (folder/'representatives.xyz').write_bytes((study/'analyses'/'representatives.xyz').read_bytes())
+    for i, report in enumerate(sorted((study/'analyses').glob('*.json'))):
+        os.utime(report, (1767312000+i*3600, 1767312000+i*3600))
     monitor=root/'.ag-monitor';monitor.mkdir()
     (monitor/'latest.json').write_text(json.dumps(monitor_snapshot()))
     return study

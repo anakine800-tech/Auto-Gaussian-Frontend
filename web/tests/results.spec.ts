@@ -17,23 +17,28 @@ test('local sample time and optional running/queued core totals',async({browser,
  await context.close();
 });
 
-test('results default, sorting, saved thermo and nested representatives',async({page},info)=>{
+test('overview, Attempt sorting, saved thermo and nested representatives',async({page},info)=>{
  const writes:string[]=[],errors:string[]=[];
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/#/butane-demo');
  await expect(page.getByRole('button',{name:'概览',exact:true})).toHaveAttribute('aria-current','page');
+ await expect(page.getByRole('region',{name:'要处理的事'})).toBeVisible();
+ await page.getByRole('button',{name:'Attempts',exact:true}).click();
  const table=page.getByRole('table',{name:'Attempt 结果表'});
  await expect(table).toContainText('-157.0025');await expect(table).toContainText('unknown');
- await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
- await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
- await table.getByRole('button',{name:'SCF / Eh',exact:false}).click();
+ await table.getByRole('button',{name:'电子能 / Eh',exact:false}).click();
  await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
+ await page.getByRole('button',{name:'分析',exact:true}).click();
+ await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
+ await page.getByRole('button',{name:'文件',exact:true}).click();
+ await page.getByRole('button',{name:'结构文件',exact:true}).click();
  await page.getByRole('link',{name:'analyses/cluster-demo/representatives.xyz',exact:true}).click();
  await expect(page.getByRole('heading',{name:'analyses/cluster-demo/representatives.xyz',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'下一帧',exact:true}).click();
  await expect(page.getByLabel('帧号')).toHaveValue('2');
  await page.screenshot({path:info.outputPath('results.png'),fullPage:true});
- await table.locator('tbody tr').filter({hasText:'opt-demo'}).locator('td').nth(1).click();
+ await page.goto('/#/s/butane-demo/attempts');
+ await table.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/opt-demo$/);
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
  expect(writes).toEqual([]);expect(errors).toEqual([]);

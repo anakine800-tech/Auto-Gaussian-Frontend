@@ -1,12 +1,8 @@
-import {readPreference,savePreference} from './ui';
 import {Children,isValidElement,useEffect,useState} from 'react';
 import type {ReactNode} from 'react';
 import ReactMarkdown from 'react-markdown';
-import {display,endpoint,get,object} from './api';
-import type {AttemptSummary,Document,Study} from './api';
-import {Analyses} from './study-panels';
-import {EnsembleList} from './ensemble-panels';
-import {StructureFiles} from './preview-panels';
+import {display,endpoint,get} from './api';
+import type {Document} from './api';
 import {MoleculeViewer} from './molecule-viewer';
 
 const plain=(children:ReactNode):string=>Children.toArray(children).map(c=>isValidElement<{children?:ReactNode}>(c)?plain(c.props.children):String(c)).join('');
@@ -22,30 +18,6 @@ export function StudyMarkdown({doc}:{doc:Document<string>}){
   h5:({children})=><h5 id={'study-md-'+anchor(plain(children))}>{children}</h5>,
   h6:({children})=><h6 id={'study-md-'+anchor(plain(children))}>{children}</h6>,
  }}>{doc.data??''}</ReactMarkdown>}</section>;
-}
-const columns=['Attempt','标签','状态','Route / 模板','终止类型','SCF / Eh','虚频数','最低频率 / cm⁻¹','G / Eh'];
-function values(a:AttemptSummary){
- const facts=object(a.facts.data)?a.facts.data:{},energies=object(facts.energies)?facts.energies:{};
- // facts.frequencies_low is already ordered by the producer; display its first value.
- const low=Array.isArray(facts.frequencies_low)?facts.frequencies_low[0]:null;
- return [a.id,a.label,a.state,facts.route??a.template,facts.termination,energies.scf,facts.n_imag,low,energies.g].map(v=>typeof v==='string'||typeof v==='number'?v:null);
-}
-export function Results({data,onSelect,revision}:{data:Study;onSelect:(id:string)=>void;revision:number}){
- const [sort,setSort]=useState(()=>{const [column,direction]=readPreference('sort:results:'+data.id,'0:1').split(':');return {column:/^[0-8]$/.test(column)?Number(column):0,direction:direction==='-1'?-1:1};});
- const files=data.structure_files.filter(f=>f.parts[0]==='analyses');
- const [selected,setSelected]=useState<string[]|null>(files.find(f=>!f.error)?.parts??null);
- const rows=data.attempts.map(a=>({a,cells:values(a)})).sort((a,b)=>{
-  const x=a.cells[sort.column],y=b.cells[sort.column];
-  if(x===null)return y===null?0:1;if(y===null)return -1;
-  return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y)))*sort.direction;
- });
- return <section aria-label="结果总览"><h2>结果总览</h2><p className="muted">数值来自 facts.json；标签、模板和状态来自 manifest / status。空值表示未提供。</p>
- <div className="table-scroll"><table aria-label="Attempt 结果表"><thead><tr>{columns.map((c,i)=><th key={c} aria-sort={sort.column===i?(sort.direction===1?'ascending':'descending'):'none'}><button onClick={()=>setSort(s=>{const next={column:i,direction:s.column===i?-s.direction:1};savePreference('sort:results:'+data.id,`${i}:${next.direction}`);return next;})}>{c}{sort.column===i?(sort.direction===1?' ↑':' ↓'):''}</button></th>)}</tr></thead><tbody>{rows.map(({a,cells})=><tr key={a.id} onClick={()=>onSelect(a.id)} className="result-row">{cells.map((v,i)=><td key={i}>{i===0?<button onClick={e=>{e.stopPropagation();onSelect(a.id);}}>{a.id}</button>:display(v)}</td>)}</tr>)}</tbody></table></div>
- {data.attempts.filter(a=>a.facts.error||a.manifest.error||a.status.error).map(a=><p className="muted" key={a.id}>{a.id}：{[a.facts.error,a.manifest.error,a.status.error].filter(Boolean).join(' · ')}</p>)}
- <EnsembleList study={data.id} revision={revision}/>
- <Analyses analyses={data.analyses.filter(a=>object(a.data)&&a.data.schema==='ag-thermo/1')}/>
- <StructureFiles study={data.id} files={files} selected={selected} onSelect={setSelected} revision={revision}/>
- </section>;
 }
 type Metric={label:string;value:number;threshold:number;result:string};
 type Step={index:number;printed_step:number|null;scf_hartree:number;metrics:Metric[];geometry:unknown;line:number};

@@ -10,8 +10,8 @@ async function fullyVisible(locator:Locator,page:Page){
 }
 for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`four entry screenshots and first-screen shell ${size.width}x${size.height}`,async({page},info)=>{
  await page.setViewportSize(size);await page.clock.setFixedTime(new Date('2026-10-17T02:00:00Z'));
- await page.goto('/#/s/butane-demo');await expect(page.getByRole('table',{name:'Attempt 结果表'})).toContainText('opt-demo');
- for(const [entry,name,ready] of [['作业','jobs','服务器监控'],['Study','study','结果总览'],['分析','analysis','分析报告'],['文件','files','研究文件']]){
+ await page.goto('/#/s/butane-demo');await expect(page.getByRole('region',{name:'要处理的事'})).toContainText('opt-demo');
+ for(const [entry,name,ready] of [['作业','jobs','服务器监控'],['Study','study','要处理的事'],['分析','analysis','分析报告'],['文件','files','研究文件']]){
   await page.getByRole('navigation',{name:'顶部导航'}).getByRole('button',{name:entry,exact:true}).click();
   await expect(page.getByRole('heading',{name:ready,exact:true})).toBeVisible();
   if(entry==='作业')await expect(page.getByRole('table',{name:'本人作业表'})).toBeVisible();
@@ -42,8 +42,8 @@ test('legacy exact links replace history and preserve both query locations',asyn
 });
 
 test('search reads only cached studies and navigates Attempts and filenames',async({page})=>{
- await page.goto('/#/s/butane-demo');await expect(page.getByRole('table',{name:'Attempt 结果表'})).toContainText('opt-demo');
- await expect(page.getByRole('heading',{name:'thermo-demo.json',exact:true})).toBeVisible();
+ await page.goto('/#/s/butane-demo');await expect(page.getByRole('region',{name:'要处理的事'})).toContainText('opt-demo');
+ await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
  const requests:string[]=[];page.on('request',r=>requests.push(r.url()));
  await page.getByRole('textbox',{name:'全局搜索'}).fill('opt-demo');
  const results=page.getByRole('region',{name:'搜索结果'});
@@ -81,5 +81,5 @@ test('direct jobs entry can open the first Study without remembered state',async
  await expect(nav.getByRole('button',{name:'Study',exact:true})).toBeEnabled();
  await nav.getByRole('button',{name:'Study',exact:true}).click();
  await expect(page).toHaveURL(/#\/s\/butane-demo$/);
- await expect(page.getByRole('table',{name:'Attempt 结果表'})).toBeVisible();
+ await expect(page.getByRole('region',{name:'要处理的事'})).toBeVisible();
 });

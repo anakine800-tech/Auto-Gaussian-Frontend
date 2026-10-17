@@ -3,10 +3,10 @@ import {test,expect} from '@playwright/test';
 test('old entry routes and tabs resolve to the same files',async({page})=>{
  for(const [old,canonical,heading] of [
   ['#server','#/jobs','服务器监控'],
-  ['#/butane-demo','#/s/butane-demo','结果总览'],
+  ['#/butane-demo','#/s/butane-demo','要处理的事'],
   ['#/butane-demo?tab=overview','#/s/butane-demo/files/document?tab=overview','study.md'],
   ['#/butane-demo?tab=graph','#/s/butane-demo/files/graph?tab=graph','Attempt 关系图'],
-  ['#/butane-demo?tab=attempts','#/s/butane-demo/attempts?tab=attempts','anti'],
+  ['#/butane-demo?tab=attempts','#/s/butane-demo/attempts?tab=attempts','Attempt 表'],
   ['#/butane-demo?tab=analyses','#/s/butane-demo/analysis?tab=analyses','分析报告'],
   ['#/butane-demo/analyses/thermo-demo.json','#/s/butane-demo/analysis/file/thermo-demo.json','thermo-demo.json'],
   ['#/s/butane-demo/files/analyses/thermo-demo.json','#/s/butane-demo/files/analyses/thermo-demo.json','thermo-demo.json'],
@@ -26,7 +26,7 @@ test('cached input and log search selects an exact file without typing requests'
  const inputName=await page.getByRole('combobox',{name:'输入文件',exact:true}).inputValue();
  const logName=await page.getByLabel('输出日志',{exact:true}).inputValue();
  await page.getByRole('navigation',{name:'顶部导航'}).getByRole('button',{name:'Study',exact:true}).click();
- await expect(page.getByRole('heading',{name:'thermo-demo.json',exact:true})).toBeVisible();
+ await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
  const requests:string[]=[];page.on('request',r=>requests.push(r.url()));
  for(const [name,kind,label] of [[inputName,'inputs','输入文件'],[logName,'logs','输出日志']]){
   requests.length=0;await page.getByRole('textbox',{name:'全局搜索'}).fill(name);
@@ -72,8 +72,8 @@ test('invalid precise file links fail before reading any Study file',async({page
 test('job and overview return links retain their source and sort',async({page})=>{
  await page.goto('/#/jobs');await page.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();await page.getByRole('link',{name:'← 返回列表'}).click();await expect(page).toHaveURL(/#\/jobs$/);
- await page.goto('/#/s/butane-demo');const table=page.getByRole('table',{name:'Attempt 结果表'});
- await table.getByRole('button',{name:'SCF / Eh',exact:false}).click();await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
- await table.getByRole('button',{name:'opt-demo',exact:true}).click();await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
- await page.getByRole('link',{name:'← 返回列表'}).click();await expect(page).toHaveURL(/#\/s\/butane-demo$/);await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
+ await page.goto('/#/s/butane-demo/attempts');const table=page.getByRole('table',{name:'Attempt 结果表'});
+ await table.getByRole('button',{name:'电子能 / Eh',exact:false}).click();await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
+ await table.getByRole('link',{name:'opt-demo',exact:true}).click();await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
+ await page.getByRole('link',{name:'← 返回列表'}).click();await expect(page).toHaveURL(/#\/s\/butane-demo\/attempts\?sort=energy&order=asc$/);await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
 });

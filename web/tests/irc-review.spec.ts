@@ -21,6 +21,7 @@ test.afterEach(async({page})=>{
 
 test('saved curves, statuses, sources and neutral endpoint supplementation',async({page})=>{
  await page.goto(base+'/#/irc-demo');
+ await page.getByRole('button',{name:'分析',exact:true}).click();
  await page.getByRole('region',{name:'IRC 报告列表'}).getByRole('link',{name:'review.json',exact:true}).click();
  const view=page.getByRole('region',{name:'IRC 查看页',exact:true});
  await expect(view).toContainText('仍需人工审阅 SCF/电子态连续性');

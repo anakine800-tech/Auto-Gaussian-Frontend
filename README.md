@@ -84,7 +84,8 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 ## 四个入口与链接
 
 - **作业**：`#/jobs`，显示本地 monitor 快照。
-- **Study**：`#/s/<study>` 为现有结果概览；`/attempts` 为 Attempt 列表，
+- **Study**：`#/s/<study>` 展示 KPI、待处理事项、最近分析和折叠的研究说明 / 进度日志；
+  `/attempts` 为可排序筛选的 Attempt 表，筛选排序保存在 URL，
   `/a/<attempt>` 为详情。首页打开上次访问的 Study，无记录时取列表第一项。
 - **分析**：`#/s/<study>/analysis`；集合、IRC 和普通分析文件分别使用
   `/analysis/ensemble/<报告>`、`/analysis/irc/<报告>`、`/analysis/file/<文件>`。
@@ -95,10 +96,12 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 全局搜索只检索当前浏览器会话已读取的 Study、Attempt 标签和文件名；读取过
 Attempt 详情后，输入、日志和记录文件也会出现在搜索结果中。输入关键词不发请求，
 选择结果时才读取目标。页面刷新会清空内存搜索索引。
-折叠状态与排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
+折叠状态与既有集合表排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
+Attempt 表的筛选和排序保存在 URL，刷新与返回时保留。
 
-T94 仅完成框架和兼容层；各页内容改版按 T95–T98 逐步合并。
-设计和验收记录见 [T94](docs/t94/design-checkpoint.md)。
+T94 完成框架和兼容层，T95 完成 Study 概览与 Attempt 表；后续按 T96–T98 逐步合并。
+设计和验收记录见 [T94](docs/t94/design-checkpoint.md)；待审 / 待签计数、字段来源与
+本次截图见 [T95](docs/t95/overview.md)。
 
 ## Files displayed
 
