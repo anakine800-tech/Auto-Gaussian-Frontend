@@ -1,6 +1,6 @@
-# Auto-Gaussian Study Viewer v4.2.1
+# Auto-Gaussian Study Viewer v4.3.0
 
-**配合 ag 4.2.1 使用。** This is the v4.2.1 release candidate; see [CHANGELOG.md](CHANGELOG.md).
+**配合 ag 4.3.0 使用。** This is the v4.3.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v430).
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -65,7 +65,7 @@ source installation above serves the explicit Vite build.
 
 ## 只读模式在计算机上启动
 
-1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.2.1 使用。
+1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.3.0 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -99,7 +99,7 @@ Attempt 详情后，输入、日志和记录文件也会出现在搜索结果中
 折叠状态与既有集合表排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
 Attempt 表的筛选和排序保存在 URL，刷新与返回时保留。
 
-T94 完成框架和兼容层，T95 完成 Study 概览与 Attempt 表，T96 完成 Attempt 详情、操作抽屉与本地快照；后续按 T97–T98 逐步合并。
+T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、Attempt 详情与操作抽屉、作业页、分析入口和快速比较（含 termination / n_imag 列），以及 TS 立体标签报告只读查看。T87 提供 IRC 曲线与路径点结构。快速比较为前端计算、非正式结果；工具状态与报告不等于科学验收。
 设计和验收记录见 [T94](docs/t94/design-checkpoint.md)；待审 / 待签计数、字段来源与
 本次截图、字段规则与负载测量见 [T96](docs/t96/attempt.md)；[T95](docs/t95/overview.md) 截图保留。
 
@@ -501,19 +501,34 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.2.1 includes T71 local conformer groups, boundary filters, distances and summary
-navigation, on top of the T54/T55/T57 features. Pair it with backend ag 4.2.1 (T67).
-T71 is merged; this release PR changes only versions and release documentation.
-Synthetic offline tests demonstrate UI and adapter behavior; they do not establish
-L1/L2/L3 scientific acceptance. See the
-[backend acceptance status](https://github.com/anakine800-tech/Auto-Gaussian#验收状态).
-Supervisory review and owner merge are required. The owner creates the v4.2.1
-tag on this PR's exact merge commit, after verifying it is the intended release
-commit; do not select whichever commit main happens to point to later. Use the
-v4.2.1 CHANGELOG section as release notes and coordinate with backend T67.
-Before syncing the calculation machine, confirm no fetch is in progress; rebuild
-the frontend after syncing. Synthetic regression does not replace the owner’s
-read-only check of the actual study.
+V4.3.0 includes T87 and T94–T98a: read-only IRC views and stale-snapshot
+notices, four navigation entries, shared visual tokens and components, legacy
+link redirects, in-memory search, Study overview and Attempt tables, Attempt
+details and actions, jobs, analysis, quick comparison and read-only TS labels.
+Pair it with backend ag 4.3.0. Both T100 PRs change only versions and release
+documentation. Read-only defaults, path/size checks and ag-mediated actions stay
+unchanged; submit and cancel still require a human click in the Mac dialog.
+Synthetic tests demonstrate software behavior, not scientific acceptance.
+
+快速比较尚未同步后端按多重度补全 R/U 前缀的规则：单重态的 `M062X` 与
+`RM062X` 会被判为口径不同而拒绝比较，已列入后续修复。快速比较只在前端计算
+相对能量，非正式结果；正式结论以 ag 报告为准，后端不受此前端限制影响。
+`termination` 和 `n_imag` 只显示 facts 保存值，不作为自动验收。
+
+Supervisory review and owner merge are required for both PRs. The owner creates
+`v4.3.0` tags on each PR's exact merge commit, after verifying the release commit,
+and uses each repository's v4.3.0 CHANGELOG section for release notes. Do not
+select whichever commit main happens to point to later. After merge, sync both
+main checkouts, rebuild the frontend and open all four entries once. The owner
+schedules the calculation-machine update after confirming no fetch, submit or
+reparse is in progress. This release task does not deploy or run calculations.
+
+## 版本历史
+
+- **v4.3.0**：T87 IRC 查看与过期提示、T94–T98a 四入口改版、详情与作业页、分析和快速比较、TS 标签只读展示；配合 ag 4.3.0。[发布说明](CHANGELOG.md#v430)
+- **v4.2.1**：T71 局部构象分组、近边界筛选、关键距离与汇总导航。[发布说明](CHANGELOG.md#v421)
+- **v4.2.0**：T54 构象集合、T55 虚频审阅与报告对照、T57 跨页集成回归。[发布说明](CHANGELOG.md#v420)
+- **v4.0.0**：本地 study 查看器、可选 ag 操作与多集群快照。[发布说明](CHANGELOG.md#v400)
 
 ## IRC 查看页（T87）
 

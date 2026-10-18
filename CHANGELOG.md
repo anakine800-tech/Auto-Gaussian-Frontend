@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.3.0
+
+配合 ag 4.3.0 使用，前后端统一版本号。本节按 `git log v4.2.1..main --first-parent` 核对全部 7 个 PR；T100 只准备版本号和发布文档。两个仓库分别经监督方审阅、负责人合并后，由负责人在各自 PR 的确切合并提交上创建 `v4.3.0` tag/release，不直接选择届时的 main。
+
+### IRC 与监控
+
+- T87 增加只读 IRC 查看页，展示逐方向曲线、路径点结构、完成判据与停止原因；按报告映射读取路径 XYZ，有哈希时核对，不匹配则拒绝，缺哈希明确标记未核对。监控快照显示持续更新的采样年龄和过期提示。[#17](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/17)
+
+### 导航与页面改版
+
+- T94 统一视觉令牌、通用组件与页面框架，提供作业、Study、分析、文件四个顶层入口，旧链接自动跳转并保留选择状态；全局搜索仅检索当前浏览器会话已读取的数据。[#18](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/18)
+- T95 增加 Study 概览、待处理事项和最近分析，以及可筛选、排序并在 URL 保存选择的 Attempt 表。[#19](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/19)
+- T96 重做 Attempt 详情、上下文信息和操作栏 / 抽屉，提供输入、结构、优化、频率、日志及本地快照的查看入口；状态与结果仍取保存值。[#20](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/20)
+- T97 将作业与服务器监控集中到作业页，按集群展示本地 monitor 快照、占用和任务，保留缺失、陈旧及异常提示。[#21](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/21)
+- T98 提供分析入口、报告索引、筛选和快速比较，支持只读展示 TS 立体标签报告；快速比较在前端检查口径并计算相对能量，属于浏览辅助，非正式结果。[#22](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/22)
+- T98a 为快速比较增加 `termination` 与 `n_imag` 两列，只显示已读取的 facts 保存值，缺失保持未知，不据此自动判定科学合格。[#23](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/23)
+
+### 兼容与已知问题
+
+- 默认只读、路径与大小检查不变；显式开启的计算动作仍经本机 ag，提交与取消仍需人亲手点击 Mac 确认。页面上的工具状态、虚频数或报告均不等于科学验收。
+- 快速比较尚未同步后端按多重度补全 R/U 前缀的规则：单重态 `M062X` 与 `RM062X` 会被视为不同口径而拒绝比较。后续修复；正式结论以 ag 报告为准，后端不受此前端限制影响。
+- 发布前运行全部离线测试、浏览器测试和构建，结果见 T100 PR；各项实际验证见对应 PR 评论，发布不等于科学验收。
+
 ## v4.2.1
 
 配合 ag 4.2.1（后端 T67）使用。T71 已合并；本 PR 仅更新版本与发布文档。
