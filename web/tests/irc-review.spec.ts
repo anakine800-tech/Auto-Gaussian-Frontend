@@ -80,7 +80,7 @@ test('unknown URL point is explicit and mobile page keeps charts scrollable',asy
  await expect(page.getByText('URL 中的路径点不存在。',{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2)).toBe(true);
  await page.getByLabel('IRC 路径点').selectOption('0');
- await expect(page.getByTestId('molecule-scene')).toBeVisible();
+ await expect(page.locator('.irc-structure').getByTestId('molecule-scene')).toBeVisible();
  await page.goto(base+'/#/irc-demo/irc-reviews/review.json?direction=wrong&point=-1');
  await expect(page.getByRole('alert').filter({hasText:'无法打开链接'})).toBeVisible();
 });
@@ -100,4 +100,71 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T98 IR
  const bounds=(await heading.boundingBox())!;expect(bounds.y).toBeGreaterThanOrEqual(0);expect(bounds.y+bounds.height).toBeLessThanOrEqual(size.height);
  await expect(page.getByTestId('forward-count')).toBeVisible();await expect(page.getByTestId('reverse-count')).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await page.screenshot({path:info.outputPath(`irc-${size.width}x${size.height}.png`)});
+});
+
+test('three final structures use facts, highlight tracked atoms and link to Attempts',async({page})=>{
+ await page.goto(base+'/#/s/irc-demo/analysis/irc/review.json');
+ for(const [role,attempt,energy,nImag,distance] of [
+  ['reverse','endpoint-reverse','-76.234568','0','1.5000'],
+  ['ts','synthetic-ts','-76.123457','1','1.2500'],
+  ['forward','endpoint-forward','-76.345679','0','1.0000']]){
+  const card=page.getByTestId(`irc-comparison-${role}`);
+  await expect(card.getByTestId('molecule-scene')).toBeVisible();
+  await expect(card.locator('dd')).toHaveText([energy,nImag]);
+  await expect(card.locator('.irc-structure-distances li')).toHaveText([`1-2${distance}`,'1-31.0000']);
+  await expect(card).toContainText('前端按最终几何计算');
+  await expect(card.getByRole('link')).toHaveAttribute('href',`#/s/irc-demo/a/${attempt}`);
+  for(const atom of [1,2,3])await expect(card.locator(`[data-center="${atom}"] circle`)).toHaveCSS('stroke','rgb(189, 91, 17)');
+ }
+ const reverse=page.getByTestId('irc-comparison-reverse'),ts=page.getByTestId('irc-comparison-ts');
+ const reverseBefore=await reverse.getByTestId('molecule-atom').first().getAttribute('transform');
+ const tsBefore=await ts.getByTestId('molecule-atom').first().getAttribute('transform');
+ await ts.getByTestId('molecule-scene').press('ArrowRight');
+ await expect(ts.getByTestId('molecule-atom').first()).not.toHaveAttribute('transform',tsBefore!);
+ await expect(reverse.getByTestId('molecule-atom').first()).toHaveAttribute('transform',reverseBefore!);
+ await ts.getByRole('link').click();await expect(page).toHaveURL(base+'/#/s/irc-demo/a/synthetic-ts');
+ await page.goBack();await expect(page.getByTestId('irc-comparison-ts')).toContainText('-76.123457');
+});
+
+test('absent endpoint, corrupt source and missing facts stay explicit per card',async({page})=>{
+ await page.goto(base+'/#/s/xyz-reference/analysis/irc/review.json');
+ const reverse=page.getByTestId('irc-comparison-reverse');
+ await expect(reverse).toContainText('报告未提供端点 Attempt');
+ await expect(reverse.getByTestId('molecule-scene')).toHaveCount(0);await expect(reverse.getByRole('link')).toHaveCount(0);
+ await page.goto(base+'/#/s/changed-endpoint/analysis/irc/review.json');
+ const forward=page.getByTestId('irc-comparison-forward');await expect(forward.getByRole('alert')).toContainText('SHA-256 mismatch');
+ await expect(forward.getByTestId('molecule-scene')).toHaveCount(0);
+ await expect(page.getByTestId('irc-comparison-ts').getByTestId('molecule-scene')).toBeVisible();
+ await expect(page.getByRole('region',{name:'能量曲线',exact:true}).getByTestId('irc-point')).toHaveCount(8);
+ await page.goto(base+'/#/s/unknown-facts/analysis/irc/review.json');
+ await expect(reverse.locator('dd')).toHaveText(['未知','未知']);await expect(reverse.getByTestId('molecule-scene')).toBeVisible();
+});
+
+for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T104 all three cards fit first screen ${size.width}x${size.height}`,async({page},info)=>{
+ await page.setViewportSize(size);await page.goto(base+'/#/s/irc-demo/analysis/irc/review.json');
+ const block=page.getByRole('region',{name:'TS 与端点结构比对',exact:true});await expect(block).toBeVisible();
+ await expect.poll(()=>block.evaluate(el=>getComputedStyle(el).getPropertyValue('--irc-scene-height'))).toMatch(/^\d+px$/);
+ const boxes=await page.locator('.irc-structure-card').evaluateAll(cards=>cards.map(card=>{
+  const r=card.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom};
+ }));
+ expect(boxes).toHaveLength(3);
+ const shellBottom=await page.locator('.context-bar').evaluate(el=>el.getBoundingClientRect().bottom);
+ for(const b of boxes){expect(b.y).toBeGreaterThanOrEqual(shellBottom);expect(b.bottom).toBeLessThanOrEqual(size.height);expect(b.right).toBeLessThanOrEqual(size.width);}
+ expect(boxes[0].y).toBe(boxes[1].y);expect(boxes[1].y).toBe(boxes[2].y);
+ expect(boxes[0].right).toBeLessThan(boxes[1].x);expect(boxes[1].right).toBeLessThan(boxes[2].x);
+ expect(await page.evaluate(()=>window.scrollY)).toBe(0);
+ for(const role of ['reverse','ts','forward']){
+  const card=page.getByTestId(`irc-comparison-${role}`);await expect(card.getByTestId('molecule-scene')).toBeInViewport({ratio:1});
+  await expect(card.getByRole('link')).toBeInViewport({ratio:1});
+ }
+ await page.screenshot({path:info.outputPath(`t104-structures-${size.width}x${size.height}.png`)});
+});
+
+for(const width of [1023,390])test(`T104 narrow cards stack at ${width}`,async({page})=>{
+ await page.setViewportSize({width,height:844});await page.goto(base+'/#/s/irc-demo/analysis/irc/review.json');
+ await expect(page.getByTestId('irc-comparison-forward')).toBeVisible();
+ const boxes=await page.locator('.irc-structure-card').evaluateAll(cards=>cards.map(card=>{const r=card.getBoundingClientRect();return {x:r.x,y:r.y,bottom:r.bottom};}));
+ expect(boxes[0].x).toBe(boxes[1].x);expect(boxes[1].x).toBe(boxes[2].x);
+ expect(boxes[0].bottom).toBeLessThan(boxes[1].y);expect(boxes[1].bottom).toBeLessThan(boxes[2].y);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 });

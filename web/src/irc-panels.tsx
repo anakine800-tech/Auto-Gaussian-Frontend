@@ -4,6 +4,8 @@ import {Collapsible,ErrorNotice,FactGrid,Panel,StatusBadge,statusTone} from './u
 import {routeHash} from './routing';
 import {MoleculeViewer} from './molecule-viewer';
 import type {Geometry} from './molecule-viewer';
+import {IRCStructures} from './irc-structures';
+import type {IRCStructuresData} from './irc-structures';
 
 type Direction='forward'|'reverse';
 type Status='tool_checks_passed'|'met'|'met_by_endpoint_optimization'|'not_met'|'unknown';
@@ -12,7 +14,7 @@ type Point={point:number;geometry_frame:number|null;relative_energy_kcal_mol:num
 type Midpoint={pair:string;ts_angstrom:number|null;last_angstrom:number|null;reference_angstrom:number|null;midpoint_angstrom:number|null;change:string;status:Status;reason:string};
 type Criterion={status:Status;reasons?:string[];reason?:string;[key:string]:unknown};
 type Side={attempt:string;summary:string;unresolved:string[];warnings:string[];stop_reason:string;last_accepted_point:number|null;points:Point[];path_geometry:{path:string;frame_count:number};ts_reference:Record<string,unknown>;log:Ref;criteria:{continuity:Criterion;energy_drop:Criterion&{drop_kcal_mol:number|null;threshold_kcal_mol:number|null};midpoint:Criterion&{pairs:Midpoint[]};endpoint:Criterion}};
-type Packet={report:{notice:string;ts:string;protocol:Record<string,string|null>;pairs:number[][];thresholds:Record<string,number>;directions:Record<Direction,Side>;inputs:Ref[]};trajectories:Record<Direction,{frames:{geometry:Geometry}[];hash_status:string}>};
+type Packet={report:{notice:string;ts:string;protocol:Record<string,string|null>;pairs:number[][];thresholds:Record<string,number>;directions:Record<Direction,Side>;inputs:Ref[]};trajectories:Record<Direction,{frames:{geometry:Geometry}[];hash_status:string}>;structures:IRCStructuresData};
 const directions:Direction[]=['reverse','forward'];
 const labels:Record<Status,string>={tool_checks_passed:'工具核对完成，待人工审阅',met:'满足报告所列条件，待人工审阅',met_by_endpoint_optimization:'由端点优化补证，待人工审阅',not_met:'未满足报告所列条件',unknown:'报告依据不足或未知'};
 const stops:Record<string,string>={completed:'报告路径完成',max_points:'达到最大点数',corrector_failed:'校正失败',truncated:'截断或异常终止'};
@@ -78,7 +80,9 @@ function IRCContent({packet,study,parts,direction,point}:{packet:Packet;study:st
  const geometry=selected?.geometry_frame===null||selected?.geometry_frame===undefined?null:packet.trajectories[direction].frames[selected.geometry_frame].geometry;
  return <div className="irc-page" role="region" aria-label="IRC 查看页">
 
- <Panel title={`IRC 查看 · ${parts.join('/')}`}><a href={routeHash([study])}>返回结果</a>
+ <Panel title={`IRC 查看 · ${parts.join('/')}`}>
+ <IRCStructures structures={packet.structures} pairs={r.pairs} study={study}/>
+ <a href={routeHash([study])}>返回结果</a>
  <p className="notice" role="note">{r.notice}</p><p>TS：{r.ts} · forward：{sides.forward.attempt} · reverse：{sides.reverse.attempt}</p>
  <p>方法口径：{Object.entries(r.protocol).map(([k,v])=>`${k}: ${value(v)}`).join(' · ')}</p>
  <Collapsible page="irc" block="thresholds" title="报告阈值" defaultOpen><FactGrid facts={Object.entries(r.thresholds).map(([label,value])=>({label,value}))}/></Collapsible>
