@@ -17,7 +17,10 @@ ag-monitor/1 快照显示（T7c、T7e）
 
 own
 - cores_in_use: int，本人作业占用核数
-- core_cap: 正整数，集群配置的核数上限
+- core_cap: 正整数，单作业核数上限
+- committed_cap: 可选非负整数，运行加排队总上限；不依赖分项核数是否存在
+- cores_running / cores_queued: 可选非负整数，运行 / 排队分项核数
+- shared_with: 可选 string 数组，与本入口共享总上限的其他入口名（T101）；原样传递，不推断分组
 - jobs: array，每项：
   - job_id: string
   - name: string
@@ -59,3 +62,11 @@ storage_kib、expiry_warning、hardware_capacity_known。缺失/null 保持未�
 失败时保留的预算和存储须显示非最新；hardware_capacity_known=false 时不能使用占位零推断容量。
 
 T97 的作业表、快照摘要和待取回分组口径见 [作业页](t97/jobs.md)。
+
+T103 容量显示：只用 `committed_cap` 作为总上限与占用比例分母，缺失时显示
+“总上限未知（旧快照）”，不显示占用比例；`core_cap` 单独标为“单作业上限 N 核”。
+运行 / 排队分项不完整时使用已保存的 `cores_in_use`，不推算缺失分项。
+首次采样失败没有成功占用数据时显示“占用未知”，但仍展示快照已有的上限和共享说明。
+失败、过期和来源歧义沿用非最新标记。`shared_with` 非空时显示
+“与 <入口名> 共享总上限”，多个名称以顿号分隔；页面没有跨入口核数合计或占用比例。
+`budget` / `expires` 为 null 时不显示对应行。此规则替代 T97 文档中的旧容量退回显示。

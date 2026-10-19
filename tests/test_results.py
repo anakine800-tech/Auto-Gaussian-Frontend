@@ -132,6 +132,29 @@ class ResultsTests(unittest.TestCase):
         for raw in [b'\xff',b'{',b'[]',b'{"x":NaN}',b'['*2000+b']'*2000]:
             self.snapshot.write_bytes(raw);self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['error'],'快照格式不正确')
 
+    def test_t103_shared_cap_passes_through_without_running_queued_fields(self):
+        data=monitor_snapshot()
+        data['own'].update(core_cap=64, committed_cap=256)
+        data['cluster'].update(budget=None, expires=None)
+        for peers in ([], ['batch-test'], ['batch-test', 'batch-extra']):
+            for ok, last_ok in ((True, None), (False, None), (False, data['sampled_at'])):
+                with self.subTest(peers=peers, ok=ok, last_ok=last_ok):
+                    data['own']['shared_with']=peers
+                    data.update(ok=ok, last_ok_at=last_ok, error=None if ok else 'Synthetic failure')
+                    self.snapshot.write_text(json.dumps(data))
+                    row=self.client.get('/api/monitor').json()['clusters'][0]
+                    self.assertIsNone(row['error'])
+                    self.assertEqual(row['snapshot'], data)
+
+    def test_t103_malformed_shared_with_is_rejected(self):
+        for invalid in (None, 'batch-test', {}, 1, [None], [1], [True], [{}], [['batch-test']]):
+            with self.subTest(invalid=invalid):
+                data=monitor_snapshot();data['own']['shared_with']=invalid
+                self.snapshot.write_text(json.dumps(data))
+                row=self.client.get('/api/monitor').json()['clusters'][0]
+                self.assertEqual(row['error'], '快照格式不正确')
+                self.assertIsNone(row['snapshot'])
+
     def test_all_new_reads_leave_bytes_unchanged_and_reject_writes(self):
         def files():
             return {str(p.relative_to(self.root)):(p.stat().st_mtime_ns,hashlib.sha256(p.read_bytes()).hexdigest()) for p in self.root.rglob('*') if p.is_file()}

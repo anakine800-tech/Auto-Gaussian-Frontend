@@ -119,3 +119,34 @@ test('twenty reports keep metadata discovery and read bodies only for visible ro
  await page.getByRole('link',{name:'synthetic-19.json',exact:true}).scrollIntoViewIfNeeded();
  await expect.poll(()=>reads.includes('synthetic-19.json')).toBe(true);
 });
+
+const methodAttempt=(id:string,method:string,multiplicity:unknown=1)=>{const a=attempt(id);Object.assign(a.facts.data as object,{route:`# ${method} / STO-3G Opt Freq`,multiplicity});return a;};
+for(const [left,right,multiplicity,normalized] of [
+ ['M062X','RM062X',1,'rm062x'],['M062X','UM062X',3,'um062x'],['m062x','rM062x',1,'rm062x'],
+ ['revTPSS','RrevTPSS',1,'rrevtpss'],['revTPSS','UrevTPSS',3,'urevtpss'],['revTPSSh','RrevTPSSh',1,'rrevtpssh'],
+ ['CAM-B3LYP','RCAM-B3LYP',1,'rcam-b3lyp'],['M06-2X','UM06-2X',2,'um06-2x'],['HF','RHF',1,'rhf'],['HF','UHF',2,'uhf'],
+] as const)test(`T103 omitted prefix ${left}/${right} multiplicity ${multiplicity}`,()=>{
+ const result=compareAttempts([methodAttempt('A',left,multiplicity),methodAttempt('B',right,multiplicity)]);
+ expect(result.differences).toEqual([]);expect(result.protocol.方法).toBe(normalized);expect(result.rows[1].relativeElectronic).toBe(0);
+});
+for(const [left,right] of [['RM062X','UM062X'],['ROM062X','UM062X'],['ROM062X','RM062X'],['M062X','UM062X'],['revTPSS','UrevTPSS'],['CAM-B3LYP','RCAMB3LYP']] as const)test(`T103 explicit methods stay distinct ${left}/${right}`,()=>{
+ const result=compareAttempts([methodAttempt('A',left),methodAttempt('B',right)]);
+ expect(result.differences.join(' ')).toContain(`方法不同：A = ${left}`);expect(result.differences.join(' ')).toContain(`B = ${right}`);
+ if(left==='M062X')expect(result.differences).toEqual(['方法不同：A = M062X（按单重态视为 RM062X）；B = UM062X']);
+ expect(result.rows.every(r=>r.relativeElectronic===null&&r.relativeFree===null)).toBe(true);
+});
+test('T103 missing or invalid multiplicity still refuses comparison',()=>{
+ for(const multiplicity of [undefined,null,0,-1,1.5,'1',true]){const b=methodAttempt('B','RM062X');(b.facts.data as any).multiplicity=multiplicity;const result=compareAttempts([methodAttempt('A','M062X'),b]);expect(result.differences).toEqual(['B：缺少正整数多重度']);expect(result.rows.every(r=>r.relativeElectronic===null)).toBe(true);}
+});
+for(const [width,height] of [[1440,860],[1280,720]])test(`T103 prefix comparison and original-spelling diagnostic ${width}x${height}`,async({page},info)=>{
+ await page.setViewportSize({width,height});let explicit='RM062X';const writes:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
+ await page.route('**/api/studies/butane-demo/attempts/*',r=>{const id=r.request().url().split('/').at(-1)!;return r.fulfill({json:methodAttempt(id,id==='anti'?'M062X':explicit)});});
+ await page.goto('/#/s/butane-demo/attempts');for(const id of ['anti','gauche'])await page.getByRole('checkbox',{name:`比较 ${id}`,exact:true}).check();
+ await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'});
+ await expect(dialog.getByRole('table')).toBeVisible();await dialog.locator('.Collapsible > summary').filter({hasText:'比较口径'}).click();await expect(dialog).toContainText('方法：rm062x');
+ await fullyVisible(dialog.getByRole('table'),page);await page.screenshot({path:info.outputPath(`t103-prefix-equal-${width}x${height}.png`)});
+ await page.getByRole('button',{name:'关闭抽屉'}).click();explicit='UM062X';await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
+ await expect(dialog).toContainText('方法不同：anti = M062X（按单重态视为 RM062X）；gauche = UM062X');await expect(dialog.getByRole('table')).toHaveCount(0);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);expect(writes).toEqual([]);
+ await page.screenshot({path:info.outputPath(`t103-prefix-different-${width}x${height}.png`)});
+});
