@@ -510,9 +510,7 @@ documentation. Read-only defaults, path/size checks and ag-mediated actions stay
 unchanged; submit and cancel still require a human click in the Mac dialog.
 Synthetic tests demonstrate software behavior, not scientific acceptance.
 
-快速比较尚未同步后端按多重度补全 R/U 前缀的规则：单重态的 `M062X` 与
-`RM062X` 会被判为口径不同而拒绝比较，已列入后续修复。快速比较只在前端计算
-相对能量，非正式结果；正式结论以 ag 报告为准，后端不受此前端限制影响。
+快速比较只在前端计算相对能量，非正式结果；正式结论以 ag 报告为准。
 `termination` 和 `n_imag` 只显示 facts 保存值，不作为自动验收。
 
 Supervisory review and owner merge are required for both PRs. The owner creates

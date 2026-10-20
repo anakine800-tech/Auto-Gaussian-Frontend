@@ -52,3 +52,45 @@ test('T97 polling keeps snapshots attached to the same Attempt after jobs reorde
  await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:data,error:null}]}}));
  await page.clock.fastForward(30001);await expect(table.locator('tbody tr')).toHaveCount(1);await expect(table.locator('tbody tr')).toContainText('Synthetic reordered job');await expect(table.locator('tbody tr')).toContainText('片段末次优化步：7');await expect(table.locator('tbody tr')).not.toContainText('opt-demo');
 });
+
+for(const scenario of ['partial','legacy','split-without-cap','failed','first-failure','stale','over-cap','zero-cap'] as const)test(`T103 capacity ${scenario} never substitutes the per-job cap`,async({page,request})=>{
+ await page.clock.install({time:now});
+ const d=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ d.sampled_at=new Date(now).toISOString();d.own={...d.own,cores_in_use:88,core_cap:64,committed_cap:256};
+ if(['legacy','split-without-cap'].includes(scenario))delete d.own.committed_cap;
+ if(scenario==='split-without-cap')Object.assign(d.own,{cores_running:64,cores_queued:24});
+ if(['failed','first-failure'].includes(scenario)){d.ok=false;d.error='Synthetic sampling failure';d.last_ok_at=scenario==='failed'?d.sampled_at:null;}
+ if(scenario==='stale')d.sampled_at=new Date(now-361000).toISOString();
+ if(scenario==='over-cap')d.own.cores_in_use=272;
+ if(scenario==='zero-cap')d.own.committed_cap=0;
+ await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:[{name:'batch',source:'named',ambiguous:false,snapshot:d,error:null}]}}));
+ await page.goto('/#/jobs');const section=page.getByRole('region',{name:'集群 batch',exact:true});
+ await expect(section).toContainText('单作业上限 64 核');await expect(section).not.toContainText('88 / 64');
+ const missingCap=['legacy','split-without-cap'].includes(scenario),unknownUsage=scenario==='first-failure';
+ await expect(section).toContainText(missingCap?'总上限未知（旧快照）':`总上限 ${d.own.committed_cap}`);
+ if(unknownUsage)await expect(section).toContainText('占用未知');
+ else await expect(section).toContainText(scenario==='split-without-cap'?'运行 64 · 排队 24':`占用 ${d.own.cores_in_use}`);
+ if(missingCap||unknownUsage||scenario==='zero-cap')await expect(section.getByRole('progressbar')).toHaveCount(0);
+ else{await expect(section.getByRole('progressbar')).toHaveAttribute('max','256');await expect(section.getByRole('progressbar')).toHaveAttribute('value',String(Math.min(d.own.cores_in_use,256)));}
+ await expect(section.getByText('已超过本人上限',{exact:true})).toHaveCount(['over-cap','zero-cap'].includes(scenario)?1:0);
+ await expect(section).not.toContainText('共享总上限');
+ if(['failed','first-failure','stale'].includes(scenario))await expect(section).toContainText('非最新');
+});
+
+for(const [width,height] of [[1440,860],[1280,720]])test(`T103 shared caps and null optional rows ${width}x${height}`,async({page,request},info)=>{
+ await page.setViewportSize({width,height});await page.clock.install({time:now});
+ const d=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ d.sampled_at=new Date(now).toISOString();d.own={...d.own,cores_in_use:88,cores_running:64,cores_queued:24,core_cap:64,committed_cap:256,shared_with:['batch-test','batch-extra']};
+ d.cluster={...d.cluster,budget:null,expires:null};const other=structuredClone(d);other.own.shared_with=['batch'];
+ await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:[{name:'batch',source:'named',ambiguous:false,snapshot:d,error:null},{name:'batch-test',source:'named',ambiguous:false,snapshot:other,error:null}]}}));
+ const writes:string[]=[],errors:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/#/jobs');
+ for(const name of ['batch','batch-test']){const section=page.getByRole('region',{name:`集群 ${name}`,exact:true});await expect(section).toContainText('总上限 256');await expect(section).toContainText('单作业上限 64 核');}
+ await expect(page.getByText('与 batch-test、batch-extra 共享总上限',{exact:true})).toBeVisible();await expect(page.getByText('与 batch 共享总上限',{exact:true})).toBeVisible();
+ const table=page.getByRole('table',{name:'本人作业表'});await expect(table.locator('tbody tr')).toHaveCount(2);
+ for(const locator of [page.locator('.capacity-list'),table.locator('thead')]){const box=(await locator.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y+box.height).toBeLessThanOrEqual(height);}
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);expect(writes).toEqual([]);expect(errors).toEqual([]);
+ await page.screenshot({path:info.outputPath(`t103-shared-${width}x${height}.png`)});
+ for(const name of ['batch','batch-test'])await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:`集群 ${name} · 节点、队列与警告`}).click();
+ await expect(page.getByRole('article',{name:'核时预算'})).toHaveCount(0);await expect(page.getByText('到期日期：',{exact:false})).toHaveCount(0);
+});
