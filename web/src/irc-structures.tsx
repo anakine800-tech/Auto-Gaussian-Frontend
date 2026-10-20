@@ -8,7 +8,7 @@ export type IRCStructuresData=Record<'reverse'|'ts'|'forward',Structure>;
 const roles=['reverse','ts','forward'] as const;
 const titles={reverse:'reverse 端点优化结构',ts:'TS 结构',forward:'forward 端点优化结构'};
 
-export function IRCStructures({structures,pairs,study}:{structures:IRCStructuresData;pairs:number[][];study:string}){
+export function IRCStructures({structures,pairs,study,notice}:{structures:IRCStructuresData;pairs:number[][];study:string;notice:string}){
  const root=useRef<HTMLElement>(null);
  // Fit the first screen using the actual shell, wrapped titles and card text.
  // Only the drawing area shrinks; expanded tools and long content stay scrollable.
@@ -33,10 +33,11 @@ export function IRCStructures({structures,pairs,study}:{structures:IRCStructures
   [el,...el.querySelectorAll('.irc-structure-card'),...document.querySelectorAll('.app-header,.context-bar')].forEach(node=>observer.observe(node));
   window.addEventListener('resize',measure);measure();
   return()=>{cancelAnimationFrame(frame);observer.disconnect();window.removeEventListener('resize',measure);};
- },[structures]);
+ },[structures,notice]);
  const highlighted=Array.from(new Set(pairs.flat()));
  return <section ref={root} className="irc-structures" aria-label="TS 与端点结构比对">
   <h3>TS 与端点结构比对</h3>
+  <p className="notice" role="note">{notice}</p>
   <p className="muted">供人工比对；结论仍以四项判据表为准。编号保留文件顺序，橙色为跟踪原子。拖动独立旋转，Alt / Option + 滚轮缩放；连接仅按距离推测。</p>
   <div className="irc-structure-grid">
    {roles.map(role=>{

@@ -81,9 +81,9 @@ function IRCContent({packet,study,parts,direction,point}:{packet:Packet;study:st
  return <div className="irc-page" role="region" aria-label="IRC 查看页">
 
  <Panel title={`IRC 查看 · ${parts.join('/')}`}>
- <IRCStructures structures={packet.structures} pairs={r.pairs} study={study}/>
+ <IRCStructures structures={packet.structures} pairs={r.pairs} study={study} notice={r.notice}/>
  <a href={routeHash([study])}>返回结果</a>
- <p className="notice" role="note">{r.notice}</p><p>TS：{r.ts} · forward：{sides.forward.attempt} · reverse：{sides.reverse.attempt}</p>
+ <p>TS：{r.ts} · forward：{sides.forward.attempt} · reverse：{sides.reverse.attempt}</p>
  <p>方法口径：{Object.entries(r.protocol).map(([k,v])=>`${k}: ${value(v)}`).join(' · ')}</p>
  <Collapsible page="irc" block="thresholds" title="报告阈值" defaultOpen><FactGrid facts={Object.entries(r.thresholds).map(([label,value])=>({label,value}))}/></Collapsible>
  {directions.map(d=><p key={d} data-testid={`${d}-count`}>{d}：非零路径点 {sides[d].points.filter(p=>p.point!==0).length} · 含 TS 点数 {sides[d].points.length} · XYZ 帧数 {sides[d].path_geometry.frame_count} · {packet.trajectories[d].hash_status}</p>)}

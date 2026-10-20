@@ -144,10 +144,17 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T104 a
  await page.setViewportSize(size);await page.goto(base+'/#/s/irc-demo/analysis/irc/review.json');
  const block=page.getByRole('region',{name:'TS 与端点结构比对',exact:true});await expect(block).toBeVisible();
  await expect.poll(()=>block.evaluate(el=>getComputedStyle(el).getPropertyValue('--irc-scene-height'))).toMatch(/^\d+px$/);
+ const notice=block.getByRole('note');
+ await expect(notice).toHaveText('工具只核对和汇总；仍需人工审阅 SCF/电子态连续性和逐点几何，以及端点化学身份。');
+ await expect(page.getByRole('region',{name:'IRC 查看页',exact:true}).getByRole('note')).toHaveCount(1);
+ await expect(notice).toBeInViewport({ratio:1});
+ const noticeBox=(await notice.boundingBox())!,headingBox=(await block.getByRole('heading',{name:'TS 与端点结构比对',exact:true}).boundingBox())!;
+ expect(noticeBox.y).toBeGreaterThanOrEqual(headingBox.y+headingBox.height);
  const boxes=await page.locator('.irc-structure-card').evaluateAll(cards=>cards.map(card=>{
   const r=card.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom};
  }));
  expect(boxes).toHaveLength(3);
+ expect(noticeBox.y+noticeBox.height).toBeLessThanOrEqual(boxes[0].y);
  const shellBottom=await page.locator('.context-bar').evaluate(el=>el.getBoundingClientRect().bottom);
  for(const b of boxes){expect(b.y).toBeGreaterThanOrEqual(shellBottom);expect(b.bottom).toBeLessThanOrEqual(size.height);expect(b.right).toBeLessThanOrEqual(size.width);}
  expect(boxes[0].y).toBe(boxes[1].y);expect(boxes[1].y).toBe(boxes[2].y);
