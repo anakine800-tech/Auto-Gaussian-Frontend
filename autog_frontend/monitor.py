@@ -48,6 +48,10 @@ def validate_monitor(data):
                 if key in own:
                     integer(own[key])
             require(type(own['core_cap']) is int and own['core_cap'] > 0)
+            if 'shared_with' in own:
+                require(isinstance(own['shared_with'], list))
+                for name in own['shared_with']:
+                    string(name)
             for job in rows(own['jobs']):
                 for key in ('job_id', 'name', 'state', 'queue'):
                     string(job[key])
