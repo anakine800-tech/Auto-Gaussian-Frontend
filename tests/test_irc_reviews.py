@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from autog_frontend.api import create_app
 from autog_frontend.irc_reviews import MAX_MANIFEST,MAX_XYZ
-from tests.irc_review_fixture import create_study
+from tests.irc_review_fixture import create_study, bind_source
+from autog_frontend.studies import Studies
 
 
 class IRCReviewsTests(unittest.TestCase):
@@ -113,3 +115,96 @@ class IRCReviewsTests(unittest.TestCase):
             self.assertEqual(self.client.get(self.url).status_code,413)
         data=copy.deepcopy(self.original);data['directions']['forward']['path_geometry']['frame_count']=1001;self.save(data)
         self.assertEqual(self.client.get(self.url).status_code,422)
+
+    def test_three_final_structures_facts_and_atom_order(self):
+        structures=self.client.get(self.url).json()['structures']
+        for role,attempt,distance,energy,n_imag in [
+            ('reverse','endpoint-reverse',1.5,-76.23456789,0),
+            ('ts','synthetic-ts',1.25,-76.12345678,1),
+            ('forward','endpoint-forward',1.0,-76.34567891,0)]:
+            with self.subTest(role=role):
+                s=structures[role];self.assertIsNone(s['error']);self.assertEqual(s['attempt'],attempt)
+                self.assertEqual(s['energy_hartree'],energy);self.assertEqual(s['n_imag'],n_imag)
+                self.assertEqual([a['center'] for a in s['geometry']['atoms']],[1,2,3])
+                self.assertEqual(s['geometry']['atoms'][1]['x'],distance)
+
+    def test_xyz_reference_does_not_guess_from_existing_attempt_names(self):
+        data=copy.deepcopy(self.original)
+        data['directions']['reverse']['criteria']['endpoint']={'status':'unknown','reasons':['XYZ reference']}
+        data['inputs']=[r for r in data['inputs'] if not r['path'].startswith('attempts/endpoint-reverse/')]
+        self.save(data)
+        result=self.client.get(self.url).json()['structures']['reverse']
+        self.assertIsNone(result['attempt']);self.assertIsNone(result['geometry']);self.assertIsNone(result['error'])
+
+    def test_fallback_requires_unique_hash_bound_endpoint_of_relation(self):
+        data=copy.deepcopy(self.original)
+        data['directions']['forward']['criteria']['endpoint']={'status':'unknown','reasons':[]}
+        self.save(data)
+        self.assertEqual(self.client.get(self.url).json()['structures']['forward']['attempt'],'endpoint-forward')
+        path='attempts/endpoint-forward/manifest.json'
+        manifest=json.loads((self.study/path).read_text());manifest['parents']=[]
+        (self.study/path).write_text(json.dumps(manifest));bind_source(self.study,data,path);self.save(data)
+        self.assertIsNone(self.client.get(self.url).json()['structures']['forward']['attempt'])
+        for attempt in ('endpoint-forward','endpoint-reverse'):
+            path=f'attempts/{attempt}/manifest.json';manifest=json.loads((self.study/path).read_text())
+            manifest['parents']=[dict(attempt_id='synthetic-forward',relation='endpoint_of')]
+            (self.study/path).write_text(json.dumps(manifest));bind_source(self.study,data,path)
+        self.save(data);s=self.client.get(self.url).json()['structures']['forward']
+        self.assertIn('多个端点',s['error']);self.assertIsNone(s['geometry'])
+
+    def test_changed_structure_sources_fail_only_that_card(self):
+        for filename in ('manifest.json','facts.json','final.xyz'):
+            path=self.study/'attempts/endpoint-forward'/filename;raw=path.read_bytes()
+            with self.subTest(filename=filename):
+                path.write_bytes(raw+b' ')
+                response=self.client.get(self.url);self.assertEqual(response.status_code,200)
+                result=response.json();s=result['structures']['forward']
+                self.assertIn('SHA-256 mismatch',s['error']);self.assertIsNone(s['geometry']);self.assertIsNone(s['energy_hartree'])
+                self.assertIsNotNone(result['structures']['ts']['geometry']);self.assertEqual(result['report'],self.original)
+                self.assertEqual(len(self.client.get(self.base).json()['reports']),1)
+            path.write_bytes(raw)
+
+    def test_structure_manifest_identity_conflicting_references_and_atom_order(self):
+        for filename,raw,expected in [
+            ('manifest.json',json.dumps(dict(attempt_id='another-attempt')),'attempt_id'),
+            ('final.xyz','3\nwrong order\nH 0 0 0\nO 1 0 0\nH 0 1 0\n','元素行序'),
+            ('facts.json',json.dumps(dict(final_geometry='../outside.xyz')),'final.xyz')]:
+            path=f'attempts/endpoint-forward/{filename}';original=(self.study/path).read_bytes()
+            data=copy.deepcopy(self.original);(self.study/path).write_text(raw);bind_source(self.study,data,path);self.save(data)
+            s=self.client.get(self.url).json()['structures']['forward'];self.assertIn(expected,s['error']);self.assertIsNone(s['geometry'])
+            (self.study/path).write_bytes(original)
+        data=copy.deepcopy(self.original);data['directions']['forward']['criteria']['endpoint']['manifest']['sha256']='0'*64;self.save(data)
+        self.assertIn('引用冲突',self.client.get(self.url).json()['structures']['forward']['error'])
+        data=copy.deepcopy(self.original);data['directions']['forward']['criteria']['endpoint']['facts'][0]['source']=data['directions']['reverse']['criteria']['endpoint']['facts'][0]['source'];self.save(data)
+        self.assertIn('不同 Attempt',self.client.get(self.url).json()['structures']['forward']['error'])
+
+    def test_structure_missing_values_remain_unknown(self):
+        data=copy.deepcopy(self.original);path='attempts/endpoint-forward/facts.json'
+        (self.study/path).write_text('{}');bind_source(self.study,data,path);self.save(data)
+        s=self.client.get(self.url).json()['structures']['forward']
+        self.assertIsNone(s['energy_hartree']);self.assertIsNone(s['n_imag']);self.assertIsNone(s['error']);self.assertIsNotNone(s['geometry'])
+
+    def test_unreferenced_final_file_is_never_opened(self):
+        data=copy.deepcopy(self.original);omitted='attempts/endpoint-forward/final.xyz'
+        data['inputs']=[r for r in data['inputs'] if r['path']!=omitted];self.save(data)
+        opened=[];read=Studies.read
+        def tracked(store,parts,*args,**kwargs):
+            opened.append('/'.join(parts[1:]));return read(store,parts,*args,**kwargs)
+        with patch.object(Studies,'read',tracked):result=self.client.get(self.url).json()
+        self.assertNotIn(omitted,opened)
+        self.assertIsNone(result['structures']['forward']['geometry']);self.assertIn('未提供报告哈希',result['structures']['forward']['error'])
+        allowed={r['path'] for r in data['inputs']}|{'analyses/review.json'}
+        self.assertTrue(set(opened)<=allowed)
+
+    def test_structure_symlinks_nonregular_oversize_and_malformed_are_card_errors(self):
+        for name in ('manifest.json','facts.json','final.xyz','.'):
+            path=self.study/'attempts/endpoint-forward'/name
+            saved=path.with_name(path.name+'-saved');path.rename(saved);path.symlink_to(saved,target_is_directory=saved.is_dir())
+            s=self.client.get(self.url).json()['structures']['forward'];self.assertIsNone(s['geometry']);self.assertIn('Unsafe',s['error'])
+            path.unlink();saved.rename(path)
+        path=self.study/'attempts/endpoint-forward/final.xyz';path.unlink();path.mkdir()
+        self.assertRegex(self.client.get(self.url).json()['structures']['forward']['error'],'regular|Unsafe');path.rmdir()
+        with path.open('wb') as stream:stream.truncate(MAX_MANIFEST+1)
+        self.assertIn('size limit',self.client.get(self.url).json()['structures']['forward']['error'])
+        data=copy.deepcopy(self.original);path.write_bytes(b'not xyz');bind_source(self.study,data,'attempts/endpoint-forward/final.xyz');self.save(data)
+        self.assertIn('XYZ 格式错误',self.client.get(self.url).json()['structures']['forward']['error'])

@@ -2,7 +2,7 @@
 
 Validate the whole report and both trajectories before exposing any content:
 otherwise a replaced XYZ or invalid frame index can associate evidence with the
-wrong structure. Provenance references are displayed, never opened.
+wrong structure. Structure comparisons read only explicitly hash-bound sources.
 """
 import hashlib
 import json
@@ -11,6 +11,7 @@ import re
 
 from .ensembles import MAX_MANIFEST, MAX_XYZ, MAX_FRAMES, xyz_frames
 from .studies import StudyError, component
+from .geometry import parse_xyz
 
 DIRECTIONS = ('forward', 'reverse')
 CRITERIA = ('continuity', 'energy_drop', 'midpoint', 'endpoint')
@@ -271,6 +272,113 @@ def validate(data):
     return data
 
 
+def structure_references(data, role):
+    """Only sources for this role, not arbitrary nested report strings."""
+    refs = list(data['inputs'])
+    if role == 'ts':
+        for side in data['directions'].values():
+            refs.append(side['ts_reference']['ts_facts'])
+            if 'ts' in side['criteria']['midpoint']:
+                refs.append(side['criteria']['midpoint']['ts'])
+    else:
+        endpoint = data['directions'][role]['criteria']['endpoint']
+        refs.extend([endpoint.get('manifest'),
+                     *(f['source'] for f in endpoint.get('facts', []))])
+    return [r for r in refs if r is not None]
+
+
+def referenced_bytes(store, study, refs, path):
+    """A missing/conflicting hash must never fall through to a live Attempt read."""
+    relative_path(path)
+    matches = [r for r in refs if r['path'] == path]
+    require(bool(matches), path + ' 未提供报告哈希引用')
+    for ref in matches:
+        reference(ref, 'structure source')
+    require(len({r['sha256'] for r in matches}) == 1, path + ' 报告哈希引用冲突')
+    raw = store.read((component(study), *path.split('/')), MAX_MANIFEST)
+    require(hashlib.sha256(raw).hexdigest() == matches[0]['sha256'], path + ' SHA-256 mismatch')
+    return raw
+
+
+def attempt_from_reference(ref, filename):
+    reference(ref, 'structure source')
+    parts = ref['path'].split('/')
+    require(len(parts) == 3 and parts[0] == 'attempts' and parts[2] == filename,
+            '结构来源须为 Attempt 的 ' + filename)
+    return component(parts[1])
+
+
+def read_manifest(store, study, refs, attempt):
+    manifest = load_json(referenced_bytes(store, study, refs, f'attempts/{attempt}/manifest.json'))
+    require(isinstance(manifest, dict) and manifest.get('attempt_id') == attempt,
+            'manifest attempt_id 与报告引用不一致')
+    return manifest
+
+
+def endpoint_attempt(store, study, data, role, refs):
+    endpoint = data['directions'][role]['criteria']['endpoint']
+    explicit = []
+    if endpoint.get('manifest') is not None:
+        explicit.append(attempt_from_reference(endpoint['manifest'], 'manifest.json'))
+    explicit.extend(attempt_from_reference(f['source'], 'facts.json') for f in endpoint.get('facts', []))
+    if explicit:
+        require(len(set(explicit)) == 1, '端点 manifest 与 facts 引用不同 Attempt')
+        return explicit[0]
+    # Fallback requires a hash-checked, explicit endpoint_of edge to this IRC.
+    # Never infer the direction from filenames, numbering, or leftover Attempts.
+    excluded = {data['ts'], *(s['attempt'] for s in data['directions'].values())}
+    candidates = []
+    for ref in data['inputs']:
+        parts = ref['path'].split('/')
+        if len(parts) != 3 or parts[0] != 'attempts' or parts[2] != 'manifest.json' or parts[1] in excluded:
+            continue
+        attempt = attempt_from_reference(ref, 'manifest.json')
+        manifest = read_manifest(store, study, refs, attempt)
+        parents = manifest.get('parents', [])
+        require(isinstance(parents, list) and all(isinstance(p, dict) for p in parents), '端点 parents 格式错误')
+        origins = {p.get('attempt_id') for p in parents if p.get('relation') == 'endpoint_of' and isinstance(p.get('attempt_id'), str)}
+        if data['directions'][role]['attempt'] in origins:
+            require(len(origins) == 1, '端点方向引用有歧义')
+            candidates.append(attempt)
+    require(len(candidates) <= 1, '报告引用多个端点 Attempt，无法唯一确定')
+    return candidates[0] if candidates else None
+
+
+def read_structure(store, study, data, role, atom_order):
+    result = dict(attempt=None, geometry=None, energy_hartree=None, n_imag=None, error=None)
+    try:
+        refs = structure_references(data, role)
+        attempt = data['ts'] if role == 'ts' else endpoint_attempt(store, study, data, role, refs)
+        if attempt is None:
+            return result
+        result['attempt'] = attempt
+        if role != 'ts':
+            require(attempt not in {data['ts'], *(s['attempt'] for s in data['directions'].values())},
+                    '端点须为独立 Attempt')
+        read_manifest(store, study, refs, attempt)
+        base = f'attempts/{attempt}'
+        facts = load_json(referenced_bytes(store, study, refs, base + '/facts.json'))
+        require(isinstance(facts, dict), 'facts 必须为对象')
+        # Same fixed final.xyz and parser as Attempt.geometry; no arbitrary facts paths.
+        require(facts.get('final_geometry', 'final.xyz') == 'final.xyz', 'facts 最终几何不是 final.xyz')
+        raw = referenced_bytes(store, study, refs, base + '/final.xyz')
+        try:
+            geometry = parse_xyz(raw.decode('utf-8'))
+        except (ValueError, UnicodeError):
+            raise StudyError('最终几何 XYZ 格式错误') from None
+        require([a['atomic_number'] for a in geometry['atoms']] == atom_order,
+                '最终几何与 IRC 原子数或元素行序不一致')
+        energies = facts.get('energies') or {}
+        require(isinstance(energies, dict), 'facts.energies 必须为对象')
+        energy, n_imag = energies.get('scf'), facts.get('n_imag')
+        number(energy, 'facts.energies.scf')
+        number(n_imag, 'facts.n_imag', integer=True, minimum=0)
+        result.update(geometry=geometry, energy_hartree=energy, n_imag=n_imag)
+    except StudyError as exc:
+        result['error'] = str(exc)
+    return result
+
+
 def read_review(store, study, name, group=None):
     base = (component(study), 'analyses', *((component(group),) if group is not None else ()))
     component(name)
@@ -293,7 +401,9 @@ def read_review(store, study, name, group=None):
             require(atoms == atom_order, direction + ' XYZ 原子数或元素行序不一致')
             require(all(b <= len(atoms) for a, b in data['pairs']), 'pairs 原子编号越界')
         trajectories[direction] = dict(frames=frames, hash_status='已核对 SHA-256' if expected else '未核对哈希')
-    return dict(report=data, trajectories=trajectories)
+    structures = {role: read_structure(store, study, data, role, atom_order)
+                  for role in ('reverse', 'ts', 'forward')}
+    return dict(report=data, trajectories=trajectories, structures=structures)
 
 
 def list_reviews(store, study):

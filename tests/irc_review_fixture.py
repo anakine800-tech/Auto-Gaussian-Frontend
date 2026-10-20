@@ -50,8 +50,33 @@ def create_study(root, name='irc-demo', hashed=True):
     (study/'study.md').write_text('# Synthetic IRC water\n')
     report,files=make_review(hashed=hashed)
     for filename,raw in files.items():(analyses/filename).write_bytes(raw)
+    for attempt, role, distance, energy in [('synthetic-ts','ts',1.25,-76.12345678),
+                                           ('endpoint-reverse','reverse',1.5,-76.23456789),
+                                           ('endpoint-forward','forward',1.0,-76.34567891)]:
+        base=study/'attempts'/attempt;base.mkdir(parents=True)
+        manifest=dict(attempt_id=attempt,template='gaussian',parents=[] if role=='ts' else
+                      [dict(attempt_id='synthetic-'+role,relation='endpoint_of')])
+        facts=dict(energies=dict(scf=energy),n_imag=1 if role=='ts' else 0,final_geometry='final.xyz')
+        (base/'manifest.json').write_text(json.dumps(manifest))
+        (base/'facts.json').write_text(json.dumps(facts))
+        (base/'final.xyz').write_text(f'3\nSynthetic final geometry\nO 0 0 0\nH {distance} 0 0\nH 0 1 0\n')
+        for filename in ('manifest.json','facts.json','final.xyz'):
+            bind_source(study,report,f'attempts/{attempt}/{filename}')
     (analyses/'review.json').write_text(json.dumps(report,ensure_ascii=False))
     return study
+
+
+def bind_source(study, report, path):
+    digest=hashlib.sha256((study/path).read_bytes()).hexdigest()
+    def update(value):
+        if isinstance(value,dict):
+            if value.get('path')==path and 'sha256' in value:value['sha256']=digest
+            for child in value.values():update(child)
+        elif isinstance(value,list):
+            for child in value:update(child)
+    update(report)
+    if not any(r['path']==path for r in report['inputs']):
+        report['inputs'].append(dict(path=path,sha256=digest))
 
 
 def create_cases(root):
@@ -70,6 +95,14 @@ def create_cases(root):
     d['criteria']['energy_drop']['status']='not_met';d['summary']='IRC 未完成';d['unresolved']=['continuity','energy_drop','endpoint'];d['stop_reason']='corrector_failed'
     path.write_text(json.dumps(data))
     study=create_study(root,'invalid');path=study/'analyses/review.reverse.xyz';path.write_bytes(path.read_bytes().replace(b'H 1.0',b'H 2.0'))
+    study=create_study(root,'xyz-reference');path=study/'analyses/review.json';data=json.loads(path.read_text())
+    data['directions']['reverse']['criteria']['endpoint']={'status':'unknown','reasons':['使用 XYZ 参照，未提供端点 Attempt']}
+    data['inputs']=[r for r in data['inputs'] if not r['path'].startswith('attempts/endpoint-reverse/')]
+    path.write_text(json.dumps(data))
+    study=create_study(root,'changed-endpoint');path=study/'attempts/endpoint-forward/final.xyz';path.write_text(path.read_text().replace('H 1.0','H 9.0'))
+    study=create_study(root,'unknown-facts');path=study/'analyses/review.json';data=json.loads(path.read_text())
+    (study/'attempts/endpoint-reverse/facts.json').write_text('{}')
+    bind_source(study,data,'attempts/endpoint-reverse/facts.json');path.write_text(json.dumps(data))
 
 
 if __name__=='__main__':
