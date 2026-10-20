@@ -143,7 +143,7 @@ for(const [width,height] of [[1440,860],[1280,720]])test(`T103 prefix comparison
  await page.route('**/api/studies/butane-demo/attempts/*',r=>{const id=r.request().url().split('/').at(-1)!;return r.fulfill({json:methodAttempt(id,id==='anti'?'M062X':explicit)});});
  await page.goto('/#/s/butane-demo/attempts');for(const id of ['anti','gauche'])await page.getByRole('checkbox',{name:`比较 ${id}`,exact:true}).check();
  await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'});
- await expect(dialog.getByRole('table')).toBeVisible();await dialog.locator('.Collapsible > summary').filter({hasText:'比较口径'}).click();await expect(dialog).toContainText('方法：rm062x');
+ await expect(dialog.getByRole('table')).toBeVisible();await dialog.locator('.Collapsible > summary').filter({hasText:'比较口径'}).click();await expect(dialog).toContainText('方法：M062X（按单重态视为 RM062X）');
  await fullyVisible(dialog.getByRole('table'),page);await page.screenshot({path:info.outputPath(`t103-prefix-equal-${width}x${height}.png`)});
  await page.getByRole('button',{name:'关闭抽屉'}).click();explicit='UM062X';await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
  await expect(dialog).toContainText('方法不同：anti = M062X（按单重态视为 RM062X）；gauche = UM062X');await expect(dialog.getByRole('table')).toHaveCount(0);

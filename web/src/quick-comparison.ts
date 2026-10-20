@@ -35,7 +35,7 @@ function protocol(value:unknown,multiplicity:number):{spec:Record<string,string>
 const finite=(v:unknown):number|null=>typeof v==='number'&&Number.isFinite(v)?v:null;
 const record=(v:unknown)=>object(v)?v:{};
 export type ComparisonRow={id:string;termination:string|null;nImag:number|null;electronic:number|null;free:number|null;relativeElectronic:number|null;relativeFree:number|null};
-export type Comparison={differences:string[];rows:ComparisonRow[];protocol:Record<string,string>};
+export type Comparison={differences:string[];rows:ComparisonRow[];protocol:Record<string,string>;methodLabel:string};
 export function compareAttempts(attempts:Attempt[]):Comparison{
  const differences:string[]=[],specifications:Record<string,string>[]=[],methodLabels:string[]=[];
  const rows:ComparisonRow[]=attempts.map(a=>{
@@ -63,5 +63,5 @@ export function compareAttempts(attempts:Attempt[]):Comparison{
  if(!differences.length){for(const key of Object.keys(specifications[0]))if(new Set(specifications.map(s=>s[key])).size>1)differences.push(`${key}不同：${attempts.map((a,i)=>`${a.id} = ${key==='方法'?methodLabels[i]:specifications[i][key]}`).join('；')}`);}
  if(!differences.length)for(const [source,target] of [['electronic','relativeElectronic'],['free','relativeFree']] as const){const values=rows.map(r=>r[source]).filter((v):v is number=>v!==null),minimum=values.length?Math.min(...values):null;for(const row of rows)row[target]=row[source]===null||minimum===null?null:(row[source]-minimum)*627.5094740631;}
  if(rows.some(r=>[r.relativeElectronic,r.relativeFree].some(v=>v!==null&&!Number.isFinite(v)))){differences.push('能量差超出有限数值范围');for(const row of rows){row.relativeElectronic=null;row.relativeFree=null;}}
- return {differences,rows,protocol:specifications[0]??{}};
+ return {differences,rows,protocol:specifications[0]??{},methodLabel:methodLabels[0]??'—'};
 }
