@@ -1,6 +1,6 @@
-# Auto-Gaussian Study Viewer v4.3.0
+# Auto-Gaussian Study Viewer v4.4.0
 
-**配合 ag 4.3.0 使用。** This is the v4.3.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v430).
+**配合 ag 4.4.0 使用。** This is the v4.4.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v440).
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -65,7 +65,7 @@ source installation above serves the explicit Vite build.
 
 ## 只读模式在计算机上启动
 
-1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.3.0 使用。
+1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.4.0 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -501,11 +501,13 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.3.0 includes T87 and T94–T98a: read-only IRC views and stale-snapshot
-notices, four navigation entries, shared visual tokens and components, legacy
-link redirects, in-memory search, Study overview and Attempt tables, Attempt
-details and actions, jobs, analysis, quick comparison and read-only TS labels.
-Pair it with backend ag 4.3.0. Both T100 PRs change only versions and release
+V4.4.0 includes T103 and T104: separate total and per-job core limits,
+explicit unknown totals for old snapshots, shared-entry notices, multiplicity-based
+R/U prefix completion with original and completed spellings in quick comparison,
+and side-by-side IRC TS and optimized endpoint structures. The three structures
+include source hash checks, electronic energies, imaginary-frequency counts,
+Attempt links and atom-pair highlights, with the human-review notice visible above.
+Pair it with backend ag 4.4.0. Both T107 PRs change only versions and release
 documentation. Read-only defaults, path/size checks and ag-mediated actions stay
 unchanged; submit and cancel still require a human click in the Mac dialog.
 Synthetic tests demonstrate software behavior, not scientific acceptance.
@@ -514,8 +516,8 @@ Synthetic tests demonstrate software behavior, not scientific acceptance.
 `termination` 和 `n_imag` 只显示 facts 保存值，不作为自动验收。
 
 Supervisory review and owner merge are required for both PRs. The owner creates
-`v4.3.0` tags on each PR's exact merge commit, after verifying the release commit,
-and uses each repository's v4.3.0 CHANGELOG section for release notes. Do not
+`v4.4.0` tags on each PR's exact merge commit, after verifying the release commit,
+and uses each repository's v4.4.0 CHANGELOG section for release notes. Do not
 select whichever commit main happens to point to later. After merge, sync both
 main checkouts, rebuild the frontend and open all four entries once. The owner
 schedules the calculation-machine update after confirming no fetch, submit or
@@ -523,6 +525,7 @@ reparse is in progress. This release task does not deploy or run calculations.
 
 ## 版本历史
 
+- **v4.4.0**：T103 监控总上限、共享入口说明与快速比较 R/U 前缀修复；T104 IRC 的 TS 与两端点三维并排审阅；配合 ag 4.4.0。[发布说明](CHANGELOG.md#v440)
 - **v4.3.0**：T87 IRC 查看与过期提示、T94–T98a 四入口改版、详情与作业页、分析和快速比较、TS 标签只读展示；配合 ag 4.3.0。[发布说明](CHANGELOG.md#v430)
 - **v4.2.1**：T71 局部构象分组、近边界筛选、关键距离与汇总导航。[发布说明](CHANGELOG.md#v421)
 - **v4.2.0**：T54 构象集合、T55 虚频审阅与报告对照、T57 跨页集成回归。[发布说明](CHANGELOG.md#v420)
