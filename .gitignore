@@ -15,3 +15,9 @@ web/test-results/
 web/playwright-report/
 build/
 *.egg-info/
+
+*.chk
+
+outputs/
+
+sensitive-terms.txt
