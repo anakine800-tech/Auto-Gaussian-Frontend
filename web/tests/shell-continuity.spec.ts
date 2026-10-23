@@ -3,7 +3,7 @@ import {test,expect} from '@playwright/test';
 
 test('old entry routes and tabs resolve to the same files',async({page})=>{
  for(const [old,canonical,heading] of [
-  ['#server','#/jobs','服务器监控'],
+  ['#server','#/jobs','服务器'],
   ['#/butane-demo','#/s/butane-demo','要处理的事'],
   ['#/butane-demo?tab=overview','#/s/butane-demo/files/document?tab=overview','study.md'],
   ['#/butane-demo?tab=graph','#/s/butane-demo/files/graph?tab=graph','Attempt 关系图'],

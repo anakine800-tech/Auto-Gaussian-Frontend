@@ -11,10 +11,10 @@ async function fullyVisible(locator:Locator,page:Page){
 for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`four entry screenshots and first-screen shell ${size.width}x${size.height}`,async({page},info)=>{
  await page.setViewportSize(size);await page.clock.setFixedTime(new Date('2026-10-17T02:00:00Z'));
  await page.goto('/#/s/butane-demo');await expect(page.getByRole('region',{name:'要处理的事'})).toContainText('opt-demo');
- for(const [entry,name,ready] of [['作业','jobs','服务器监控'],['Study','study','要处理的事'],['分析','analysis','分析报告'],['文件','files','研究文件']]){
+ for(const [entry,name,ready] of [['作业','jobs','服务器'],['Study','study','要处理的事'],['分析','analysis','分析报告'],['文件','files','研究文件']]){
   await page.getByRole('navigation',{name:'顶部导航'}).getByRole('button',{name:entry,exact:true}).click();
   await expect(page.getByRole('heading',{name:ready,exact:true})).toBeVisible();
-  if(entry==='作业')await expect(page.getByRole('table',{name:'本人作业表'})).toBeVisible();
+  if(entry==='作业')await expect(page.getByRole('table',{name:'运行中作业表'})).toBeVisible();
   if(entry==='分析')await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
   if(entry==='文件')await expect(page.getByRole('heading',{name:'study.md',exact:true})).toBeVisible();
   await page.evaluate(()=>window.scrollTo(0,0));

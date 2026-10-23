@@ -7,7 +7,7 @@ ag-monitor/1 快照显示（T7c、T7e）
 顶层字段
 - schema: "ag-monitor/1"（其他值一律拒绝显示）
 - sampled_at: string，UTC ISO8601，本次采样时间
-- interval_seconds: int 60–600 或 null（单次采样时为 null）
+- interval_seconds: int 30–600 或 null（单次采样时为 null）
 - ok: bool，本次采样是否成功
 - error: string 或 null（ok=false 时为已脱敏的错误说明）
 - last_ok_at: string 或 null，最近一次成功采样时间
@@ -47,52 +47,78 @@ warnings 每项
 - attempt: string 或 null
 - detail: string（原样显示，例如“需人工确认后 ag cancel”“运行 ag status 核对”）
 
-前端显示规则
-- now - sampled_at > 3 × interval_seconds 时以 warn 标记“数据已过期”；interval_seconds 为 null 时超过 600 秒标为过期（T87）；均使用严格大于边界，并每秒更新页面时钟。
-- ok=false：顶部显示 error 和 last_ok_at，下方显示上一次成功的数据，并注明“非最新”。
-- study/attempt 不为 null 时可点击，跳转到 #/s/<study>/a/<attempt>。
-- 必填字段缺失或字段类型不符时显示“快照格式不正确”，不能崩溃。
+前端显示规则（T115）
+- `#/jobs` 保持不变。每入口一张按钮卡片，下方用标签切换详情，支持左右键 / Home / End。
+- 仍每 30 秒读取本机 `/api/monitor`，不新增服务器连接或采样请求。
+- `now - sampled_at > 3 × interval_seconds` 时标为“非最新 / 数据已过期”；单次采样超过 600 秒过期。
+- `ok=false` 的卡片占用条和本人占用为未知，显示上次成功时间；详情保留旧数据并整块标非最新。
+- 只有 `hardware.error` 时硬件条未知，本人核数照常显示；错误在详情置顶。
+- 进度条：本人运行占用、硬件已分配减本人、硬件总量减已分配。任一输入缺失或差值矛盾，整条未知，不填零。
+- study/attempt 可安全解析时链接到 `#/s/<study>/a/<attempt>`；最近快照沿用本地 SnapshotProgress，不读取运行日志。
+- 快照格式不正确时显示对应错误，未知字段忽略，新字段缺失可读。
 
-T7e / T19 增量适配：当前多集群生产端字段以
-[Auto-Gaussian T19](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/redesign-tasks/T19-clusters-json.md)
-为准：`own.core_cap` 为集群配置的正整数，不能固定为 44；Slurm 作业不保证存在
-mem/walltime_limit/start_time。命名集群快照位于 `.ag-monitor/<name>/latest.json`。
-Slurm `cluster` 可含 budget（core_hours/used/reserved，单位核时）、expires、
-storage_kib、expiry_warning、hardware_capacity_known。缺失/null 保持未知；
-失败时保留的预算和存储须显示非最新；hardware_capacity_known=false 时不能使用占位零推断容量。
+T7e / T19 / T101 / T106 / T112 兼容字段
+- 命名集群快照位于 `.ag-monitor/<name>/latest.json`。`cluster.name` 为入口名，`scheduler` 为调度器。
+- `cluster.display_name`：可选可打印非空字符串，1–32 字符；显示“显示名（入口名）”，不改变身份。
+- `cluster.hardware_capacity_known=false` 时旧占位零不可当作硬件容量。
+- `own.shared_with`：共享同一调度器账号总上限的入口名数组。
+- `own.max_cores`（正整数）：单作业上限，缺省用 `core_cap`。
+- `own.max_queued_cores`（非负整数）：排队上限。
+- `own.scheduler_max_running_cores`（正整数）：调度器运行限额，标明“由调度器执行，ag 未核实”。
+- `own.tiers`：`{名称: {cores: 正整数, mem_gb: 有限正数}}`，缺省不猜档位。
+- `cluster.budget`：`{core_hours, used, reserved}`，非负有限数，单位核时；null 不显示，不等于平台余额。
+- `cluster.expires` / `expiry_warning`：可选字符串或 null。
+- `cluster.storage_kib`：非负整数或 null，除以 1024² 显示 GB。
+- `cluster.storage_checked_at` / `storage_sampled_at`：查询时间 / 数据时间，UTC ISO 或 null。
+- `cluster.storage_error`：字符串或 null；失败时保留值明确标为非最新。
 
-T97 的作业表、快照摘要和待取回分组口径见 [作业页](t97/jobs.md)。
+T114 新增字段（按工单第 6 节；T115 合并前需与 T114 PR 的生产端及文档补丁核对）
 
-T103 容量显示：只用 `committed_cap` 作为总上限与占用比例分母，缺失时显示
-“总上限未知（旧快照）”，不显示占用比例；`core_cap` 单独标为“单作业上限 N 核”。
-运行 / 排队分项不完整时使用已保存的 `cores_in_use`，不推算缺失分项。
-首次采样失败没有成功占用数据时显示“占用未知”，但仍展示快照已有的上限和共享说明。
-失败、过期和来源歧义沿用非最新标记。`shared_with` 非空时显示
-“与 <入口名> 共享总上限”，多个名称以顿号分隔；页面没有跨入口核数合计或占用比例。
-`budget` / `expires` 为 null 时不显示对应行。此规则替代 T97 文档中的旧容量退回显示。
+| 位置 | 字段 | 类型与语义 |
+|---|---|---|
+| 顶层 | sample_duration_ms | 非负整数；首次失败可为 null |
+| cluster | display_order | 整数或 null；显式顺序优先，未配置的 PBS 在前、Slurm 在后，再按入口名 |
+| cluster | jobs | PBS 全员、Slurm 本人作业数组 |
+| cluster | jobs_omitted | 非负整数，截断后省略数量；首次失败可为 null |
+| cluster | job_summary | 对象或 null，见下表 |
+| cluster | hardware | 对象或 null，见下表 |
+| cluster.nodes[] | mem_total_gb / mem_assigned_gb | 非负有限数或 null，GB |
+| cluster.nodes[] | jobs | 非负整数或 null |
+| own | mem_running_gb / mem_queued_gb | 非负有限数或 null，GB |
 
-T106 / T112 可选增量（T110 消费；不改变 `ag-monitor/1` 原字段含义）：
+`cluster.jobs[]` 和 `own.jobs[]` 新字段：
 
-- `own.max_queued_cores`：非负整数，排队上限；未提供时显示“未提供”。
-- `own.scheduler_max_running_cores`：正整数，调度器运行限额；显示
-  “由调度器执行，ag 未核实”，不能作为 ag 对正在运行核数的保证。
-- `own.max_cores`：正整数，单作业上限。优先展示它，旧快照仍使用 `core_cap`。
-- `own.tiers`：对象，各档位为 `{cores: 正整数, mem_gb: 有限正数}`，内存单位 GB。
-  缺少或为空显示“未知（后端未提供）”，不按档位名称猜测核数和内存。
-- T112 要求成功、失败快照均写 `tiers` 和 `max_cores`，来自当前配置；前端不填造。
-- `cluster.display_name`：可选的可打印非空字符串，1–32 个字符，与 T112 校验一致。成功和失败快照
-  均可提供，包括尚无成功采样的失败快照。卡片、总览和作业列表显示
-  “显示名（入口名）”，例如 `scnet-初筛（scnet-test）`；缺少时只显示入口名。
-  该字段只用于显示，不改变内部入口名、关联、排序、共享归组或作业号。
+| 字段 | 类型 |
+|---|---|
+| user | string |
+| mine | bool |
+| cores_kind | `allocated` / `requested` |
+| mem_gb | 非负有限数或 null |
+| elapsed_seconds / walltime_limit_seconds | 非负整数或 null |
+| elapsed_source | `start_time` / `walltime_used` / null |
+| start_time / qtime | 可解析的 UTC ISO 时间或 null |
 
-T110 总览替代上述 T103 的“页面不分组”规则：按 `shared_with` 的连通关系合组。
-作业页的独立集群卡片仍然一入口一张，不合并。
-一组只显示一次运行、排队和剩余额度。组内不累加重复采样，使用采样时间最新的
-成功占用记录；总上限取组内最小值，已配置排队上限同样取最小值。每个入口的
-单作业上限和档位仍分别显示。旧快照的 `core_cap` 不代替 `committed_cap`。
-组内任一来源失败、过期、歧义，或引用入口没有快照，或占用分项/总上限缺失，
-剩余均为“未知”；否则为 `max(0, 总上限 - 运行 - 排队)`。
-表中保留各入口最后成功采样时间；旧占用和节点数据明确标记非最新。
-PBS 节点信息完整时，空闲节点数只计 `state=free` 且 `cores_used=0` 的节点，
-空闲核数汇总 `state=free` 节点的非负 `cores_total - cores_used`；
-Slurm、硬件容量未知或没有完整节点信息时不推算。节点名称不出现在总览中。
+原有 job_id、name、state、queue、cores、study、attempt 不变。
+旧 `own.jobs` 未带 cores_kind 的 start_time 仍兼容原始调度器字符串；新格式按 ISO 校验。
+旧 walltime 字符串继续显示；显式新增秒数为 null 时不得退回旧值。
+
+`cluster.job_summary` 各项均为非负整数或 null：
+`running_jobs`、`running_cores`、`queued_jobs`、`queued_cores`、
+`others_running_jobs`、`others_running_cores`、`others_queued_jobs`、`others_queued_cores`。
+标题用采样汇总，因此不会因 500 条截断或“只看本人”而把入口总量错误缩小。
+
+`cluster.hardware`：
+- `cores_total` / `cores_allocated` / `cores_idle` / `cores_other`：非负整数或 null。
+- `mem_total_gb` / `mem_allocated_gb`：非负有限数或 null。
+- `source`：`pbsnodes` / `sinfo`；`error`：字符串或 null。
+
+共享组沿用 T110 `capacityGroups` 连通归组：选择最近成功占用记录，不相加；总上限取组内最小值，已配置排队上限也取最小值。
+多个卡片明确标注“共享总上限（只计一次）”，页面不提供跨入口求和；每个入口仍有独立硬件条。
+如果共享账号占用大于某入口的硬件分配，不能推导有效分段，显示未知。
+
+详情中运行作业用实际分配核数，排队用申请核数并按 qtime 排序；本人始终置顶。
+Slurm 不显示其他人明细，只显示两个分组各自的“其他用户”汇总；只看本人时隐藏他人汇总。
+“只看本人”按入口保存在浏览器，读写失败时使用默认关闭且不妨碍查看。
+作业号是可选列；walltime ≥90% 使用警示色，超限仍显示真实百分比。
+节点与队列、限额档位与存储默认收起，PBS 单节点默认展开节点区；Slurm 仅显示分区 CPU 汇总。
+本地状态 `finished` 的 Attempt 在底部“刚结束待取回”中独立列出，不从队列消失推断结束。

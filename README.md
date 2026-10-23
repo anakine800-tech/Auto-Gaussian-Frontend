@@ -284,21 +284,18 @@ using 627.5094740631 kcal/mol per Hartree. This display-only conversion neither
 changes facts nor supplies scientific acceptance. Parsing is adapted solely from
 `83184af:autog_frontend/calculation_analysis.py`; there is no legacy package import.
 
-The **服务器** navigation (`#server`) reads local snapshots every 30 seconds; see
-T7e below for the per-cluster locations.
-The [ag-monitor/1 definition](docs/ag-monitor-1.md) follows the task's
-producer specification, including T19 additions. The adapter reads only the fixed snapshot filenames, through the
-existing descriptor-relative `O_NOFOLLOW` traversal, at most 2 MiB. Hidden root
-directories do not appear as studies. Missing files show
-`请在终端运行 ag monitor --watch 120`. The page shows sampling age, expiry after three
-sampling intervals (one-shot null-interval samples expire after 10 minutes), previous data marked
-**非最新** on sampling failure, own cores/jobs, cluster nodes/queues and unchanged
-warning text. Unknown schemas and malformed required fields are rejected with
-**快照格式不正确**. It never starts a sampler or connects to the cluster. Sampling and last-success
-timestamps display in the browser’s local time zone, with the original UTC sample
-available on hover. If all three optional T11 fields `cores_running`, `cores_queued`
-and `committed_cap` are present, the own-core panel shows running, queued and total
-cap separately. Older snapshots retain the original display.
+服务器页（`#/jobs`，旧 `#server` 链接仍可用）每 30 秒读取本机监控快照。
+每入口一张摘要卡片，显示采样状态、警告数、核数与内存分段、作业数和本人总额度。
+点击卡片或标签切换详情，左右方向键也可切换；运行与排队分别列出，本人置顶，
+“只看本人”按服务器记在浏览器中。PBS 显示全员作业，Slurm 只显示本人明细和其他用户汇总。
+最近快照进度与 Attempt 链接保留；“刚结束待取回”位于页面底部。
+
+硬件未知时用斜纹；采样失败时卡片占用未知，详情保留值标非最新。硬件单独失败不影响本人数字。
+连续采样允许 30–600 秒，超过三倍间隔才过期；单次采样超过十分钟过期。
+“节点与队列”和“限额、档位与存储”默认收起，单节点默认展开节点区。
+共享入口用同一份最新成功占用，不累加；总上限取组内最小值。
+单作业上限和资源档位只在详情折叠区显示，不能代替总上限。
+缺失新字段的旧快照仍可读，新内容显示未知；完整字段见 [ag-monitor/1](docs/ag-monitor-1.md)。
 
 The sole new direct dependency is pinned `react-markdown@10.1.0`, with its
 transitive tree locked in `web/pnpm-lock.yaml`. It provides Markdown parsing
@@ -616,12 +613,7 @@ URL 支持刷新、前进及后退恢复，例如：
 相对电子能复用 T98a/T103 的方法、版本、电荷、多重度、元素组成和单位核对；
 口径不同或证据不足就列出原因，不给相对能。所有差值均标为“前端计算、非正式”。
 
-作业页顶部容量总览按 `shared_with` 合组；共享快照不相加，采用组内最新成功
-占用记录和最小总上限。任一入口失败、过期、来源歧义、缺少共享入口快照或缺少
-运行/排队分项时，剩余可提交核数显示“未知”。各入口的单作业上限和档位分别保留；
-未提供档位时显示“未知（后端未提供）”。完整字段见 [快照说明](docs/ag-monitor-1.md)。
-监控快照有 `cluster.display_name` 时，集群卡片、容量总览及作业列表显示
-“显示名（入口名）”，例如 `scnet-初筛（scnet-test）`；没有时沿用入口名。
-作业页卡片始终一入口一张，容量总览仍按内部入口名关联共享额度。
+T115 已用服务器卡片和按入口切换的详情替换 T110 容量总览；共享组仍采用
+最新成功占用和最小总上限，不相加。显示名仅用于标签，不改变入口身份。
 前端不选择集群、不提交作业；调度器运行限额注明“由调度器执行，ag 未核实”。
 动作令牌不匹配时明确提示“前端已重启，请刷新页面”，不自动刷新令牌或重试操作。

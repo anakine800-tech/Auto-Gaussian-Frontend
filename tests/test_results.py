@@ -122,7 +122,7 @@ class ResultsTests(unittest.TestCase):
         valid=monitor_snapshot();cases=[]
         for key in valid:
             missing=copy.deepcopy(valid);del missing[key];cases.append(missing)
-        for key,value in [('schema','ag-monitor/2'),('ok',1),('sampled_at','bad'),('sampled_at','2026-01-01T00:00:00'),('interval_seconds',True),('interval_seconds',59),('interval_seconds',601),('own',[]),('own',None),('cluster',None),('warnings',[{}])]:
+        for key,value in [('schema','ag-monitor/2'),('ok',1),('sampled_at','bad'),('sampled_at','2026-01-01T00:00:00'),('interval_seconds',True),('interval_seconds',29),('interval_seconds',601),('own',[]),('own',None),('cluster',None),('warnings',[{}])]:
             cases.append({**valid,key:value})
         for group,field,bad in [('own','jobs',[None]),('own','core_cap',0),('own','cores_in_use',True),('cluster','nodes',[{}]),('cluster','queues',[{'name':'demo','running':'1','queued':0}])]:
             data=copy.deepcopy(valid);data[group][field]=bad;cases.append(data)
