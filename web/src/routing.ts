@@ -1,5 +1,5 @@
 export type AttemptFile={kind:'inputs'|'logs'|'record';name:string};
-export type Route={study:string;view?:'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
+export type Route={study:string;file?:string;view?:'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
 const hash=(parts:string[])=>'#/'+parts.map(encodeURIComponent).join('/');
 // Existing page links keep their object identity while adopting the new shell.
 export function routeHash(parts:string[]):string{
@@ -22,6 +22,8 @@ export function readRoute():Route{
   const parts=path.slice(2).split('/').map(decodeURIComponent);
   if(parts.some(p=>!p||p==='.'||p==='..'||/[\/\\\0]/.test(p)))throw Error();
   if(parts.length===1&&parts[0]==='jobs')return {study:'',server:true};
+  // T118 file viewer uses the existing document host; all old branches stay intact.
+  if(parts.length>=3&&parts[1]==='file')return {study:parts[0],view:'files',fileTab:'document',file:parts.slice(2).join('/')};
   if(parts[0]!=='s'){
    const valid=parts.length<=2||(['ensembles','irc-reviews','analyses'].includes(parts[1])&&[3,4].includes(parts.length))||(parts[1]==='structures'&&parts.length===4);
    if(!valid)throw Error();

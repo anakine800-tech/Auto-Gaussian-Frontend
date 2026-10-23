@@ -2,9 +2,11 @@
 
 Descriptor-relative O_NOFOLLOW traversal prevents a directory being replaced by
 an escaping symlink between validation and open. Limits prevent a malformed local
-file from exhausting the viewer. There is no cache, index, or derived-file write.
+file from exhausting the viewer. Report metadata is cached in memory only;
+there is no index or derived-file write.
 """
 import codecs
+from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import errno
@@ -17,6 +19,7 @@ import os
 import re
 from pathlib import Path
 import stat
+from threading import Lock
 
 from .geometry import parse_xyz, xyz_frame
 from .inputs import parse_input
@@ -25,6 +28,67 @@ from .monitor import validate_monitor
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
 from .study_summary import parse_sections
+
+
+DOCUMENT_LIMIT = 4 * 1024 * 1024
+IMAGE_LIMIT = 10 * 1024 * 1024
+FILE_TYPES = {
+    '.md': 'text/plain', '.txt': 'text/plain', '.csv': 'text/csv',
+    '.json': 'application/json', '.xyz': 'text/plain', '.png': 'image/png',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+    '.svg': 'image/svg+xml', '.html': 'text/html',
+}
+IMAGE_TYPES = {'.png', '.jpg', '.jpeg', '.webp', '.svg'}
+ANALYSIS_TYPES = set(FILE_TYPES) - {'.xyz'}
+REPORT_KINDS = {'formal', 'energy', 'state-check', 'ensemble', 'irc', 'thermo',
+                'coverage', 'ts', 'nci', 'stage-review', 'figure', 'other'}
+SCHEMA_KINDS = {'ag-ensemble/1': 'ensemble', 'ag-irc-review/1': 'irc',
+                'ag-thermo/1': 'thermo', 'ag-profile/1': 'thermo',
+                'ag-channel-coverage/1': 'coverage', 'ag-nci/1': 'nci'}
+
+
+def report_category(schema, declared, suffix, name=''):
+    # T119 may insert an explicit catalog source between schema and declaration.
+    # Retain the existing fixed TS-label layout; do not guess other filenames.
+    if re.fullmatch(r'ts-labels/[^/]+/(labels\.json|labels\.md|channel-suggestions\.csv)', name):
+        return 'ts', '按 TS 标签目录'
+    if isinstance(schema, str) and schema in SCHEMA_KINDS:
+        return SCHEMA_KINDS[schema], '按 schema'
+    if isinstance(declared, str) and declared in REPORT_KINDS:
+        return declared, '按报告声明'
+    return ('figure' if suffix in IMAGE_TYPES or suffix == '.html' else 'other'), '按文件类型'
+
+
+def decode_document(raw, json_file=False):
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        prefix = raw[:exc.start].decode('utf-8')
+        line, column = prefix.count('\n') + 1, len(prefix.rsplit('\n', 1)[-1]) + 1
+        return dict(data=None, error=f'解析失败：第 {line} 行第 {column} 列（UTF-8）')
+    if not json_file:
+        return dict(data=text, error=None)
+    try:
+        # JSON permits numbers larger than IEEE-754. Preserve those lexemes for
+        # display instead of producing non-standard Infinity in an API response.
+        def number(token):
+            try:
+                value = float(token) if any(c in token for c in '.eE') else int(token)
+                return value if not isinstance(value, float) or math.isfinite(value) else token
+            except ValueError:
+                return token
+
+        def constant(token):
+            # Locate the invalid token outside JSON strings for an accurate line.
+            tokens = re.finditer(r'"(?:[^"\\]|\\.)*"|NaN|-?Infinity', text)
+            pos = next(m.start() for m in tokens if m.group() == token)
+            raise json.JSONDecodeError('Invalid JSON constant', text, pos)
+
+        return dict(data=json.loads(text, parse_float=number, parse_int=number, parse_constant=constant), error=None)
+    except json.JSONDecodeError as exc:
+        return dict(data=None, error=f'解析失败：第 {exc.lineno} 行第 {exc.colno} 列（JSON）')
+    except RecursionError:
+        return dict(data=None, error='JSON 嵌套超过显示能力；请查看原文')
 
 
 TS_LABEL_FILES = ('labels.json', 'labels.md', 'channel-suggestions.csv')
@@ -52,6 +116,8 @@ def finite_float(value):
 class Studies:
     def __init__(self, root):
         self.root = Path(os.path.abspath(root))
+        self._analysis_cache = OrderedDict()
+        self._analysis_cache_lock = Lock()
         # Check every component, including the configured root's ancestors.
         with self.open_dir(()):
             pass
@@ -110,18 +176,26 @@ class Studies:
             raise StudyError('File exceeds display size limit', 413)
         return data
 
-    def document(self, parts, json_file=False):
+    def document(self, parts, json_file=False, *, object_only=True):
         try:
-            raw = self.read(parts).decode('utf-8')
-            if json_file:
-                raw = json.loads(raw, parse_float=finite_float, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-                if not isinstance(raw, dict):
-                    raise ValueError()
-            return {'data': raw, 'error': None}
-        except (UnicodeError, ValueError):
-            return {'data': None, 'error': 'Malformed UTF-8 or JSON object'}
+            result = decode_document(self.read(parts), json_file)
+            if json_file and object_only and result['error'] and result['error'].startswith('解析失败'):
+                result['error'] = 'Malformed UTF-8 or JSON: ' + result['error']
+            # Fixed ag records still require objects; generic report JSON has no
+            # such schema requirement. Shape errors are not syntax errors.
+            if json_file and object_only and not result['error'] and not isinstance(result['data'], dict):
+                return dict(data=None, error='记录格式需要 JSON 对象（JSON 语法有效）')
+            return result
         except StudyError as exc:
             return {'data': None, 'error': str(exc)}
+
+    def file(self, study, path):
+        parts = tuple(component(p) for p in path.split('/'))
+        suffix = Path(parts[-1]).suffix.lower()
+        if suffix not in FILE_TYPES:
+            raise StudyError('Unsupported file type', 400)
+        raw = self.read((component(study), *parts), IMAGE_LIMIT if suffix in IMAGE_TYPES else DOCUMENT_LIMIT)
+        return raw, FILE_TYPES[suffix]
 
     def list_studies(self):
         result, issues = [], []
@@ -149,7 +223,7 @@ class Studies:
 
     def analysis_document(self, study, parts):
         path = (study, 'analyses', *parts)
-        doc = self.document(path, parts[-1].endswith('.json'))
+        doc = self.document(path, parts[-1].lower().endswith('.json'), object_only=False)
         updated = None
         try:
             with self.open_file(path) as stream:
@@ -159,52 +233,59 @@ class Studies:
         return {'name': '/'.join(parts), **doc, 'updated_at': updated}
 
     def analysis_summary(self, study, parts):
-        """Bounded header hint for navigation; only the detail read validates JSON.
+        """Return metadata, never report rows, under the existing file limit.
 
-        Do not deserialize megabytes of scientific rows for a filename list.
-        If schema is beyond the first 64 KiB, leave its type unknown.
+        Read the complete bounded JSON so a late top-level schema still outranks
+        a kind declaration. Reuse unchanged metadata without rereading bodies.
         """
+        suffix = Path(parts[-1]).suffix.lower()
         result = dict(name='/'.join(parts), data=None, error=None, updated_at=None, schema=None)
+        path = (study, 'analyses', *parts)
+        fields = ('st_mtime_ns', 'st_size', 'st_dev', 'st_ino', 'st_ctime_ns')
+        declared = None
         try:
-            with self.open_file((study, 'analyses', *parts)) as stream:
+            # Validate each path again even on cache hits. The identity fields
+            # also invalidate replacements that preserve mtime and size.
+            with self._analysis_cache_lock, self.open_file(path) as stream:
                 info = os.fstat(stream.fileno())
+                version = tuple(getattr(info, field) for field in fields)
+                cached = self._analysis_cache.get(path)
+                if cached and cached[0] == version:
+                    self._analysis_cache.move_to_end(path)
+                    return dict(cached[1])
                 result['updated_at'] = datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()
-                if info.st_size > 4*1024*1024:
+                limit = IMAGE_LIMIT if suffix in IMAGE_TYPES else DOCUMENT_LIMIT
+                if info.st_size > limit:
                     raise StudyError('File exceeds display size limit', 413)
-                if parts[-1].endswith('.json'):
-                    raw = stream.read(64*1024)
-                    # A partial final Unicode character is irrelevant to earlier fields.
-                    prefix = codecs.getincrementaldecoder('utf-8')().decode(raw, final=info.st_size <= len(raw))
-                    decoder = json.JSONDecoder(parse_float=finite_float, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-                    if info.st_size <= len(raw):
-                        data = decoder.decode(prefix)
-                        if not isinstance(data, dict):
-                            raise ValueError()
+                if suffix in ('.json', '.md'):
+                    raw = stream.read(limit + 1)
+                    if len(raw) > limit:
+                        raise StudyError('File exceeds display size limit', 413)
+                    doc = decode_document(raw, suffix == '.json')
+                    result['error'] = doc['error']
+                    data = doc['data']
+                    if suffix == '.json' and isinstance(data, dict):
                         result['schema'] = data.get('schema') if isinstance(data.get('schema'), str) else None
-                    else:
-                        rest = prefix.lstrip()
-                        if rest.startswith('{'):
-                            rest = rest[1:].lstrip()
-                            while rest:
-                                try:
-                                    key, end = decoder.raw_decode(rest)
-                                    rest = rest[end:].lstrip()
-                                    if not isinstance(key, str) or not rest.startswith(':'):
-                                        break
-                                    value, end = decoder.raw_decode(rest[1:].lstrip())
-                                    rest = rest[1:].lstrip()[end:].lstrip()
-                                    if key == 'schema' and isinstance(value, str) and rest.startswith((',', '}')):
-                                        result['schema'] = value
-                                        break
-                                    if not rest.startswith(','):
-                                        break
-                                    rest = rest[1:].lstrip()
-                                except ValueError:
-                                    break
-        except (UnicodeError, ValueError, OverflowError):
-            result['error'] = 'Malformed UTF-8 or JSON object'
+                        declared = data.get('kind')
+                    elif suffix == '.md' and isinstance(data, str):
+                        front = re.match(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', data, re.S)
+                        if front:
+                            kind = re.search(r"^kind:[ \t]*(['\"]?)([a-z-]+)\1[ \t]*(?:#.*)?$", front[1], re.M)
+                            declared = kind[2] if kind else None
+                result['kind'], result['category_basis'] = report_category(result['schema'], declared, suffix, result['name'])
+                after = os.fstat(stream.fileno())
+                # Do not retain metadata if the file changed during the read.
+                if tuple(getattr(after, field) for field in fields) == version:
+                    self._analysis_cache[path] = (version, dict(result))
+                    self._analysis_cache.move_to_end(path)
+                    # Browsing many studies must not retain metadata forever.
+                    if len(self._analysis_cache) > 1024:
+                        self._analysis_cache.popitem(last=False)
+        except (ValueError, OverflowError):
+            result['error'] = '无法读取报告元数据'
         except StudyError as exc:
             result['error'] = str(exc)
+        result['kind'], result['category_basis'] = report_category(result['schema'], declared, suffix, result['name'])
         return result
 
     def report(self, study, parts):
@@ -264,7 +345,7 @@ class Studies:
         for name, error in self.names((study, 'analyses')):
             if error:
                 issues.append({'path': f'analyses/{name}', 'error': error})
-            elif name.endswith(('.json', '.md', '.csv', '.txt')):
+            elif Path(name).suffix.lower() in ANALYSIS_TYPES:
                 analyses.append(self.analysis_summary(study, (name,)))
         # The same one-subdirectory depth already used by ensemble/IRC viewers.
         for folder, error in self.names((study, 'analyses'), directories=True):
@@ -290,7 +371,7 @@ class Studies:
                 for name, error in self.names((study, 'analyses', folder)):
                     if error:
                         issues.append({'path': f'analyses/{folder}/{name}', 'error': error})
-                    elif name.endswith(('.json', '.md', '.csv', '.txt')):
+                    elif Path(name).suffix.lower() in ANALYSIS_TYPES:
                         analyses.append(self.analysis_summary(study, (folder, name)))
             except StudyError as exc:
                 issues.append({'path': f'analyses/{folder}', 'error': str(exc)})

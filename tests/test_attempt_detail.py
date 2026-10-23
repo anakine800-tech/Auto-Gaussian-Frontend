@@ -60,9 +60,9 @@ class DetailTests(unittest.TestCase):
         self.assertNotIn('SYNTHETIC_BODY', json.dumps(result))
         self.assertEqual(self.client.get(self.url+'/reports/large/report.json').json()['data'], body)
         self.assertEqual(self.fingerprint(), before)
-        # Prefixes never search nested text or pretend unknown headers are types.
+        # T118 finds late top-level schema, but never promotes nested schema.
         (folder/'report.json').write_text(json.dumps({'padding':'x'*70000,'schema':'ag-thermo/1'}))
-        self.assertIsNone(self.store.analysis_summary('butane-demo', ('large','report.json'))['schema'])
+        self.assertEqual(self.store.analysis_summary('butane-demo', ('large','report.json'))['schema'], 'ag-thermo/1')
         (folder/'report.json').write_text(json.dumps({'nested':{'schema':'wrong'},'padding':'x'*70000}))
         self.assertIsNone(self.store.analysis_summary('butane-demo', ('large','report.json'))['schema'])
         (folder/'report.json').unlink(); (folder/'report.json').symlink_to(self.root/'outside')

@@ -1,23 +1,18 @@
-import {Children,isValidElement,useEffect,useState} from 'react';
-import type {ReactNode} from 'react';
-import ReactMarkdown from 'react-markdown';
+import {useEffect,useState} from 'react';
+import {readRoute} from './routing';
+import {TableAttempts} from './data-table-view';
+import {AttemptPreview,FileReader,MarkdownReport,useReportStudy} from './file-view';
 import {display,endpoint,get} from './api';
 import type {Document} from './api';
 import {FrameViewer} from './frame-viewer';
 
-const plain=(children:ReactNode):string=>Children.toArray(children).map(c=>isValidElement<{children?:ReactNode}>(c)?plain(c.props.children):String(c)).join('');
-const anchor=(text:string)=>text.trim().toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu,'').replace(/\s+/g,'-');
 export function StudyMarkdown({doc}:{doc:Document<string>}){
- return <section className="file-view markdown"><h3>study.md</h3>{doc.error?<p className="notice">{doc.error}</p>:<ReactMarkdown skipHtml urlTransform={url=>/^#[^/\s][^\s]*$/.test(url)?url:''} components={{
-  img:()=>null,
-  a:({href,children})=>href?<a href={href} onClick={e=>{e.preventDefault();let id=href.slice(1);try{id=decodeURIComponent(id);}catch{/* Keep literal fragment. */}document.getElementById('study-md-'+id)?.scrollIntoView();}}>{children}</a>:<span>{children}</span>,
-  h1:({children})=><h1 id={'study-md-'+anchor(plain(children))}>{children}</h1>,
-  h2:({children})=><h2 id={'study-md-'+anchor(plain(children))}>{children}</h2>,
-  h3:({children})=><h3 id={'study-md-'+anchor(plain(children))}>{children}</h3>,
-  h4:({children})=><h4 id={'study-md-'+anchor(plain(children))}>{children}</h4>,
-  h5:({children})=><h5 id={'study-md-'+anchor(plain(children))}>{children}</h5>,
-  h6:({children})=><h6 id={'study-md-'+anchor(plain(children))}>{children}</h6>,
- }}>{doc.data??''}</ReactMarkdown>}</section>;
+ const route=readRoute(),{data}=useReportStudy(route.study),[selected,setSelected]=useState<string|null>(null);
+ const path=route.file??'study.md';
+ useEffect(()=>setSelected(null),[route.study,path]);
+ return <TableAttempts.Provider value={{study:route.study,ids:new Set(data?.attempts.map(a=>a.id)??[]),select:setSelected}}><section className="file-view report-file-layout">
+ <div className="report-body">{route.file?<FileReader study={route.study} path={route.file} data={data}/>:<><h3>study.md</h3>{doc.error?<p className="notice">{doc.error}</p>:<MarkdownReport text={doc.data??''} study={route.study} path="study.md" data={data}/>}</>}</div>
+ {selected&&<AttemptPreview study={route.study} id={selected}/>}</section></TableAttempts.Provider>;
 }
 type Metric={label:string;value:number;threshold:number;result:string};
 type Step={index:number;printed_step:number|null;scf_hartree:number;metrics:Metric[];geometry:unknown;line:number};

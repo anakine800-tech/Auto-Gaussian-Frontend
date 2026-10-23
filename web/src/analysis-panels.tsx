@@ -1,8 +1,11 @@
 import {useEffect,useRef,useState} from 'react';
+import type {ReactNode} from 'react';
+import {TableAttempts} from './data-table-view';
+import {AttemptPreview,FileReader,useReportStudy} from './file-view';
 import {endpoint,get,object} from './api';
 import type {Document,Study} from './api';
-import {analysisConclusion,analysisGroups,analysisLink,analysisType} from './analysis-summary';
-import {Collapsible,EmptyState,ErrorNotice,Panel,StatusBadge} from './ui';
+import {analysisConclusion,analysisLink,analysisType,reportCategory,reportGroups} from './analysis-summary';
+import {ErrorNotice,StatusBadge} from './ui';
 
 type Report=Study['analyses'][number];
 function useReport(study:string,report:Report){
@@ -26,8 +29,25 @@ export function ReportConclusion({study,report}:{study:string;report:Report}){
 }
 function ReportRow({study,report}:{study:string;report:Report}){
  const {doc,anchor}=useReport(study,report),data=object(doc?.data)?doc.data:{};
- return <li><a href={analysisLink(study,report.name,report.schema)}>{typeof data.label==='string'&&data.label?data.label:report.name}</a><span className="muted report-path">{typeof data.label==='string'&&data.label?report.name+' · ':''}{report.updated_at?<time dateTime={report.updated_at}>{new Date(report.updated_at).toLocaleString('zh-CN',{hour12:false})}</time>:'更新时间 —'}</span><span ref={anchor} className="analysis-conclusion">{report.name.endsWith('/channel-suggestions.csv')?<StatusBadge tone="warn">建议，待确认</StatusBadge>:analysisConclusion(doc?.data,report.name)}</span>{(report.error||doc?.error)&&<ErrorNotice>{report.error??doc?.error}</ErrorNotice>}</li>;
+ return <li><a href={analysisLink(study,report.name,report.schema)}>{typeof data.label==='string'&&data.label?data.label:report.name}</a><small className="muted report-path">{reportCategory(report).basis} · {report.name.split('.').at(-1)?.toUpperCase()} · {typeof data.label==='string'&&data.label?report.name+' · ':''}{report.updated_at?<time dateTime={report.updated_at}>{new Date(report.updated_at).toLocaleString('zh-CN',{hour12:false})}</time>:'更新时间 —'}</small><span ref={anchor} className="analysis-conclusion">{report.name.endsWith('/channel-suggestions.csv')?<StatusBadge tone="warn">建议，待确认</StatusBadge>:analysisConclusion(doc?.data,report.name)}</span>{(report.error||doc?.error)&&<ErrorNotice>{report.error??doc?.error}</ErrorNotice>}</li>;
+}
+export function ReportDirectory({data}:{data:Study}){
+ return <nav className="report-directory" aria-label="报告目录"><h3>报告目录</h3>{reportGroups.map(([kind,title])=>{
+  const reports=data.analyses.filter(report=>reportCategory(report).kind===kind);
+  if(!reports.length)return null;
+  const folders=kind==='other'?[...new Set(reports.map(report=>report.name.includes('/')?report.name.split('/').slice(0,-1).join('/'):'根目录'))]:[];
+  return <section key={kind} aria-label={kind==='irc'?'IRC 报告列表':title+'列表'}><h4>{title} <span className="muted">({reports.length})</span></h4>{kind==='other'?folders.map(folder=><div key={folder}><h5>{folder}</h5><ul className="analysis-report-list">{reports.filter(report=>(report.name.includes('/')?report.name.split('/').slice(0,-1).join('/'):'根目录')===folder).map(report=><ReportRow key={report.name} study={data.id} report={report}/>)}</ul></div>):<ul className="analysis-report-list">{reports.map(report=><ReportRow key={report.name} study={data.id} report={report}/>)}</ul>}</section>;
+ })}{!data.analyses.length&&<p>尚无报告。</p>}</nav>;
+}
+function ReportLayout({data,name,children}:{data:Study;name?:string;children:ReactNode}){
+ const [selected,setSelected]=useState<string|null>(null);
+ useEffect(()=>setSelected(null),[data.id,name]);
+ return <TableAttempts.Provider value={{study:data.id,ids:new Set(data.attempts.map(a=>a.id)),select:setSelected}}><div className="report-layout"><ReportDirectory data={data}/><div className="report-content">{children}</div><AttemptPreview study={data.id} id={selected}/></div></TableAttempts.Provider>;
+}
+export function ReportPage({study,name}:{study:string;name:string}){
+ const {data,error}=useReportStudy(study);
+ return error?<ErrorNotice>{error}</ErrorNotice>:!data?<p role="status">读取报告目录…</p>:<ReportLayout data={data} name={name}><FileReader key={name} study={study} path={'analyses/'+name} data={data}/></ReportLayout>;
 }
 export function AnalysisLibrary({data}:{data:Study}){
- return <div className="analysis-library"><p className="muted">只读已保存报告。结论字段缺失显示 —；正式结果以 ag 报告及人工审阅为准。 <StatusBadge tone="warn">工具记录，待人工审阅</StatusBadge></p><div className="analysis-groups">{analysisGroups.filter(([id])=>id!=='file').map(([id,title])=>{const reports=data.analyses.filter(r=>analysisType(r.schema,r.name)===id);return <Panel title={title} key={id} className="analysis-group"><div role="region" aria-label={id==='ensemble'?'构象集合列表':id==='irc'?'IRC 报告列表':title+'列表'}>{reports.length?<ul className="analysis-report-list">{reports.map(r=><ReportRow key={r.name} study={data.id} report={r}/>)}</ul>:<EmptyState>暂无可识别报告</EmptyState>}</div></Panel>;})}</div><Collapsible page="analysis" block="other-files" title="其他文件" defaultOpen>{data.analyses.filter(r=>analysisType(r.schema,r.name)==='file').map(r=><p key={r.name}><a href={analysisLink(data.id,r.name,r.schema)}>{r.name}</a>{r.error&&<ErrorNotice>{r.error}</ErrorNotice>}</p>)}{!data.analyses.some(r=>analysisType(r.schema,r.name)==='file')&&<EmptyState>暂无其他文件</EmptyState>}</Collapsible></div>;
+ return <ReportLayout data={data}><section className="report-welcome"><h3>阅读已保存的报告</h3><p>从左侧目录选择报告。Markdown、CSV 和 JSON 对象数组支持按列排序。</p><p className="muted">表格中的 Attempt 编号可打开结构预览。类别来自 schema、报告声明或文件类型。</p><StatusBadge tone="warn">工具记录，待人工审阅</StatusBadge><p className="muted">正式结果以 ag 报告及人工审阅为准。</p></section></ReportLayout>;
 }

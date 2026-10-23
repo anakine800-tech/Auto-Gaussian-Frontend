@@ -45,7 +45,7 @@ test('overview, Attempt sorting, saved thermo and nested representatives',async(
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
 
-test('nested analyses deep link and Markdown disables HTML, scripts and outbound links',async({page})=>{
+test('nested analyses deep link and Markdown isolates scripts while allowing HTTPS links',async({page})=>{
  const outside:string[]=[];page.on('request',r=>{if(r.url().includes('example.invalid'))outside.push(r.url());});
  await page.goto('/#/butane-demo/analyses/cluster-demo/representatives.xyz');
  await expect(page.getByLabel('帧号')).toHaveValue('1');
@@ -54,7 +54,9 @@ test('nested analyses deep link and Markdown disables HTML, scripts and outbound
  const md=page.locator('.markdown');
  await expect(md.locator('strong')).toHaveText('Markdown 正常渲染');
  await expect(md.locator('script,img,iframe')).toHaveCount(0);
- await expect(md.locator('a')).toHaveCount(1);
+ await expect(md.getByRole('link',{name:'外部链接',exact:true})).toHaveAttribute('target','_blank');
+ await expect(md.getByRole('link',{name:'外部链接',exact:true})).toHaveAttribute('rel','noopener noreferrer');
+ await expect(md.getByRole('link',{name:'脚本链接',exact:true})).toHaveCount(0);
  await md.getByRole('link',{name:'当前阻塞'}).click();
  await expect(page.getByRole('button',{name:'研究说明',exact:true})).toHaveAttribute('aria-current','page');
  expect(await page.evaluate(()=>Reflect.get(window,'syntheticXss'))).toBeUndefined();expect(outside).toEqual([]);
