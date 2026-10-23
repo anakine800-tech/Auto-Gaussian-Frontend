@@ -6,7 +6,7 @@ import {addObjectToBasket} from './compare-basket';
 import {routeHash} from './routing';
 import {ActionBar,DataTable,EmptyState,Panel,StatusBadge,statusTone} from './ui';
 import {ENERGY_NOTICE} from './progress-definitions';
-import {adoptionState,calculationType,catalogObjects,chainObjects,chainStatus,defaultBasis,electronicState,hasCatalog,keyReports,methodFromRoute,orderedMembers,record,relativeEnergies,representativeAttempt,roleLabels,routeOf} from './catalog-data';
+import {adoptionState,calculationType,catalogObjects,chainObjects,chainStatus,defaultBasis,electronicState,hasCatalog,keyReports,methodFromRoute,orderedMembers,record,relativeEnergies,representativeAttempt,roleLabels,routeOf,spinTreatment} from './catalog-data';
 import type {CatalogStudy,ChainObject,CompositionSource,EnergyBasis,EnergyRow} from './catalog-data';
 import './ui/chains.css';
 
@@ -69,6 +69,7 @@ export function ChainsView({data}:{data:CatalogStudy}){
  {key:'id',label:'Attempt',render:m=>find(m.attempt)?<a href={routeHash([data.id,m.attempt])}>{m.attempt}</a>:m.attempt+'（缺失）'},
  {key:'type',label:'计算类型',render:m=>calculationType(find(m.attempt)??{template:null} as AttemptSummary,m.role)},
  {key:'method',label:'方法（route）',render:m=>{const a=find(m.attempt);return a?methodFromRoute(routeOf(a))??'—':'—';}},
+ {key:'spin',label:'自旋处理',render:m=>{const a=find(m.attempt);return a?spinTreatment(routeOf(a)):'—';}},
  {key:'server',label:'服务器',render:m=>display(record(find(m.attempt)?.manifest.data).cluster)},
  {key:'status',label:'状态',render:m=>find(m.attempt)?.state??'缺失'},
  {key:'facts',label:'关键事实（facts）',render:m=>{const a=find(m.attempt);return a?factsText(a):'—';}},

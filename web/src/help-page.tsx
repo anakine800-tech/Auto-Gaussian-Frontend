@@ -3,7 +3,7 @@ import './ui/help.css';
 const pages=[
  {id:'servers',name:'服务器',see:'服务器卡片、本人/他人/空闲资源分段、运行与排队作业，以及刚结束待取回记录。',actions:'选择服务器卡片或标签；筛选只看本人；点击 Attempt 阅读记录；展开节点、限额和存储信息。',source:'本机 .ag-monitor 快照。过期、失败和未知值保留提示；页面不直接查询集群。'},
  {id:'research',name:'研究',see:'进展数字、还缺什么、里程碑，以及全部 Attempt。',actions:'切换 Study；按状态或待审阅筛选；查看原文；勾选至比较篮。',source:'study.md、manifest.json、status.json、facts.json、review.md；有登记时核对 catalog 状态与日志哈希。'},
- {id:'chains',name:'研究 · 计算链',see:'登记的构象 × 电子态对象、每一步的方法与事实、当前采用结果和相对能量。',actions:'筛选电子态、计算类型和状态，隐藏历史；展开步骤；选择 E / E+ZPE / G 与参照对象；＋比较加入已采用 SP → Freq → Opt，未登记时取链上最后一个已取回 Attempt。',source:'catalog/state.json 与 journal.jsonl 哈希核对；不一致时警告并按 parents 自动成链。相对能仅用于已登记已采用对象：E=scf_h；E+ZPE=scf_h+zpe_h；G=scf_h+(g_h−freq_scf_h)。方法、基组、溶剂、元素组成或电荷不同时留空，缺失值不补算；多重度不同时标电子态能差。前端现场换算，正式数值以报告和登记为准。'},
+ {id:'chains',name:'研究 · 计算链',see:'登记的构象 × 电子态对象、每一步的方法与事实、当前采用结果和相对能量。',actions:'筛选电子态、计算类型和状态，隐藏历史；展开步骤；选择 E / E+ZPE / G 与参照对象；＋比较加入已采用 SP → Freq → Opt，未登记时取链上最后一个已取回 Attempt。',source:'catalog/state.json 与 journal.jsonl 哈希核对；不一致时警告并按 parents 自动成链。相对能仅用于已登记已采用对象：E=scf_h；E+ZPE=scf_h+zpe_h；G=scf_h+(g_h−freq_scf_h)。核对 SP 方法、色散、基组、基函数形式、溶剂、元素组成和电荷；E+ZPE 与 G 另核对采用 Freq 的方法、色散、基组、基函数形式和溶剂。G 还核对 Freq 温压，未写时按 298.15 K、1 atm。不同或无法识别时留空，缺失值不补算。方法比较去掉 R/U/RO 前缀，自旋处理单列为信息；多重度不同时标电子态能差。前端现场换算，正式数值以报告和登记为准。'},
  {id:'results',name:'结果 · 报告',see:'分类报告目录、Markdown/CSV/JSON 正文与表格、热化学、构象集合、IRC 与审阅报告。',actions:'排序报告表格、点击 Attempt 预览结构、打开本地引用文件；HTML/SVG 隔离阅读，HTTPS 外链在新标签打开；比较篮可打开快速比较或 2–3 项结构对比。',source:'analyses 中已有报告及其明确引用的数据；正式结论以 ag 报告和人的审阅为准。'},
  {id:'evidence',name:'证据',see:'研究说明、结构文件、关系图与其他分析文件。',actions:'切换现有标签；查看只读原文、结构与来源关系。',source:'study.md、structures、analyses 与 Attempt 的本地记录。'},
 ];
