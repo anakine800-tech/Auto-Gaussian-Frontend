@@ -3,7 +3,7 @@ import {endpoint,get} from './api';
 import {locationChanged} from './navigation';
 import {ActionBar,Collapsible,EmptyState,ErrorNotice,Panel,StatusBadge,readPreference,savePreference} from './ui';
 import {routeHash} from './routing';
-import {MoleculeViewer} from './molecule-viewer';
+import {FrameViewer} from './frame-viewer';
 import type {Atom} from './molecule-math';
 import {drawThumbnail} from './thumbnail';
 
@@ -72,7 +72,7 @@ function EnsembleContent({data,study,parts,candidate}:{data:Ensemble;study:strin
  <td title={reason(r)}>{value(r.thermo?.relative_G_kcal)}</td><td title={reason(r)}>{r.thermo?.population==null?'':`${r.thermo.population*100}%`}</td><td>{r.missing.join(', ')}{r.notes.length>0&&<details onClick={e=>e.stopPropagation()}><summary>备注</summary>{r.notes.map((note,i)=><p key={i}>{note}</p>)}</details>}</td>{m.descriptors&&<>{r.local!.bins.map((bin,i)=><td key={`angle-${i}`} title={`${r.local!.dihedrals[i]}°`}>{bin}</td>)}<td>{r.local!.near_boundary?'是 ⚑':'否'}</td>{r.local!.distances.map((distance,i)=><td key={`distance-${i}`}>{distance.toFixed(3)}</td>)}</>}</tr>)}</tbody></table></div>
  <ActionBar label="候选分页"><button disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}>上一组</button><span>第 {currentPage+1} / {Math.max(1,Math.ceil(rows.length/50))} 页 · 每页最多 50 个</span><button disabled={(currentPage+1)*50>=rows.length} onClick={()=>setPage(currentPage+1)}>下一组</button></ActionBar>
  <div role="group" aria-label="候选缩略图" className="thumbnail-grid">{shown.map(r=><Thumbnail key={r.candidate} row={r} atoms={data.frames[r.xyz_frame-1].geometry.atoms} selected={r.candidate===selected} onSelect={()=>choose(r.candidate)}/>)}</div>
- {row?<><h3>当前候选 {row.candidate}</h3><MoleculeViewer key={row.candidate} last={data.frames[row.xyz_frame-1].geometry} frameLabel={`候选 ${row.candidate} · 第 ${row.xyz_frame} 帧`}/></>:<p role="alert">{candidate===undefined?'清单没有候选。':'URL 中的候选不存在。'}</p>}
+ {row?<><h3>当前候选 {row.candidate}</h3><FrameViewer geometry={data.frames[row.xyz_frame-1].geometry} frames={data.frames.map(f=>f.geometry)} frameLabel={`候选 ${row.candidate} · 第 ${row.xyz_frame} 帧`}/></>:<p role="alert">{candidate===undefined?'清单没有候选。':'URL 中的候选不存在。'}</p>}
  {m.descriptors&&m.bin_summary&&<section aria-label="分组汇总"><h3>分组汇总</h3><p className="muted">完整清单的保存值，不随筛选重算；最低能候选不代表科学验收。</p><div className="table-scroll"><table aria-label="分组汇总表"><thead><tr><th>分组组合（按二面角列顺序）</th><th>候选数</th><th>最低能候选</th><th>所用层级</th></tr></thead><tbody>{m.bin_summary.map((group,i)=><tr key={i}><td>{group.bins.join(' / ')||'未定义二面角分组'}</td><td>{group.count}</td><td>{group.lowest_candidate===null?'未提供':<a href={url(study,parts,group.lowest_candidate)} onClick={()=>{updateFilters({bins:m.descriptors!.dihedral_bins.map(()=>[]),near:false});const index=rows.findIndex(r=>r.candidate===group.lowest_candidate);if(index>=0)setPage(Math.floor(index/50));}}>候选 {group.lowest_candidate}</a>}</td><td>{group.lowest_layer??'未提供'}</td></tr>)}</tbody></table></div></section>}
  <Collapsible page="ensemble" block="unmatched" title="未匹配的 Attempts" defaultOpen>{m.unmatched_attempts.length?<ul>{m.unmatched_attempts.map((a,i)=><li key={i}>{a.layer} · {a.attempt} · {a.reason}</li>)}</ul>:<EmptyState>无记录。</EmptyState>}</Collapsible>
  </Panel></div>;

@@ -67,7 +67,7 @@ for(const scenario of ['partial','legacy','split-without-cap','failed','first-fa
  await page.goto('/#/jobs');const section=page.getByRole('region',{name:'集群 batch',exact:true});
  await expect(section).toContainText('单作业上限 64 核');await expect(section).not.toContainText('88 / 64');
  const missingCap=['legacy','split-without-cap'].includes(scenario),unknownUsage=scenario==='first-failure';
- await expect(section).toContainText(missingCap?'总上限未知（旧快照）':`总上限 ${d.own.committed_cap}`);
+ await expect(section).toContainText(missingCap?'总上限未提供（旧快照）':`总上限 ${d.own.committed_cap}`);
  if(unknownUsage)await expect(section).toContainText('占用未知');
  else await expect(section).toContainText(scenario==='split-without-cap'?'运行 64 · 排队 24':`占用 ${d.own.cores_in_use}`);
  if(missingCap||unknownUsage||scenario==='zero-cap')await expect(section.getByRole('progressbar')).toHaveCount(0);

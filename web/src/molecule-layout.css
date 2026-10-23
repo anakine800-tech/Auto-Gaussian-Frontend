@@ -86,7 +86,7 @@
 /* Measurement guides must not intercept atom selection. */
 .measurement-overlay{pointer-events:none}
 
-/* T104: styles apply only to the three report-bound structure cards. */
+/* T104 report-bound cards, also reused by T110 explicit comparisons. */
 .irc-structures{--irc-scene-height:none;margin-bottom:var(--space-4)}
 .irc-structures>h3{margin-top:0}
 .irc-structure-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3);align-items:start}
@@ -107,3 +107,19 @@
 .irc-structure-distances ul{list-style:none;margin:0;padding:0}
 .irc-structure-distances li{display:flex;justify-content:space-between;gap:var(--space-2);font-variant-numeric:tabular-nums}
 @media(max-width:1023px){.irc-structure-grid{grid-template-columns:minmax(0,1fr)}.irc-structure-card .molecule-stage svg{max-height:none}}
+
+/* Stable coordinate frames; long comments cannot change the scene position. */
+.coordinate-scene-host:not([hidden]){display:contents}
+.frame-viewer .molecule-stage svg{height:300px;max-height:300px;width:100%}
+.frame-viewer .molecule-section>.muted,.frame-comment{height:2.8em;overflow:auto;overflow-anchor:none}
+.frame-viewer .molecule-section{min-height:400px}
+.frame-alignment{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:40px;font-size:var(--fs-sm)}
+.frame-alignment label,.comparison-controls label{display:flex;align-items:center;gap:6px}
+.frame-status{height:1.5em;margin:4px 0;font-size:var(--fs-xs);color:var(--muted)}
+@media(min-width:1024px){.irc-structure-grid[data-structure-count="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.Drawer:has(.structure-comparison){width:calc(100vw - 48px);max-width:none;height:100dvh;box-sizing:border-box;padding:20px}
+.comparison-controls{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.comparison-notice{font-size:var(--fs-sm);margin:8px 0}
+.structure-comparison .comparison-differences{max-height:100px;overflow:auto;font-size:var(--fs-sm);margin:8px 0}
+.comparison-method{font-size:var(--fs-xs);line-height:1.5;max-height:4.5em;overflow:auto;overflow-wrap:anywhere;margin:6px 0}
+@media(max-width:1023px){.irc-structure-grid{grid-template-columns:minmax(0,1fr)}.Drawer:has(.structure-comparison){width:100vw;padding:12px}}

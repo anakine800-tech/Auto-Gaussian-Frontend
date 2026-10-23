@@ -36,7 +36,7 @@ const finite=(v:unknown):number|null=>typeof v==='number'&&Number.isFinite(v)?v:
 const record=(v:unknown)=>object(v)?v:{};
 export type ComparisonRow={id:string;termination:string|null;nImag:number|null;electronic:number|null;free:number|null;relativeElectronic:number|null;relativeFree:number|null};
 export type Comparison={differences:string[];rows:ComparisonRow[];protocol:Record<string,string>;methodLabel:string};
-export function compareAttempts(attempts:Attempt[]):Comparison{
+export function compareAttempts(attempts:Pick<Attempt,'id'|'facts'|'geometry'>[]):Comparison{
  const differences:string[]=[],specifications:Record<string,string>[]=[],methodLabels:string[]=[];
  const rows:ComparisonRow[]=attempts.map(a=>{
   const f=record(a.facts.data),e=record(f.energies);

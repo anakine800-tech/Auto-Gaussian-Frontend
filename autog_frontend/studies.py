@@ -298,6 +298,23 @@ class Studies:
         return {'id': study, 'study': document, 'sections': parse_sections(document['data']), 'attempts': attempts,
                 'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
 
+    def comparison_structure(self, study, attempt):
+        """Fixed final geometry and facts only; never expand the detail reader.
+
+        Arbitrary comparison must not read inputs, logs, reviews or paths stored
+        in facts. Reuse the same descriptor-relative reader and XYZ limits as
+        Attempt detail. There is no manifest hash for a generated final.xyz.
+        """
+        base = (component(study), 'attempts', component(attempt))
+        with self.open_dir(base):
+            pass
+        facts = self.document((*base, 'facts.json'), True)
+        try:
+            geometry = {'data': parse_xyz(self.read((*base, 'final.xyz')).decode('utf-8')), 'error': None}
+        except (StudyError, UnicodeError, ValueError) as exc:
+            geometry = {'data': None, 'error': str(exc) if isinstance(exc, StudyError) else 'Invalid final.xyz'}
+        return {'id': attempt, 'facts': facts, 'geometry': geometry}
+
     def attempt(self, study, attempt):
         base = (component(study), 'attempts', component(attempt))
         with self.open_dir(base):

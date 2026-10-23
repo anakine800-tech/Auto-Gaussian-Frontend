@@ -1,4 +1,5 @@
 import {useEffect,useState} from 'react';
+import {CapacityOverview} from './capacity-overview';
 import {display,endpoint,get} from './api';
 import type {Study} from './api';
 import {routeHash} from './routing';
@@ -9,7 +10,7 @@ import {SnapshotProgress,WalltimeProgress} from './job-progress';
 import './ui/jobs.css';
 type Association={study:string|null;attempt:string|null};
 type Job=Association&{job_id:string;name:string;state:string;queue:string;cores:number|null;mem:string|null;walltime_used:string|null;walltime_limit:string|null;start_time:string|null};
-export type Monitor={schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;ok:boolean;error:string|null;last_ok_at:string|null;own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;shared_with?:string[];jobs:Job[]}|null;cluster:{scheduler?:string;name?:string;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;nodes:{name:string;state:string;cores_total:number|null;cores_used:number|null}[];queues:{name:string;running:number;queued:number}[]}|null;warnings:(Association&{kind:string;job_id:string|null;detail:string})[]};
+export type Monitor={schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;ok:boolean;error:string|null;last_ok_at:string|null;own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;max_queued_cores?:number;scheduler_max_running_cores?:number;max_cores?:number;tiers?:Record<string,{cores:number;mem_gb:number}>;shared_with?:string[];jobs:Job[]}|null;cluster:{scheduler?:string;name?:string;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;nodes:{name:string;state:string;cores_total:number|null;cores_used:number|null}[];queues:{name:string;running:number;queued:number}[]}|null;warnings:(Association&{kind:string;job_id:string|null;detail:string})[]};
 
 function ageText(seconds:number){
  if(seconds<60)return `${seconds} 秒`;
@@ -40,7 +41,7 @@ export function ServerMonitor({revision}:{revision:number}){
  const jobs=(data?.clusters??[]).flatMap(row=>sampleState(row,now).hasData?(row.snapshot?.own?.jobs??[]).map((job,i)=>({row,job,key:JSON.stringify([row.name,row.source,job.job_id,job.study,job.attempt,i])})):[]);
  const finished=finishedAttempts(local??[]);
  return <section className="jobs-page" aria-label="服务器监控"><div className="jobs-heading"><h2>服务器监控</h2><span className="muted">每 30 秒读取本地采样与记录</span></div>
- {error?<ErrorNotice>{error}</ErrorNotice>:!data?<p role="status">读取采样快照…</p>:data.clusters.length===0?<EmptyState>暂无集群采样。</EmptyState>:<div className="capacity-list">{data.clusters.map(row=><ClusterCapacity key={row.name+row.source} row={row} now={now}/>)}</div>}
+ {error?<ErrorNotice>{error}</ErrorNotice>:!data?<p role="status">读取采样快照…</p>:data.clusters.length===0?<EmptyState>暂无集群采样。</EmptyState>:<><CapacityOverview rows={data.clusters} now={now}/><div className="capacity-list">{data.clusters.map(row=><ClusterCapacity key={row.name+row.source} row={row} now={now}/>)}</div></>}
  <Panel title="本人作业" className="jobs-table"><p className="muted">采样中的全部本人作业；过期、失败或来源歧义的数据保持非最新标记。</p><DataTable label="本人作业表" rows={jobs} rowKey={r=>r.key} columns={[
   {key:'attempt',label:'Attempt',render:({job:j})=><>{safeIdentity(j.study)&&safeIdentity(j.attempt)?<a href={routeHash([j.study,j.attempt])}>{j.attempt}</a>:<span>未关联</span>}<small>{j.name}</small></>},
   {key:'study',label:'Study',render:({job:j})=>safeIdentity(j.study)?<a href={routeHash([j.study])}>{j.study}</a>:display(j.study)},
@@ -72,7 +73,7 @@ function ClusterCapacity({row,now}:{row:ClusterRow;now:number}){
  // Configured limits remain readable on failure; first-failure usage is unknown.
  const used=hasData&&own?(full?own.cores_running!+own.cores_queued!:own.cores_in_use):null,cap=own?.committed_cap??null;
  return <section className="capacity-row" aria-label={`集群 ${row.name}${row.ambiguous?' · '+row.source:''}`}><div className="capacity-title"><h3>集群 {row.name}</h3><StatusBadge tone={row.error||!d?'bad':old?'warn':'ok'}>{row.error||!d?'不可用':row.ambiguous?'来源未确认':stale?'数据已过期':!d.ok?'采样失败':'新鲜'}</StatusBadge></div>
- <div className="capacity-value"><span className="muted">本人占用核数{old?' · 非最新':''}</span><p className="core-count">{own?<>{full?`运行 ${own.cores_running} · 排队 ${own.cores_queued}`:used===null?'占用未知':`占用 ${used}`} · {cap===null?'总上限未知（旧快照）':`总上限 ${cap}`}</>:'—'}</p>{used!==null&&cap!==null&&cap>0&&<progress aria-label={`集群 ${row.name} 本人核数占上限`} value={Math.min(used,cap)} max={cap}/>} {used!==null&&cap!==null&&used>cap&&<span className="snapshot-notice">已超过本人上限</span>}{own&&<span className="muted">单作业上限 {own.core_cap} 核</span>}</div>
+ <div className="capacity-value"><span className="muted">本人占用核数{old?' · 非最新':''}</span><p className="core-count">{own?<>{full?`运行 ${own.cores_running} · 排队 ${own.cores_queued}`:used===null?'占用未知':`占用 ${used}`} · {cap===null?'总上限未提供（旧快照）':`总上限 ${cap}`}</>:'占用未知 · 总上限未提供'}</p>{used!==null&&cap!==null&&cap>0&&<progress aria-label={`集群 ${row.name} 本人核数占上限`} value={Math.min(used,cap)} max={cap}/>} {used!==null&&cap!==null&&used>cap&&<span className="snapshot-notice">已超过本人上限</span>}<span className="muted">单作业上限 {own?`${own.max_cores??own.core_cap} 核`:'未提供'}</span>{own?.max_queued_cores!==undefined?<span className="capacity-queue">排队 {hasData?own.cores_queued??'未提供':'未知'} / 排队上限 {own.max_queued_cores}</span>:<span className="capacity-queue">排队上限：未提供</span>}{own?.scheduler_max_running_cores!==undefined&&<span className="capacity-queue">运行限额 {own.scheduler_max_running_cores} · 由调度器执行，ag 未核实</span>}</div>
  <div className="capacity-time">{d&&<><span>采样时间：<time dateTime={d.sampled_at} title={d.sampled_at}>{localTime(d.sampled_at)}</time>（本地时间）</span><small>距今 {ageText(Math.max(0,Math.floor((now-Date.parse(d.sampled_at))/1000)))}{d.interval_seconds===null?' · 单次采样':` · 采样间隔 ${d.interval_seconds} 秒`}</small></>}</div>
  {!!own?.shared_with?.length&&<p className="capacity-message muted">与 {own.shared_with.join('、')} 共享总上限</p>}
  {row.ambiguous&&<p className="capacity-message notice">检测到两份 default 快照，来源未确认；不能视为当前状态。</p>}{row.error&&<div className="capacity-message"><ErrorNotice>{row.error}</ErrorNotice></div>}

@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {endpoint,get} from './api';
 import {Collapsible,ErrorNotice,FactGrid,Panel,StatusBadge,statusTone} from './ui';
 import {routeHash} from './routing';
-import {MoleculeViewer} from './molecule-viewer';
+import {FrameViewer} from './frame-viewer';
 import type {Geometry} from './molecule-viewer';
 import {IRCStructures} from './irc-structures';
 import type {IRCStructuresData} from './irc-structures';
@@ -96,7 +96,7 @@ function IRCContent({packet,study,parts,direction,point}:{packet:Packet;study:st
  <button disabled={index<=0} onClick={()=>choose(direction,side.points[index-1].point)}>上一点</button><button disabled={index<0||index>=side.points.length-1} onClick={()=>choose(direction,side.points[index+1].point)}>下一点</button>
  <label>高亮报告原子对 <select aria-label="IRC 高亮原子对" value={highlight} onChange={e=>setHighlight(e.target.value)}>{r.pairs.map(p=><option key={p.join('-')}>{p.join('-')}</option>)}</select></label>
  <p data-testid="irc-pair-highlight">橙色描边：原子 {pair.join('、')} · 报告保存距离：{value(selected?.distances_angstrom?.[pair.join('-')])} Å</p>
- {!selected?<p role="alert">URL 中的路径点不存在。</p>:<><p data-testid="irc-selected">{direction} 点 {point} · XYZ 帧 {value(selected.geometry_frame)}（从 0 开始）</p><p>相对能量：{value(selected.relative_energy_kcal_mol)} kcal/mol · 日志：{side.log.path} · 能量行 {value(selected.energy_line)} · 几何行 {value(selected.geometry_line)} · {selected.geometry_kind}</p>{geometry?<MoleculeViewer highlightedAtoms={pair} last={geometry} frameLabel={`${direction} 点 ${point} · 帧 ${selected.geometry_frame}`}/>:<p role="status">此点缺少几何，未借用其他帧。</p>}</>}
+ {!selected?<p role="alert">URL 中的路径点不存在。</p>:<><p data-testid="irc-selected">{direction} 点 {point} · XYZ 帧 {value(selected.geometry_frame)}（从 0 开始）</p><p>相对能量：{value(selected.relative_energy_kcal_mol)} kcal/mol · 日志：{side.log.path} · 能量行 {value(selected.energy_line)} · 几何行 {value(selected.geometry_line)} · {selected.geometry_kind}</p><FrameViewer highlightedAtoms={pair} geometry={geometry} frames={packet.trajectories[direction].frames.map(f=>f.geometry)} frameLabel={`${direction} 点 ${point} · 帧 ${selected.geometry_frame}`}/>{!geometry&&<p role="status">此点缺少几何，未借用其他帧。</p>}</>}
  </section>
  {directions.map(d=><Criteria key={d} direction={d} side={sides[d]}/>)}
  <Collapsible page="irc" block="inputs" title="报告输入哈希（只显示来源，不打开文件）"><pre>{JSON.stringify(r.inputs,null,2)}</pre></Collapsible></Panel>
