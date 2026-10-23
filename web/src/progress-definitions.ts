@@ -9,3 +9,5 @@ export const PROGRESS={
  recent:'只按修改时间，不代表重要性',
 } as const;
 export const MILESTONES={recorded:'已签',pending:'待签',not_started:'未开始',not_applicable:'不适用',unknown:'无法识别'} as const;
+
+export const ENERGY_NOTICE='前端现场换算，正式数值以报告和登记为准';

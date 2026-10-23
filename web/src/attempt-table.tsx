@@ -1,3 +1,4 @@
+import {catalogObjects,calculationType,electronicState} from './catalog-data';
 import {setCompared,useCompareBasket} from './compare-basket';
 import {PROGRESS} from './progress-definitions';
 import {useState} from 'react';
@@ -32,6 +33,7 @@ export function AttemptTable({data}:{data:Study}){
   const x=a.values[sort],y=b.values[sort];if(x===null)return y===null?a.attempt.id.localeCompare(b.attempt.id):1;if(y===null)return -1;
   return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true}))*direction||a.attempt.id.localeCompare(b.attempt.id);
  });
+ const objects=catalogObjects(data);
  const columns:TableColumn<Row>[]=fields.map(([key,label],index)=>({key,label,className:['energy','free','imag','cores'].includes(key)?'numeric':undefined,optional:index>=9,sort:sort===key?(direction===1?'ascending':'descending'):'none',onSort:()=>change({sort:key,order:sort===key&&direction===1?'desc':'asc'}),render:r=>{
   const value=r.values[key],a=r.attempt;
   if(key==='id')return <a href={routeHash([data.id,a.id])}>{a.id}</a>;
@@ -41,6 +43,8 @@ export function AttemptTable({data}:{data:Study}){
   if(key==='convergence')return value?<StatusBadge tone={value==='✓'?'ok':'bad'}>{value}</StatusBadge>:'—';
   return display(value);
  }}));
+ columns.splice(2,0,{key:'object',label:'对象 · 电子态',render:r=>objects.filter(o=>o.members.some(m=>m.attempt===r.attempt.id)).map(o=>`${o.name} · ${electronicState(o)}`).join(' / ')||'未登记'},
+ {key:'role',label:'计算类型',render:r=>{const members=objects.flatMap(o=>o.members.filter(m=>m.attempt===r.attempt.id));return members.length?[...new Set(members.map(m=>calculationType(r.attempt,m.role)))].join(' / '):calculationType(r.attempt);}});
  columns.unshift({key:'selection',label:'比较',render:r=><input type="checkbox" aria-label={`比较 ${r.attempt.id}`} checked={selected.includes(r.attempt.id)} onChange={e=>setCompared(data.id,r.attempt.id,e.target.checked)}/>});
  const statuses=[...new Set(data.attempts.map(a=>a.state))].sort(),types=[...new Set(data.attempts.map(a=>a.template).filter((v):v is string=>Boolean(v)))].sort();
  const problems=data.attempts.flatMap(a=>[a.manifest.error&&`${a.id} · manifest.json：${a.manifest.error}`,a.status.error&&`${a.id} · status.json：${a.status.error}`,a.facts.error&&`${a.id} · facts.json：${a.facts.error}`,a.review_state==='unreadable'&&`${a.id} · review.md：不可读取，审阅状态未知`].filter(Boolean));

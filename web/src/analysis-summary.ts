@@ -2,12 +2,13 @@ import {object} from './api';
 import {studyHash} from './routing';
 
 export const reportGroups=[['formal','正式结论'],['energy','能量与排序'],['state-check','电子态检查'],['ensemble','构象集合'],['irc','IRC'],['thermo','热化学 / 能量剖面'],['coverage','通道覆盖'],['ts','TS 标签'],['nci','NCI'],['stage-review','阶段审阅'],['figure','图与演示'],['other','其他']] as const;
-export type ReportMetadata={kind?:string;category_basis?:string;schema?:string|null;name:string};
+export type ReportMetadata={catalog_kind?:string;kind?:string;category_basis?:string;schema?:string|null;name:string};
 export function reportCategory(report:ReportMetadata):{kind:string;basis:string}{
- if(tsLabelFile(report.name))return {kind:'ts',basis:'按 TS 标签目录'};
  const schemaKinds:Record<string,string>={'ag-ensemble/1':'ensemble','ag-irc-review/1':'irc','ag-thermo/1':'thermo','ag-profile/1':'thermo','ag-channel-coverage/1':'coverage','ag-nci/1':'nci'};
  if(report.schema&&Object.hasOwn(schemaKinds,report.schema))return {kind:schemaKinds[report.schema],basis:'按 schema'};
+ if(reportGroups.some(([kind])=>kind===report.catalog_kind))return {kind:report.catalog_kind!,basis:'按登记'};
  if(reportGroups.some(([kind])=>kind===report.kind))return {kind:report.kind!,basis:report.category_basis??'按报告声明'};
+ if(tsLabelFile(report.name))return {kind:'ts',basis:'按 TS 标签目录'};
  return {kind:/\.(png|jpe?g|webp|svg|html)$/i.test(report.name)?'figure':'other',basis:'按文件类型'};
 }
 export const tsLabelFile=(name:string)=>/^ts-labels\/[^/]+\/(labels\.json|labels\.md|channel-suggestions\.csv)$/.test(name);

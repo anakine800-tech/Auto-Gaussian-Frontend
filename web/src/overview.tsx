@@ -1,3 +1,4 @@
+import {AdoptionResults} from './chains-view';
 import {analysisLink} from './analysis-summary';
 import {useState} from 'react';
 import {object} from './api';
@@ -46,6 +47,7 @@ export function StudyOverview({data}:{data:Study}){
  {!milestones.present?<p className="muted">study.md 中没有此节</p>:!milestones.entries.length?<p className="muted">此节暂无条目</p>:<ul className="overview-list">{(showPending?pending:milestones.entries).map((e,i)=><li key={i}>{sourceButton('里程碑签字',e.line,e.label??e.text)} <StatusBadge tone={e.state==='pending'||e.state==='unknown'?'warn':'neutral'}>{MILESTONES[e.state??'unknown']}</StatusBadge>{(!e.state||e.state==='unknown')&&<small>{sourceButton('里程碑签字',e.line,`第 ${e.line} 行原文：${e.text}`)}</small>}</li>)}</ul>}
  </Panel></div>
  </div>
+ <AdoptionResults data={data}/>
  <Collapsible page={data.id} block="recent-files" title="最近改动的文件"><p className="muted">{PROGRESS.recent}</p>{reports.length?<ul className="report-list">{reports.map(r=><li key={r.name}><a href={analysisLink(data.id,r.name,r.schema)}>{r.name}</a><span className="muted">{r.updated_at?<time dateTime={r.updated_at}>{new Date(r.updated_at).toLocaleString('zh-CN',{hour12:false})}</time>:'更新时间未知'}{r.error?' · 文件读取异常':''}</span></li>)}</ul>:<EmptyState>暂无分析文件</EmptyState>}<a href={studyHash(data.id,'analysis')}>查看全部报告 →</a></Collapsible>
  <Collapsible page={data.id} block="study-description" title="研究说明"><StudyMarkdown doc={data.study}/></Collapsible>
  <Collapsible page={data.id} block="progress-log" title="进度日志">{!section('进度日志').present?<EmptyState>study.md 中没有此节</EmptyState>:<><p className="muted">按 study.md 中的记录顺序，显示最后 3 条。</p><ul>{logs.slice(-3).map(e=><li key={e.line}>{sourceButton('进度日志',e.line,e.text)}</li>)}</ul>{logs.length>3&&<details><summary>更早的 {logs.length-3} 条</summary><ul>{logs.slice(0,-3).map(e=><li key={e.line}>{sourceButton('进度日志',e.line,e.text)}</li>)}</ul></details>}</>}</Collapsible>

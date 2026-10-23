@@ -1,3 +1,6 @@
+import {representativeAttempt} from './catalog-data';
+import type {ChainObject} from './catalog-data';
+import type {AttemptSummary} from './api';
 import {useSyncExternalStore} from 'react';
 
 type Basket={ids:string[];message:string};
@@ -43,3 +46,7 @@ export function setCompared(study:string,id:string,checked:boolean){
 export function clearBasket(study:string){save(study,{ids:[],message:''});writeURL([]);window.dispatchEvent(new Event('ag:location'));}
 const subscribe=(notify:()=>void)=>{window.addEventListener(event,notify);return()=>window.removeEventListener(event,notify);};
 export function useCompareBasket(study:string){return useSyncExternalStore(subscribe,()=>read(study));}
+
+export function addObjectToBasket(study:string,object:ChainObject,attempts:AttemptSummary[]){
+ const id=representativeAttempt(object,attempts);if(id)setCompared(study,id,true);
+}

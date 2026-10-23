@@ -1,0 +1,14 @@
+.chains-view { min-width: 0; }
+.chains-view .ActionBar { flex-wrap: wrap; }
+.chains-view select { max-width: 100%; }
+.chains-view label { min-width: 0; }
+.chains-table { width: 100%; border-collapse: collapse; min-width: 880px; }
+.chains-table th, .chains-table td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.chains-table th:first-child { min-width: 170px; }
+.chains-table small, .chain-energy small { display: block; font-weight: normal; color: var(--muted); font-size: 12px; }
+.chain-steps { display: flex; flex-wrap: wrap; gap: 6px; min-width: 210px; max-width: 440px; align-items: center; }
+.chain-steps .StatusBadge { white-space: normal; }
+.chain-expand { text-align: left; overflow-wrap: anywhere; }
+.chain-energy { font-variant-numeric: tabular-nums; }
+.energy-notice { font-weight: 600; }
+@media(max-width: 600px) { .chains-view .ActionBar label { display: flex; flex-wrap: wrap; gap: 4px; } .chains-view .ActionBar select { max-width: 240px; } }
