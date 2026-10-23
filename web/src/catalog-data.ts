@@ -162,7 +162,10 @@ export function keyReports(data:CatalogStudy,objects=catalogObjects(data)){
  if(!hasCatalog(data))return [];
  const names=data.analyses.map(r=>r.name),selected=new Map<string,string>();
  const add=(name:string,reason:string)=>{if(names.includes(name)&&!selected.has(name))selected.set(name,reason);};
- data.analyses.filter(r=>reportCategory(r).kind==='formal').sort((a,b)=>a.name.localeCompare(b.name)).forEach(r=>add(r.name,'正式结论'));
+ // Key-report selection honors an explicit formal registration even when a
+ // known schema places the report in another library category (H6 vs H9).
+ const registeredKinds=record(record(data.catalog?.state).report_kinds);
+ data.analyses.filter(r=>registeredKinds[r.name]==='formal'||reportCategory(r).kind==='formal').sort((a,b)=>a.name.localeCompare(b.name)).forEach(r=>add(r.name,'正式结论'));
  objects.filter(o=>o.status==='adopted').forEach(o=>Object.values(o.adopted).forEach(a=>{if(a?.report)add(a.report,'被采用结果引用');}));
  (data.sections['里程碑签字']?.entries??[]).filter(e=>e.state==='pending').forEach(e=>reportReferences(e.text,names).forEach(name=>add(name,'里程碑待签')));
  return [...selected].map(([name,reason])=>({report:data.analyses.find(r=>r.name===name)!,reason}));

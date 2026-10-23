@@ -73,6 +73,9 @@ test('report priority and selection use registration and explicit milestone refe
  expect(reportCategory({name:'report.md',kind:'energy'}).kind).toBe('energy');expect(reportCategory({name:'report.html'}).kind).toBe('figure');
  const data=fixture(),objects=catalogObjects(data);
  expect(keyReports(data).map(r=>r.report.name)).toEqual(['formal.md','adopted.md','pending.md']);
+ data.analyses.find(r=>r.name==='formal.md')!.schema='ag-thermo/1';
+ expect(reportCategory(data.analyses.find(r=>r.name==='formal.md')!).kind).toBe('thermo');
+ expect(keyReports(data).map(r=>r.report.name)).toEqual(['formal.md','adopted.md','pending.md']);
  expect(adoptionState(objects[0],data)).toBe('已签');data.sections['里程碑签字'].entries[1].state='pending';expect(adoptionState(objects[0],data)).toBe('待签');
  data.sections['里程碑签字'].entries[1].text='已签 unrelated.md';expect(adoptionState(objects[0],data)).toBe('候选');
  data.catalog!.journal_ok=false;expect(keyReports(data)).toEqual([]);
