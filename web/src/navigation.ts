@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {syncBasketURL} from './compare-basket';
 import {readRoute} from './routing';
 import type {Route} from './routing';
 
@@ -8,13 +9,13 @@ const scrollValue=(v:unknown)=>typeof v==='number'&&Number.isFinite(v)&&v>=0?v:0
 // Store only presentation context in browser history. This prevents a report-to-
 // Attempt visit from losing the selected candidate, filters or reading position.
 export function useHistoryRoute(){
- const [route,setRoute]=useState(readRoute);
+ const [route,setRoute]=useState(()=>{const next=readRoute();syncBasketURL(next.study);return next;});
  const current=useRef({href:window.location.href,route,y:window.scrollY,back:window.history.state?.agReturn as ReturnLocation|undefined});
  useEffect(()=>{
   const oldRestoration=history.scrollRestoration;history.scrollRestoration='manual';
   history.replaceState({...history.state,agEntry:true},'');
   const update=()=>{
-   const next=readRoute(),href=location.href,previous=current.current;
+   const next=readRoute();syncBasketURL(next.study);const href=location.href,previous=current.current;
    if(href===previous.href)return;
    if(!history.state?.agEntry){
     const sameDetail=next.study===previous.route.study&&detail(next)===detail(previous.route);
@@ -33,7 +34,12 @@ export function locationChanged(){window.dispatchEvent(new Event('ag:location'))
 export function returnLocation(fallback:string):ReturnLocation{
  const back=history.state?.agReturn;
  if(back&&typeof back.href==='string'){
-  try{const url=new URL(back.href);if(url.origin===location.origin&&url.pathname===location.pathname&&url.hash.startsWith('#/'))return {href:url.href,scroll:scrollValue(back.scroll)};}catch{/* Use the local list fallback. */}
+  try{const url=new URL(back.href);if(url.origin===location.origin&&url.pathname===location.pathname&&url.hash.startsWith('#/')){
+   const currentStudy=location.hash.match(/^#\/s\/([^/]+)/)?.[1],backStudy=url.hash.match(/^#\/s\/([^/]+)/)?.[1];
+   const selected=new URLSearchParams(location.hash.split('?')[1]??'').get('cmp');
+   if(currentStudy&&currentStudy===backStudy&&selected!==null){const [path,query='']=url.hash.split('?'),params=new URLSearchParams(query);params.set('cmp',selected);url.hash=path+'?'+params;}
+   return {href:url.href,scroll:scrollValue(back.scroll)};
+  }}catch{/* Use the local list fallback. */}
  }
  return {href:fallback,scroll:0};
 }

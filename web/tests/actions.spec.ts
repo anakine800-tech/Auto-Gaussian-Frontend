@@ -35,7 +35,7 @@ test('new Attempt, automatic input preview/diff, two-step submit through fake ag
  await input.evaluate(element=>element.scrollTop=0);await input.blur();
  await page.getByRole('region',{name:'计算操作'}).screenshot({path:info.outputPath('new-attempt.png')});
  await page.getByRole('button',{name:'保存并新建',exact:true}).click();
- await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/butane-demo-001-browser$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/research\/a\/butane-demo-001-browser$/);
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
  await expect(page.getByTestId('input-diff')).toContainText('# HF/STO-3G SP');
  await expect(page.getByTestId('input-diff')).toContainText('# HF/STO-3G Opt Freq');
@@ -128,10 +128,12 @@ test('removed parent cluster requires an explicit choice and disabled Gaussian c
 
 test('server reads both physical synthetic cluster caches',async({page})=>{
  await page.goto('/#server');
- for(const name of ['default','batch'])await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:`集群 ${name} · 节点、队列与警告`}).click();
+ await page.getByRole('button',{name:'选择服务器 default'}).click();
  await expect(page.getByRole('region',{name:'集群 default 详细信息',exact:true})).toContainText('synthetic-node');
+ await page.getByRole('button',{name:'选择服务器 batch'}).click();
  const batch=page.getByRole('region',{name:'集群 batch 详细信息',exact:true});
+ await batch.locator('summary').filter({hasText:'限额、档位与存储'}).click();
  await expect(batch).toContainText('预算 1000 · 已用 1.5 · 预留 2 核时');
- await expect(batch).toContainText('存储占用：1024 KiB');
- await expect(page.getByRole('region',{name:'集群 batch',exact:true})).toContainText('运行 16 · 排队 0 · 总上限 96');
+ await expect(batch).toContainText('存储占用：0 GB');
+ await expect(page.getByRole('region',{name:'集群 batch',exact:true})).toContainText('运行 16 · 排队 0 / 总上限 96');
 });

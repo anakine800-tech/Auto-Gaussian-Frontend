@@ -1,0 +1,17 @@
+.report-layout{display:grid;grid-template-columns:minmax(180px,22%) minmax(0,1fr) minmax(220px,27%);gap:16px;align-items:start}
+.report-layout>*{min-width:0}.report-directory{display:block;max-height:calc(100vh - 245px);overflow:auto;border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:var(--surface)}
+.report-directory h3{margin-top:0}.report-directory h4{font-size:14px;margin:20px 0 8px;border-bottom:1px solid var(--line);padding-bottom:7px}.report-directory h5{margin:10px 0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.report-directory .analysis-report-list{padding:0;list-style:none;margin:0}.report-directory li{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.report-directory a{font-size:13px}.report-directory .report-path,.report-directory .analysis-conclusion{display:block;font-size:11px;line-height:1.6;margin-top:4px}
+.report-body,.report-content,.report-preview,.report-file-layout{min-width:0;max-width:100%;overflow-wrap:anywhere}.report-body{margin-top:0}.report-welcome{padding:20px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.report-preview{padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}.report-preview h3{margin-top:0}.report-preview .viewer{min-width:0}.report-preview canvas,.report-preview svg{max-width:100%}.report-preview .viewer-controls{flex-wrap:wrap}
+.report-table-scroll{max-width:100%;min-width:0;overflow:auto;border:1px solid var(--line);border-radius:var(--radius);margin:12px 0;max-height:65vh}.report-table-scroll table{width:100%;border-collapse:collapse}.report-table-scroll th{position:sticky;top:0;z-index:1}.report-table-scroll th button{white-space:nowrap;cursor:pointer}.report-table-scroll td{white-space:pre-wrap;min-width:70px;max-width:320px;overflow-wrap:anywhere;vertical-align:top}
+.report-image{display:block;max-width:100%;height:auto;margin:12px 0}.report-html{width:100%;height:65vh;min-height:320px;border:1px solid var(--line);background:white}.report-body pre,.report-file-layout pre{max-width:100%;overflow:auto;white-space:pre;max-height:65vh}
+.json-view>button{margin-bottom:12px}.json-children{padding-left:16px;border-left:1px solid var(--line);margin-left:5px}.json-view summary{cursor:pointer;padding:5px 0}.json-leaf{padding:4px 0}.json-list{padding-left:24px}.report-file-layout:has(>.report-preview){display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,30%);gap:16px}
+@media(max-width:1100px){.report-layout{grid-template-columns:minmax(160px,25%) minmax(0,1fr)}.report-layout>.report-preview{grid-column:2}.report-file-layout:has(>.report-preview){grid-template-columns:minmax(0,1fr)}}
+@media(max-width:740px){.report-layout{grid-template-columns:minmax(0,1fr);gap:12px}.report-layout>.report-preview{grid-column:1}.report-directory{max-height:240px}.report-body{padding:10px}.report-file-layout:has(>.report-preview){display:block}.report-preview{margin-top:12px}.report-table-scroll{max-height:60vh}}
+
+/* The reused viewer normally reserves 320px for tools. In the report sidebar
+   that would collapse the molecular viewport to zero width. */
+.report-preview .molecule-viewer,.report-preview .molecule-viewer.expanded-view{grid-template-columns:minmax(0,1fr);padding:6px}
+.report-preview .molecule-tools{padding:8px 0 0;border-left:0;border-top:1px solid var(--line)}
+.report-preview .molecule-tools .measurement{grid-template-columns:minmax(0,1fr)}

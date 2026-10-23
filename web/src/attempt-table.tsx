@@ -1,3 +1,5 @@
+import {setCompared,useCompareBasket} from './compare-basket';
+import {PROGRESS} from './progress-definitions';
 import {useState} from 'react';
 import {StructureComparison} from './structure-comparison';
 import {QuickComparison} from './quick-comparison-panel';
@@ -18,27 +20,28 @@ function row(a:AttemptSummary):Row{
 }
 const fields=[['id','编号'],['label','标签'],['type','类型'],['status','状态'],['method','方法缩写'],['energy','电子能 / Eh'],['free','自由能 / Eh'],['imag','虚频数'],['convergence','收敛'],['cluster','集群'],['cores','核数'],['elapsed','用时'],['parents','父 Attempt'],['submitted','提交时间']];
 export function AttemptTable({data}:{data:Study}){
- const [selected,setSelected]=useState<string[]>([]),[comparing,setComparing]=useState(false),[structures,setStructures]=useState(false);
+ const {ids:selected}=useCompareBasket(data.id);
+ const [comparing,setComparing]=useState(false),[structures,setStructures]=useState(false);
  // The hash query is the source of truth, including reload, shared links and back.
  const query=new URLSearchParams(location.hash.split('?')[1]??'');
  const sort=fields.some(([key])=>key===query.get('sort'))?query.get('sort')!:'id',direction=query.get('order')==='asc'?1:-1;
  const status=query.get('status')??'',type=query.get('type')??'',attention=query.get('attention')==='1';
  const change=(values:Record<string,string>)=>{const next=new URLSearchParams(query);for(const [key,value] of Object.entries(values))value?next.set(key,value):next.delete(key);location.hash=location.hash.split('?')[0]+(next.size?'?'+next:'');};
  const review=query.get('review')==='1';
- const rows=data.attempts.filter(a=>(!status||a.state===status)&&(!type||a.template===type)&&(!attention||needsAttention(a))&&(!review||pendingReview(a))).map(row).sort((a,b)=>{
+ const rows=data.attempts.filter(a=>(!status||a.state===status)&&(!type||a.template===type)&&(!attention||needsAttention(a))&&(!review||pendingReview(a,data.catalog_review))).map(row).sort((a,b)=>{
   const x=a.values[sort],y=b.values[sort];if(x===null)return y===null?a.attempt.id.localeCompare(b.attempt.id):1;if(y===null)return -1;
   return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true}))*direction||a.attempt.id.localeCompare(b.attempt.id);
  });
  const columns:TableColumn<Row>[]=fields.map(([key,label],index)=>({key,label,className:['energy','free','imag','cores'].includes(key)?'numeric':undefined,optional:index>=9,sort:sort===key?(direction===1?'ascending':'descending'):'none',onSort:()=>change({sort:key,order:sort===key&&direction===1?'desc':'asc'}),render:r=>{
   const value=r.values[key],a=r.attempt;
   if(key==='id')return <a href={routeHash([data.id,a.id])}>{a.id}</a>;
-  if(key==='status')return <><StatusBadge tone={statusTone(a.state)}>{a.state}</StatusBadge>{pendingReview(a)&&<span className="attention-note">待审阅</span>}</>;
+  if(key==='status')return <><StatusBadge tone={statusTone(a.state)}>{a.state}</StatusBadge>{pendingReview(a,data.catalog_review)&&<span className="attention-note">待审阅</span>}</>;
   if(['energy','free'].includes(key)&&typeof value==='number')return <span title={String(value)}>{value.toFixed(6)}</span>;
   if(key==='method')return <span className="method-abbreviation" title={display(value)}>{display(value)}</span>;
   if(key==='convergence')return value?<StatusBadge tone={value==='✓'?'ok':'bad'}>{value}</StatusBadge>:'—';
   return display(value);
  }}));
- columns.unshift({key:'selection',label:'比较',render:r=><input type="checkbox" aria-label={`比较 ${r.attempt.id}`} checked={selected.includes(r.attempt.id)} onChange={e=>setSelected(v=>e.target.checked?[...v,r.attempt.id]:v.filter(id=>id!==r.attempt.id))}/>});
+ columns.unshift({key:'selection',label:'比较',render:r=><input type="checkbox" aria-label={`比较 ${r.attempt.id}`} checked={selected.includes(r.attempt.id)} onChange={e=>setCompared(data.id,r.attempt.id,e.target.checked)}/>});
  const statuses=[...new Set(data.attempts.map(a=>a.state))].sort(),types=[...new Set(data.attempts.map(a=>a.template).filter((v):v is string=>Boolean(v)))].sort();
  const problems=data.attempts.flatMap(a=>[a.manifest.error&&`${a.id} · manifest.json：${a.manifest.error}`,a.status.error&&`${a.id} · status.json：${a.status.error}`,a.facts.error&&`${a.id} · facts.json：${a.facts.error}`,a.review_state==='unreadable'&&`${a.id} · review.md：不可读取，审阅状态未知`].filter(Boolean));
  return <Panel title="Attempt 表" className="attempt-table">
@@ -48,7 +51,7 @@ export function AttemptTable({data}:{data:Study}){
  {structures&&<StructureComparison study={data.id} ids={selected} onClose={()=>setStructures(false)}/>}
  {comparing&&<QuickComparison study={data.id} ids={selected} onClose={()=>setComparing(false)}/>}
  <DataTable label="Attempt 结果表" columns={columns} rows={rows} rowKey={r=>r.attempt.id}/>
- <Collapsible page={data.id} block="attempt-rules" title="字段与处理规则"><p>类型取 manifest.template；方法缩写取 science.method_basis，缺失时截短显示已有 route，悬停可读全文。收敛仅取 opt_converged，不以正常终止推断。</p><p>待审：状态为 fetched、facts.json 是可读 JSON 对象，且 review.md 缺失或为空。已有 review 内容不代表科学验收。“需要我处理”还包含 finished 待取回、未知或异常状态，以及必要记录读取异常。用时取 status.elapsed；提交时间仅取明确的 status.submitted_at，不用创建或修改时间代替。</p></Collapsible>
+ <Collapsible page={data.id} block="attempt-rules" title="字段与处理规则"><p>类型取 manifest.template；方法缩写取 science.method_basis，缺失时截短显示已有 route，悬停可读全文。收敛仅取 opt_converged，不以正常终止推断。</p><p>{data.catalog_review?.available?PROGRESS.review.detail:PROGRESS.reviewFallback}。{PROGRESS.reviewEvidence}。“需要我处理”还包含 finished 待取回、未知或异常状态，以及必要记录读取异常。用时取 status.elapsed；提交时间仅取明确的 status.submitted_at，不用创建或修改时间代替。</p></Collapsible>
  {problems.length>0&&<Collapsible page={data.id} block="attempt-issues" title={`记录读取提示（${problems.length}）`}>{problems.map((p,i)=><p key={i} className="muted">{p}</p>)}</Collapsible>}
  </Panel>;
 }

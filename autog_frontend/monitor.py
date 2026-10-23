@@ -31,14 +31,47 @@ def validate_monitor(data):
             require(isinstance(row, dict))
         return value
 
+    def number(value, nullable=False):
+        require(type(value) in (int, float) and math.isfinite(value) and value >= 0
+                or nullable and value is None)
+
+    def job_fields(job, new=False):
+        for key in ('job_id', 'name', 'state', 'queue'):
+            string(job[key])
+        integer(job['cores'], True)
+        for key in ('mem', 'walltime_used', 'walltime_limit', 'study', 'attempt'):
+            string(job.get(key), True)
+        if new or 'user' in job:
+            string(job['user'])
+        if new or 'mine' in job:
+            require(type(job['mine']) is bool)
+        if new or 'cores_kind' in job:
+            require(job['cores_kind'] in ('allocated', 'requested'))
+        if 'mem_gb' in job:
+            number(job['mem_gb'], True)
+        for key in ('elapsed_seconds', 'walltime_limit_seconds'):
+            if key in job:
+                integer(job[key], True)
+        if 'elapsed_source' in job:
+            require(job['elapsed_source'] in ('start_time', 'walltime_used', None))
+        for key in ('qtime', 'start_time'):
+            if key in job:
+                # Legacy own.jobs start_time was an unparsed scheduler string.
+                if key == 'start_time' and not new and 'cores_kind' not in job:
+                    string(job[key], True)
+                else:
+                    timestamp(job[key], True)
+
     try:
         require(isinstance(data, dict) and data['schema'] == 'ag-monitor/1')
         timestamp(data['sampled_at'])
         interval = data['interval_seconds']
-        require(interval is None or type(interval) is int and 60 <= interval <= 600)
+        require(interval is None or type(interval) is int and 30 <= interval <= 600)
         require(type(data['ok']) is bool)
         string(data['error'], True)
         timestamp(data['last_ok_at'], True)
+        if 'sample_duration_ms' in data:
+            integer(data['sample_duration_ms'], True)
         own, cluster = data['own'], data['cluster']
         require(isinstance(own, dict) or not data['ok'] and own is None)
         require(isinstance(cluster, dict) or not data['ok'] and cluster is None)
@@ -66,12 +99,11 @@ def validate_monitor(data):
                 require(isinstance(own['shared_with'], list))
                 for name in own['shared_with']:
                     string(name)
+            for key in ('mem_running_gb', 'mem_queued_gb'):
+                if key in own:
+                    number(own[key], True)
             for job in rows(own['jobs']):
-                for key in ('job_id', 'name', 'state', 'queue'):
-                    string(job[key])
-                integer(job['cores'], True)
-                for key in ('mem', 'walltime_used', 'walltime_limit', 'start_time', 'study', 'attempt'):
-                    string(job.get(key), True)
+                job_fields(job)
         if cluster is not None:
             if 'display_name' in cluster:
                 name = cluster['display_name']
@@ -80,6 +112,39 @@ def validate_monitor(data):
             for key in ('name', 'scheduler', 'expires', 'expiry_warning'):
                 if key in cluster:
                     string(cluster[key], True)
+            if 'display_order' in cluster:
+                require(cluster['display_order'] is None or type(cluster['display_order']) is int)
+            for key in ('storage_checked_at', 'storage_sampled_at'):
+                if key in cluster:
+                    timestamp(cluster[key], True)
+            if 'storage_error' in cluster:
+                string(cluster['storage_error'], True)
+            if 'jobs_omitted' in cluster:
+                integer(cluster['jobs_omitted'], True)
+            if 'jobs' in cluster:
+                for job in rows(cluster['jobs']):
+                    job_fields(job, new=True)
+            summary = cluster.get('job_summary')
+            if summary is not None:
+                require(isinstance(summary, dict))
+                for key in ('running_jobs', 'running_cores', 'queued_jobs', 'queued_cores',
+                            'others_running_jobs', 'others_running_cores',
+                            'others_queued_jobs', 'others_queued_cores'):
+                    if key in summary:
+                        integer(summary[key], True)
+            hardware = cluster.get('hardware')
+            if hardware is not None:
+                require(isinstance(hardware, dict))
+                for key in ('cores_total', 'cores_allocated', 'cores_idle', 'cores_other'):
+                    if key in hardware:
+                        integer(hardware[key], True)
+                for key in ('mem_total_gb', 'mem_allocated_gb'):
+                    if key in hardware:
+                        number(hardware[key], True)
+                if 'source' in hardware:
+                    require(hardware['source'] in ('pbsnodes', 'sinfo'))
+                if 'error' in hardware:
+                    string(hardware['error'], True)
             if 'storage_kib' in cluster:
                 integer(cluster['storage_kib'], True)
             if 'hardware_capacity_known' in cluster:
@@ -95,6 +160,11 @@ def validate_monitor(data):
             for node in rows(cluster['nodes']):
                 string(node['name']); string(node['state'])
                 integer(node['cores_total'], True); integer(node['cores_used'], True)
+                for key in ('mem_total_gb', 'mem_assigned_gb'):
+                    if key in node:
+                        number(node[key], True)
+                if 'jobs' in node:
+                    integer(node['jobs'], True)
             for queue in rows(cluster['queues']):
                 string(queue['name']); integer(queue['running']); integer(queue['queued'])
         for warning in rows(data['warnings']):

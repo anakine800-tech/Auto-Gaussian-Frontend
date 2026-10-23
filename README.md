@@ -83,21 +83,51 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 
 ## 四个入口与链接
 
-- **作业**：`#/jobs`，显示本地 monitor 快照。
-- **Study**：`#/s/<study>` 展示 KPI、待处理事项、最近分析和折叠的研究说明 / 进度日志；
-  `/attempts` 为可排序筛选的 Attempt 表，筛选排序保存在 URL，
-  `/a/<attempt>` 为详情。首页打开上次访问的 Study，无记录时取列表第一项。
-- **分析**：`#/s/<study>/analysis`；集合、IRC 和普通分析文件分别使用
-  `/analysis/ensemble/<报告>`、`/analysis/irc/<报告>`、`/analysis/file/<文件>`。
-- **文件**：`#/s/<study>/files`；研究说明、结构文件、关系图和其他分析文件。
+- **服务器**：`#/servers`，显示本地监控快照。
+- **研究**：`#/s/<study>/research/progress` 显示进展与来源；
+  `/research/attempts` 为全部 Attempt，`/research/a/<attempt>` 为详情。
+- **结果**：`#/s/<study>/results`；保留报告、构象集合、IRC 与快速比较。
+- **证据**：`#/s/<study>/evidence`；保留研究说明、结构文件、关系图和其他分析文件标签。
+- **使用说明**：`#/help`，口径表与进展页共用常量，说明各页用途、来源与操作边界。
 
-旧 hash 自动替换为新链接，不增加重定向历史。候选、路径点和旧集合筛选参数保留。
-上下文栏“返回列表”恢复来源页面的筛选、排序和滚动；浏览器后退同样可用。
-全局搜索只检索当前浏览器会话已读取的 Study、Attempt 标签和文件名；读取过
-Attempt 详情后，输入、日志和记录文件也会出现在搜索结果中。输入关键词不发请求，
-选择结果时才读取目标。页面刷新会清空内存搜索索引。
-折叠状态与既有集合表排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
-Attempt 表的筛选和排序保存在 URL，刷新与返回时保留。
+| 旧链接 | 新位置 |
+| --- | --- |
+| `#server`、`#/jobs` | `#/servers` |
+| `#/<study>`、`#/s/<study>` | `#/s/<study>/research/progress` |
+| `#/s/<study>/attempts` | `#/s/<study>/research/attempts` |
+| `#/<study>/<attempt>`、`#/s/<study>/a/<attempt>` | `#/s/<study>/research/a/<attempt>` |
+| `#/s/<study>/analysis/...` | `#/s/<study>/results/...` |
+| `#/s/<study>/files/...` | `#/s/<study>/evidence/...` |
+| `#/<study>/ensembles/<report>` | `#/s/<study>/results/ensemble/<report>` |
+| `#/<study>/irc-reviews/<report>` | `#/s/<study>/results/irc/<report>` |
+| `#/<study>/analyses/<file>` | `results/file/<file>`（XYZ 保持证据结构查看） |
+| `#/<study>/file/…`（T118 本地文件查看） | 保持原路径，不参与旧链接迁移 |
+| 旧 `tab=overview/graph/structures` | 证据的 `document/graph/structures` 标签 |
+| 旧 `tab=attempts` / `tab=analyses/ensembles/irc-reviews` | 全部 Attempt / 结果 |
+
+旧 hash 用 `replaceState` 转换，不增加历史记录。精确文件参数、候选、IRC 方向与路径点、
+旧集合筛选参数保留；返回列表恢复来源页面的筛选、排序和滚动。
+
+上下文栏的 Study 切换器支持筛选、键盘和 Esc，研究与默认收起的验证/测试分组，最近打开优先。
+分组读 study.md 开头的 `type: research|validation|test` 或 `类型: 研究|验证|测试`；
+无字段时，`val-`、`test-`、`demo-` 前缀归入验证与测试，其余归入研究。
+
+全局搜索在首次搜索时由本地后端建立内存索引，覆盖所有 study 的名称、标题、Attempt 编号、
+标签、模板、analyses 与结构文件名；不索引结果正文、输入或日志内容，不发远程请求。
+索引按目录与 manifest 的 mtime/文件身份更新，最多返回 50 条、按 study 分组。
+单 study 最多 1,000 个索引文件、6,000 个目录项，每次搜索最多 30,000 个目录项和 2 秒，
+单份元数据最多 256 KiB；超限或不可安全读取时显示“索引未完成”。
+
+进展数字分别统计本地 running、finished、待审阅 Attempt 和明确待签记录；缺少里程碑节显示未知。
+待审阅要求 fetched、facts 为可读对象且 review.md 缺失/为空。
+有效 catalog/state.json 的日志哈希与 catalog/journal.jsonl 一致时，仅计采用结果引用与候选对象成员；
+退役对象和采用对象的历史成员不计入。无登记或格式/哈希异常时回退全部已取回 Attempt，异常明确提示。
+里程碑区分已签、待签、未开始、不适用、无法识别；工具完成不显示为科学通过。
+最近改动的文件默认收起，只按修改时间；进度日志在折叠区显示最后三条，更早记录另行展开。
+
+比较篮固定在研究和结果页底部，同 Study 最多 6 项，与 Attempt 勾选共用状态。
+选择保存在 sessionStorage 和 URL 的 `cmp` 参数，URL 优先；复制链接、刷新、查看详情和返回均保留。
+“打开比较”使用现有快速比较，结构对比保持 2–3 项限制；计算链与统一比较/证据库分别由 T121、T122 完成。
 
 T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、Attempt 详情与操作抽屉、作业页、分析入口和快速比较（含 termination / n_imag 列），以及 TS 立体标签报告只读查看。T87 提供 IRC 曲线与路径点结构。快速比较为前端计算、非正式结果；工具状态与报告不等于科学验收。
 设计和验收记录见 [T94](docs/t94/design-checkpoint.md)；待审 / 待签计数、字段来源与
@@ -130,13 +160,51 @@ T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、
     outputs/*.log or *.out
     outputs/crest_conformers.xyz, crest_best.xyz, crest_ensemble.xyz
   structures/<name>/*.xyz
-  analyses/*.json, *.md, *.csv, *.xyz, *.txt
-  analyses/<name>/*.json, *.xyz
+  analyses/*.json, *.md, *.csv, *.xyz, *.txt, *.png, *.jpg, *.jpeg, *.webp, *.svg, *.html
+  analyses/<name>/* (same supported types)
 ```
 
-- Study descriptions render Markdown with raw HTML disabled and only local heading
-  anchors allowed; images and external links are disabled. Human reviews remain
-  escaped text. The viewer does not write signatures, interpretations, or edits.
+- Study descriptions and Markdown reports use pinned `remark-gfm@4.0.1` with
+  raw HTML disabled. Tables, CSV and JSON object arrays share a sortable table
+  (numeric columns sort numerically; other columns sort as text). Exact Attempt
+  IDs open the existing comparison-structure reader and 3D preview.
+- Local links resolve relative to the source document inside its study; links to
+  known Attempts, structures and analyses keep their existing dedicated routes.
+  Other files open at `#/<study>/file/<relative-path>`. Traversal outside the study
+  and unsupported protocols become text with a reason. HTTP(S) links open a new
+  tab with `noopener noreferrer`. Local images display inline with failure text.
+- `GET /api/studies/{study}/files/{path}` reads only md/txt/csv/json/xyz,
+  png/jpg/jpeg/webp/svg/html through descriptor-relative `O_NOFOLLOW`, with a
+  regular-file check. Documents retain the 4 MiB limit; images use 10 MiB.
+  `?document=true` returns decoded text or JSON with positioned parse errors;
+  otherwise it returns the original bytes. All responses have `nosniff`.
+  HTML uses an iframe with an empty sandbox, without scripts or same-origin
+  permission. SVG is displayed only as an image. Both raw formats receive CSP
+  `sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'`.
+- CSV supports quoted fields, commas, escaped quotes and embedded line breaks;
+  at most 5,000 data rows are displayed with a truncation notice. Invalid CSV
+  retains its source and physical error line. Any valid report JSON shape is
+  readable: object arrays use up to 30 union-key columns, scalar arrays use lists,
+  other objects use a lazy expandable tree or formatted source, and scalars show
+  their values. Known ag schemas retain their dedicated views. Syntax and UTF-8
+  failures include line and column. Fixed ag records still validate object shape.
+- Report discovery adds images and HTML at the existing directory depth. The
+  directory groups nonempty categories by known schema, explicit JSON `kind` or
+  Markdown front matter `kind`, then file type; it never guesses from names.
+  Metadata reads stay within the document size limit, including late top-level
+  schema/kind fields, and never return report rows in the directory response.
+  Unchanged metadata is cached in process by path, nanosecond mtime and size;
+  file identity/change time also invalidate replacements. Each lookup still
+  checks the path with `O_NOFOLLOW`. The cache retains at most 1024 metadata
+  entries, never file bodies. Known schemas retain thermochemistry / profiles,
+  channel coverage and NCI groups; the existing fixed TS-label layout keeps its
+  own group. The Other group has folder subgroups. Category evidence
+  is shown beside each file. Reports, structure preview and wide tables adapt to
+  narrow screens without page overflow.
+- These T118 reading rules supersede the historical T7c link/image restrictions
+  and the blanket no-cache statement below: report metadata may be cached in
+  memory, with no disk cache. Human reviews remain escaped text. The viewer does not write
+  signatures, interpretations, or edits.
 - Attempt states are read as saved, including `unknown`. Refresh rereads local
   files. It does not query a cluster or change a state.
 - The relationship graph reads `manifest.parents[].attempt_id` and `relation`.
@@ -246,21 +314,18 @@ using 627.5094740631 kcal/mol per Hartree. This display-only conversion neither
 changes facts nor supplies scientific acceptance. Parsing is adapted solely from
 `83184af:autog_frontend/calculation_analysis.py`; there is no legacy package import.
 
-The **服务器** navigation (`#server`) reads local snapshots every 30 seconds; see
-T7e below for the per-cluster locations.
-The [ag-monitor/1 definition](docs/ag-monitor-1.md) follows the task's
-producer specification, including T19 additions. The adapter reads only the fixed snapshot filenames, through the
-existing descriptor-relative `O_NOFOLLOW` traversal, at most 2 MiB. Hidden root
-directories do not appear as studies. Missing files show
-`请在终端运行 ag monitor --watch 120`. The page shows sampling age, expiry after three
-sampling intervals (one-shot null-interval samples expire after 10 minutes), previous data marked
-**非最新** on sampling failure, own cores/jobs, cluster nodes/queues and unchanged
-warning text. Unknown schemas and malformed required fields are rejected with
-**快照格式不正确**. It never starts a sampler or connects to the cluster. Sampling and last-success
-timestamps display in the browser’s local time zone, with the original UTC sample
-available on hover. If all three optional T11 fields `cores_running`, `cores_queued`
-and `committed_cap` are present, the own-core panel shows running, queued and total
-cap separately. Older snapshots retain the original display.
+服务器页（`#/jobs`，旧 `#server` 链接仍可用）每 30 秒读取本机监控快照。
+每入口一张摘要卡片，显示采样状态、警告数、核数与内存分段、作业数和本人总额度。
+点击卡片或标签切换详情，左右方向键也可切换；运行与排队分别列出，本人置顶，
+“只看本人”按服务器记在浏览器中。PBS 显示全员作业，Slurm 只显示本人明细和其他用户汇总。
+最近快照进度与 Attempt 链接保留；“刚结束待取回”位于页面底部。
+
+硬件未知时用斜纹；采样失败时卡片占用未知，详情保留值标非最新。硬件单独失败不影响本人数字。
+连续采样允许 30–600 秒，超过三倍间隔才过期；单次采样超过十分钟过期。
+“节点与队列”和“限额、档位与存储”默认收起，单节点默认展开节点区。
+共享入口用同一份最新成功占用，不累加；总上限取组内最小值。
+单作业上限和资源档位只在详情折叠区显示，不能代替总上限。
+缺失新字段的旧快照仍可读，新内容显示未知；完整字段见 [ag-monitor/1](docs/ag-monitor-1.md)。
 
 The sole new direct dependency is pinned `react-markdown@10.1.0`, with its
 transitive tree locked in `web/pnpm-lock.yaml`. It provides Markdown parsing
@@ -578,12 +643,7 @@ URL 支持刷新、前进及后退恢复，例如：
 相对电子能复用 T98a/T103 的方法、版本、电荷、多重度、元素组成和单位核对；
 口径不同或证据不足就列出原因，不给相对能。所有差值均标为“前端计算、非正式”。
 
-作业页顶部容量总览按 `shared_with` 合组；共享快照不相加，采用组内最新成功
-占用记录和最小总上限。任一入口失败、过期、来源歧义、缺少共享入口快照或缺少
-运行/排队分项时，剩余可提交核数显示“未知”。各入口的单作业上限和档位分别保留；
-未提供档位时显示“未知（后端未提供）”。完整字段见 [快照说明](docs/ag-monitor-1.md)。
-监控快照有 `cluster.display_name` 时，集群卡片、容量总览及作业列表显示
-“显示名（入口名）”，例如 `scnet-初筛（scnet-test）`；没有时沿用入口名。
-作业页卡片始终一入口一张，容量总览仍按内部入口名关联共享额度。
+T115 已用服务器卡片和按入口切换的详情替换 T110 容量总览；共享组仍采用
+最新成功占用和最小总上限，不相加。显示名仅用于标签，不改变入口身份。
 前端不选择集群、不提交作业；调度器运行限额注明“由调度器执行，ag 未核实”。
 动作令牌不匹配时明确提示“前端已重启，请刷新页面”，不自动刷新令牌或重试操作。
