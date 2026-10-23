@@ -1,9 +1,20 @@
 import {object} from './api';
 import {studyHash} from './routing';
 
-export const analysisGroups=[['ensemble','构象集合'],['irc','IRC'],['thermo','热化学 / 能量剖面'],['coverage','通道覆盖'],['ts','TS 标签'],['nci','NCI'],['file','其他文件']] as const;
+export const reportGroups=[['formal','正式结论'],['energy','能量与排序'],['state-check','电子态检查'],['ensemble','构象集合'],['irc','IRC'],['thermo','热化学'],['stage-review','阶段审阅'],['figure','图与演示'],['other','其他']] as const;
+export type ReportMetadata={kind?:string;category_basis?:string;schema?:string|null;name:string};
+export function reportCategory(report:ReportMetadata):{kind:string;basis:string}{
+ const schemaKinds:Record<string,string>={'ag-ensemble/1':'ensemble','ag-irc-review/1':'irc','ag-thermo/1':'thermo','ag-profile/1':'energy','ag-channel-coverage/1':'stage-review','ag-nci/1':'state-check'};
+ if(report.schema&&Object.hasOwn(schemaKinds,report.schema))return {kind:schemaKinds[report.schema],basis:'按 schema'};
+ if(reportGroups.some(([kind])=>kind===report.kind))return {kind:report.kind!,basis:report.category_basis??'按报告声明'};
+ return {kind:/\.(png|jpe?g|webp|svg|html)$/i.test(report.name)?'figure':'other',basis:'按文件类型'};
+}
 export const tsLabelFile=(name:string)=>/^ts-labels\/[^/]+\/(labels\.json|labels\.md|channel-suggestions\.csv)$/.test(name);
-export function analysisType(schema:unknown,name=''):string{if(tsLabelFile(name))return 'ts';return ({'ag-ensemble/1':'ensemble','ag-irc-review/1':'irc','ag-thermo/1':'thermo','ag-profile/1':'thermo','ag-channel-coverage/1':'coverage','ag-nci/1':'nci'} as Record<string,string>)[String(schema)]??'file';}
+export function analysisType(schema:unknown,name=''):string{
+ if(tsLabelFile(name))return 'ts';
+ const types:Record<string,string>={'ag-ensemble/1':'ensemble','ag-irc-review/1':'irc','ag-thermo/1':'thermo','ag-profile/1':'thermo','ag-channel-coverage/1':'coverage','ag-nci/1':'nci'};
+ return typeof schema==='string'&&Object.hasOwn(types,schema)?types[schema]:'file';
+}
 export const analysisLink=(study:string,name:string,schema:unknown)=>studyHash(study,'analysis',analysisType(schema,name),...name.split('/'));
 const record=(v:unknown)=>object(v)?v:{};
 const text=(v:unknown)=>typeof v==='string'&&v.trim()?v:typeof v==='number'&&Number.isFinite(v)?String(v):'—';

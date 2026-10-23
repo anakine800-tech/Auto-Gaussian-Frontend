@@ -130,13 +130,44 @@ T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、
     outputs/*.log or *.out
     outputs/crest_conformers.xyz, crest_best.xyz, crest_ensemble.xyz
   structures/<name>/*.xyz
-  analyses/*.json, *.md, *.csv, *.xyz, *.txt
-  analyses/<name>/*.json, *.xyz
+  analyses/*.json, *.md, *.csv, *.xyz, *.txt, *.png, *.jpg, *.jpeg, *.webp, *.svg, *.html
+  analyses/<name>/* (same supported types)
 ```
 
-- Study descriptions render Markdown with raw HTML disabled and only local heading
-  anchors allowed; images and external links are disabled. Human reviews remain
-  escaped text. The viewer does not write signatures, interpretations, or edits.
+- Study descriptions and Markdown reports use pinned `remark-gfm@4.0.1` with
+  raw HTML disabled. Tables, CSV and JSON object arrays share a sortable table
+  (numeric columns sort numerically; other columns sort as text). Exact Attempt
+  IDs open the existing comparison-structure reader and 3D preview.
+- Local links resolve relative to the source document inside its study; links to
+  known Attempts, structures and analyses keep their existing dedicated routes.
+  Other files open at `#/<study>/file/<relative-path>`. Traversal outside the study
+  and unsupported protocols become text with a reason. HTTP(S) links open a new
+  tab with `noopener noreferrer`. Local images display inline with failure text.
+- `GET /api/studies/{study}/files/{path}` reads only md/txt/csv/json/xyz,
+  png/jpg/jpeg/webp/svg/html through descriptor-relative `O_NOFOLLOW`, with a
+  regular-file check. Documents retain the 4 MiB limit; images use 10 MiB.
+  `?document=true` returns decoded text or JSON with positioned parse errors;
+  otherwise it returns the original bytes. All responses have `nosniff`.
+  HTML uses an iframe with an empty sandbox, without scripts or same-origin
+  permission. SVG is displayed only as an image. Both raw formats receive CSP
+  `sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'`.
+- CSV supports quoted fields, commas, escaped quotes and embedded line breaks;
+  at most 5,000 data rows are displayed with a truncation notice. Invalid CSV
+  retains its source and physical error line. Any valid report JSON shape is
+  readable: object arrays use up to 30 union-key columns, scalar arrays use lists,
+  other objects use a lazy expandable tree or formatted source, and scalars show
+  their values. Known ag schemas retain their dedicated views. Syntax and UTF-8
+  failures include line and column. Fixed ag records still validate object shape.
+- Report discovery adds images and HTML at the existing directory depth. The
+  directory groups nonempty categories by known schema, explicit JSON `kind` or
+  Markdown front matter `kind`, then file type; it never guesses from names.
+  Metadata reads stay within the document size limit, including late top-level
+  schema/kind fields, and never return report rows in the directory response. The Other group has folder subgroups. Category evidence
+  is shown beside each file. Reports, structure preview and wide tables adapt to
+  narrow screens without page overflow.
+- These T118 reading rules supersede the historical T7c link/image restrictions
+  described below. Human reviews remain escaped text. The viewer does not write
+  signatures, interpretations, or edits.
 - Attempt states are read as saved, including `unknown`. Refresh rereads local
   files. It does not query a cluster or change a state.
 - The relationship graph reads `manifest.parents[].attempt_id` and `relation`.
