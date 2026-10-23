@@ -105,6 +105,10 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     def snapshots(study: str, attempt: str):
         return store.snapshots(study, attempt)
 
+    @app.get('/api/studies/{study}/attempts/{attempt}/comparison-structure')
+    def comparison_structure(study: str, attempt: str):
+        return store.comparison_structure(study, attempt)
+
     @app.get('/api/studies/{study}/attempts/{attempt}')
     def attempt(study: str, attempt: str):
         return store.attempt(study, attempt)

@@ -48,6 +48,20 @@ def validate_monitor(data):
                 if key in own:
                     integer(own[key])
             require(type(own['core_cap']) is int and own['core_cap'] > 0)
+            for key in ('max_queued_cores', 'scheduler_max_running_cores', 'max_cores'):
+                if key in own:
+                    integer(own[key])
+                    if key != 'max_queued_cores':
+                        require(own[key] > 0)
+            if 'tiers' in own:
+                require(isinstance(own['tiers'], dict))
+                for name, tier in own['tiers'].items():
+                    string(name)
+                    require(isinstance(tier, dict))
+                    integer(tier['cores'])
+                    require(tier['cores'] > 0)
+                    memory = tier['mem_gb']
+                    require(type(memory) in (int, float) and math.isfinite(memory) and memory > 0)
             if 'shared_with' in own:
                 require(isinstance(own['shared_with'], list))
                 for name in own['shared_with']:
@@ -59,6 +73,10 @@ def validate_monitor(data):
                 for key in ('mem', 'walltime_used', 'walltime_limit', 'start_time', 'study', 'attempt'):
                     string(job.get(key), True)
         if cluster is not None:
+            if 'display_name' in cluster:
+                name = cluster['display_name']
+                string(name)
+                require(1 <= len(name) <= 32 and name.isprintable())
             for key in ('name', 'scheduler', 'expires', 'expiry_warning'):
                 if key in cluster:
                     string(cluster[key], True)

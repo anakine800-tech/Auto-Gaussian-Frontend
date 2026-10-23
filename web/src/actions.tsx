@@ -27,6 +27,7 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
    const body={action,study,attempt:data.id,...(action==='prepare'?{cluster,input,tier,walltime,label,relation,method_basis:basis}:{})};
    const response=await fetch('/api/actions',{method:'POST',headers:{'Content-Type':'application/json','X-AG-Token':actionToken!},body:JSON.stringify(body)});
    const result=await response.json();
+   if(response.status===403&&result.detail==='Invalid action token'){setError('前端已重启，请刷新页面');return;}
    if(!response.ok)throw Error(result.detail??`操作失败 (${response.status})`);
    onResult(result);
    if(result.exit_code===0)setEditing(false);

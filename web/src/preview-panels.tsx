@@ -1,7 +1,8 @@
 import {useEffect,useState} from 'react';
 import {display,endpoint,get,object} from './api';
 import type {Attempt,Document,StructureFile} from './api';
-import {MoleculeViewer} from './molecule-viewer';
+import {FrameViewer} from './frame-viewer';
+import {isGeometry} from './molecule-viewer';
 import {Collapsible,FactGrid} from './ui';
 
 type InputFile={name:string;text:string;sha256:string;size_bytes:number;manifest_sha256:string|null;hash_matches:boolean|null};
@@ -37,13 +38,24 @@ export function InputFiles({study,attempt,data,autoCompare=false,requestedName}:
 
 type Frame={frame:number;frame_count:number;comment:string;geometry:unknown};
 export function StructureFiles({study,files,selected,onSelect,revision}:{study:string;files:StructureFile[];selected:string[]|null;onSelect:(parts:string[])=>void;revision:number}){
- const [frame,setFrame]=useState(0),[data,setData]=useState<Frame|null>(null),[error,setError]=useState('');
  const location=selected?.join('/')??'';
- useEffect(()=>{setFrame(0);},[location]);
- useEffect(()=>{const c=new AbortController();setData(null);setError('');if(selected)get<Frame>(endpoint(study,...selected)+`?frame=${frame}`,c.signal).then(v=>{if(!c.signal.aborted)setData(v);}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[study,location,frame,revision]);
  return <section aria-label="结构文件"><h2>结构与构象文件</h2><ul className="structure-list">{files.map(f=><li key={f.parts.join('/')}><a href={'#/'+[study,...f.parts].map(encodeURIComponent).join('/')} onClick={e=>{e.preventDefault();onSelect(f.parts);}}>{f.parts.join('/')}</a>{f.error&&<span className="notice">{f.error}</span>}</li>)}</ul>{files.length===0&&<p>structures 与 analyses 中暂无 XYZ 文件。</p>}
- {selected&&<><h3>{location}</h3>{error?<p role="alert">{error}</p>:data?<><div className="frame-controls"><button disabled={frame===0} onClick={()=>setFrame(f=>f-1)}>上一帧</button><label>帧号 <input aria-label="帧号" type="number" min={1} max={data.frame_count} value={frame+1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=data.frame_count)setFrame(n-1);}}/> / {data.frame_count}</label><button disabled={frame+1>=data.frame_count} onClick={()=>setFrame(f=>f+1)}>下一帧</button></div><p data-testid="frame-comment">{data.comment||'此帧无注释。'}</p><MoleculeViewer key={location+frame} last={data.geometry} frameLabel={`第 ${frame+1} 帧`}/></>:<p role="status">读取 XYZ 帧…</p>}</>}
+ {selected&&<><h3>{location}</h3><StructureFrames key={study+location+revision} study={study} parts={selected}/></>}
  </section>;
+}
+function StructureFrames({study,parts}:{study:string;parts:string[]}){
+ const [frame,setFrame]=useState(0),[reference,setReference]=useState(0),[data,setData]=useState<Frame|null>(null),[ref,setRef]=useState<Frame|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
+ const location=parts.join('/');
+ useEffect(()=>{const c=new AbortController();setLoading(true);setError('');
+  const read=(index:number)=>get<Frame>(endpoint(study,...parts)+`?frame=${index}`,c.signal);
+  Promise.all([read(frame),reference===frame?Promise.resolve(null):read(reference)]).then(([value,target])=>{if(!c.signal.aborted){setData(value);setRef(target??value);}}).catch(e=>{if(!c.signal.aborted)setError(e.message);}).finally(()=>{if(!c.signal.aborted)setLoading(false);});return()=>c.abort();
+ },[study,location,frame,reference]);
+ return <div aria-busy={loading} className="structure-frames">
+ <p role={error?'alert':'status'} className="frame-status">{error|| (loading?'读取 XYZ 帧…':'帧已读取')}</p>
+ {data&&<><div className="frame-controls"><button disabled={frame===0||loading} onClick={()=>setFrame(f=>f-1)}>上一帧</button><label>帧号 <input aria-label="帧号" type="number" min={1} max={data.frame_count} value={frame+1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=data.frame_count)setFrame(n-1);}}/> / {data.frame_count}</label><button disabled={frame+1>=data.frame_count||loading} onClick={()=>setFrame(f=>f+1)}>下一帧</button></div>
+ <p data-testid="frame-comment" className="frame-comment">{data.comment||'此帧无注释。'}</p>
+ <FrameViewer geometry={error?null:data.geometry} reference={ref&&isGeometry(ref.geometry)?ref.geometry:null} onReference={setReference} frameCount={data.frame_count} frameLabel={`第 ${data.frame+1} 帧`}/></>}
+ </div>;
 }
 
 // Reuse StructureFiles unchanged; this entry is rendered only for CREST Attempts.

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { VibrationMode } from './vibration-contract';
+import {centroid} from './geometry-alignment';
 import { inferDisplayBonds, measure, rotate, cameraBasis } from './molecule-math';
 export type Atom={center:number;atomic_number:number;x:number;y:number;z:number};
 export type Geometry={atoms:Atom[];units?:string;source_span?:unknown;orientation_kind?:string};
@@ -14,7 +15,7 @@ export type VibrationFrame={phase:number;displacementScale:number};
 export type ModeReviewOptions={reviewMode?:boolean;reviewAmplitude?:number;onAtomPick?:(center:number)=>void;onFrame?:(frame:VibrationFrame)=>void};
 type Display='ball-stick'|'tube'|'wire';
 type Measurement='distance'|'angle'|'torsion';
-function CoordinateScene({geometry,vibration,onClearVibration,modePanel,highlightedAtoms=[],reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{geometry:Geometry;vibration?:VibrationMode;onClearVibration?:()=>void;modePanel?:ReactNode;highlightedAtoms?:number[]}&ModeReviewOptions) {
+function CoordinateScene({geometry,cameraReference,vibration,onClearVibration,modePanel,highlightedAtoms=[],reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{geometry:Geometry;cameraReference?:Geometry;vibration?:VibrationMode;onClearVibration?:()=>void;modePanel?:ReactNode;highlightedAtoms?:number[]}&ModeReviewOptions) {
   const [playing,setPlaying]=useState(false),[phase,setPhase]=useState(0),[amplitude,setAmplitude]=useState(.45),[speed,setSpeed]=useState(.6);
   const clock=useRef(0);
   useEffect(()=>{clock.current=0;setPhase(0);setPlaying(Boolean(vibration));},[vibration]);
@@ -32,8 +33,13 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,highligh
   const svg=useRef<SVGSVGElement>(null),drag=useRef<{id:number;x:number;y:number;moved:boolean;pan:boolean}|null>(null);
   const changeZoom=(factor:number)=>setZoom(z=>Math.max(.3,Math.min(4,z*factor)));
   useEffect(()=>{const el=svg.current;if(!el)return;const wheel=(e:WheelEvent)=>{if(!e.altKey||e.ctrlKey||e.metaKey)return;e.preventDefault();changeZoom(Math.exp(-Math.max(-100,Math.min(100,e.deltaY))*.003));};el.addEventListener('wheel',wheel,{passive:false});return()=>el.removeEventListener('wheel',wheel);},[]);
-  const normalized=useMemo(()=>{const atoms=geometry.atoms;const c=atoms.reduce((v,a)=>[v[0]+a.x/atoms.length,v[1]+a.y/atoms.length,v[2]+a.z/atoms.length],[0,0,0]);const points=atoms.map(a=>({...a,x:a.x-c[0],y:a.y-c[1],z:a.z-c[2]}));return {points,radius:Math.max(1,...points.map(a=>Math.hypot(a.x,a.y,a.z)))};},[geometry]);
-  const basis=useMemo(()=>cameraBasis(geometry.atoms),[geometry]);
+  // Keep the initial camera frame and world scale across coordinate updates.
+  // Recentring/refitting each frame would make geometry motion look like rotation.
+  const cameraFor=(g:Geometry)=>{const center=centroid(g);return {center,basis:cameraBasis(g.atoms),radius:Math.max(1,...g.atoms.map(a=>Math.hypot(a.x-center[0],a.y-center[1],a.z-center[2])))};};
+  const [initialCamera]=useState(()=>cameraFor(geometry));
+  const camera=useMemo(()=>cameraReference?cameraFor(cameraReference):initialCamera,[cameraReference,initialCamera]);
+  const normalized=useMemo(()=>({points:geometry.atoms.map(a=>({...a,x:a.x-camera.center[0],y:a.y-camera.center[1],z:a.z-camera.center[2]})),radius:camera.radius}),[geometry,camera]);
+  const basis=camera.basis;
   const orient=(x:number,y:number,z:number)=>{const p=aligned?basis.map(row=>row[0]*x+row[1]*y+row[2]*z):[x,y,z];return rotate(p[0],p[1],p[2],angles);};
   const connectivity=useMemo(()=>inferDisplayBonds(geometry.atoms),[geometry]);
   const originals=useMemo(()=>new Map(geometry.atoms.map(a=>[a.center,a])),[geometry]);
@@ -44,8 +50,8 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,highligh
   const bonds=connectivity.bonds.filter(b=>positions.has(b.a)&&positions.has(b.b));
   const width=display==='wire'?1.8:Math.max(2,.115*scale*bondSize);
   const radius=(n:number)=>display==='wire'?3:display==='tube'?width*.6:Math.max(4,(n===1?.155:.24)*scale*atomSize);
-  const picked=selected.filter((x):x is number=>x!==null).map(c=>originals.get(c)!);
-  const value=selected.every(x=>x!==null)?measure(picked,mode):null;
+  const picked=selected.filter((x):x is number=>x!==null).map(c=>originals.get(c)).filter((a):a is Atom=>!!a);
+  const value=selected.every(x=>x!==null)&&picked.length===selected.length?measure(picked,mode):null;
   const formatted=value===null?(selected.every(x=>x!==null)?'几何退化，无法定义':selected.length===2?'选择两个原子':`选择 ${selected.length} 个原子`):`${value.toFixed(mode==='distance'?4:2)} ${mode==='distance'?'Å':'°'}`;
   const pick=(center:number)=>setSelected(s=>s.includes(center)?s.map(x=>x===center?null:x):s.includes(null)?s.map((x,i)=>i===s.indexOf(null)?center:x):[...s.slice(1),center]);
   function setMeasurement(next:Measurement){setMode(next);setSelected(Array(next==='distance'?2:next==='angle'?3:4).fill(null));}
@@ -62,7 +68,7 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,highligh
   primitives.sort((a,b)=>a.depth-b.depth||a.key.localeCompare(b.key));
   const overlayPoints=selected.map(c=>c===null?null:positions.get(c));
   return <div className={`molecule-viewer ${large?'expanded-view':''}`}>
-    <div className="molecule-viewport"><div className="molecule-stage"><svg className={touchEnabled?'touch-interaction':undefined} ref={svg} viewBox="0 0 600 370" role="img" aria-label="可旋转三维原子坐标，方向键旋转，加减键缩放" tabIndex={0} data-testid="molecule-scene"
+    <div className="molecule-viewport"><div className="molecule-stage"><svg className={touchEnabled?'touch-interaction':undefined} ref={svg} viewBox="0 0 600 370" role="img" aria-label="可旋转三维原子坐标，方向键旋转，加减键缩放" tabIndex={0} data-testid="molecule-scene" data-camera={JSON.stringify({angles,zoom,pan,aligned,...camera})}
       onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','+','-','Home'].includes(e.key))return;e.preventDefault();if(e.key==='Home')reset();else if(e.key==='+')changeZoom(1.2);else if(e.key==='-')changeZoom(1/1.2);else if(e.shiftKey)setPan(([x,y])=>[x+(e.key==='ArrowLeft'?-10:e.key==='ArrowRight'?10:0),y+(e.key==='ArrowUp'?-10:e.key==='ArrowDown'?10:0)]);else setAngles(([x,y])=>[x+(e.key==='ArrowUp'?.15:e.key==='ArrowDown'?-.15:0),y+(e.key==='ArrowLeft'?-.15:e.key==='ArrowRight'?.15:0)]);}}
       onPointerDown={e=>{if(!e.isPrimary||drag.current||(e.pointerType==='touch'&&!touchEnabled)||(e.button!==0&&e.button!==1))return;e.preventDefault();e.currentTarget.focus({preventScroll:true});drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pan:interaction==='pan'||e.shiftKey||e.button===1};e.currentTarget.setPointerCapture(e.pointerId);}}
       onPointerMove={e=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;const dx=e.clientX-d.x,dy=e.clientY-d.y;if(Math.abs(dx)+Math.abs(dy)>2)d.moved=true;if(d.moved){if(d.pan){const matrix=e.currentTarget.getScreenCTM();if(matrix)setPan(([x,y])=>[x+dx/matrix.a,y+dy/matrix.d]);}else setAngles(([x,y])=>[x+dy*.012,y+dx*.012]);d.x=e.clientX;d.y=e.clientY;}}}
@@ -95,12 +101,15 @@ function CoordinateScene({geometry,vibration,onClearVibration,modePanel,highligh
     </details></div>
   </div>;
 }
-export function MoleculeViewer({last,review,renderSource,vibration,onClearVibration,scientificPanel,modePanel,frameLabel,highlightedAtoms=[],reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{last:unknown;frameLabel?:string;highlightedAtoms?:number[];review?:unknown;renderSource?:(source:string,geometry:unknown)=>ReactNode;vibration?:VibrationMode;onClearVibration?:()=>void;scientificPanel?:ReactNode;modePanel?:ReactNode}&ModeReviewOptions) {
+export function MoleculeViewer({last,cameraReference,review,renderSource,vibration,onClearVibration,scientificPanel,modePanel,frameLabel,highlightedAtoms=[],reviewMode=false,reviewAmplitude=.3,onAtomPick=undefined,onFrame=undefined}:{last:unknown;cameraReference?:Geometry;frameLabel?:string;highlightedAtoms?:number[];review?:unknown;renderSource?:(source:string,geometry:unknown)=>ReactNode;vibration?:VibrationMode;onClearVibration?:()=>void;scientificPanel?:ReactNode;modePanel?:ReactNode}&ModeReviewOptions) {
   const [source,setSource]=useState('last');const geometry=source==='review'?review:last;
+  const retained=useRef<Geometry|null>(null);if(isGeometry(geometry))retained.current=geometry;
   useEffect(()=>{if(vibration)setSource('last');},[vibration]);
   return <section className="molecule-section" aria-label="三维分子结构"><div className="section-heading"><div><div className="eyebrow">MOLECULAR GEOMETRY</div><h3>结构与振动</h3></div>{isGeometry(review)?<label>坐标来源<select aria-label="结构来源" value={source} onChange={e=>{onClearVibration?.();setSource(e.target.value);}}><option value="last">{frameLabel??'最后记录结构'}</option>{isGeometry(review)&&<option value="review">Review 选中结构</option>}</select></label>:<span className="muted">{frameLabel??'最后记录结构'}</span>}</div>
     <p className="muted">{source==='last'?(frameLabel?`${frameLabel} 的坐标；文件展示不表示科学验收。`:'日志最后一个已解析坐标块，不自动等同科学验收结构。'):'历史 Review 明确选中的坐标块；沿用报告的验收范围。'}</p>
-    {!isGeometry(geometry)?<p className="empty compact">暂无可安全展示的坐标。</p>:geometry.atoms.length>2000?<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>:<CoordinateScene key={source} geometry={geometry} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel} highlightedAtoms={highlightedAtoms} reviewMode={reviewMode} reviewAmplitude={reviewAmplitude} onAtomPick={onAtomPick} onFrame={onFrame}/>}
+    {!isGeometry(geometry)&&<p className="empty compact">暂无可安全展示的坐标。</p>}
+    {isGeometry(geometry)&&geometry.atoms.length>2000&&<p className="notice">结构超过本版 2,000 原子的交互显示上限；坐标表仍保留。</p>}
+    {retained.current&&retained.current.atoms.length<=2000&&<div className="coordinate-scene-host" hidden={!isGeometry(geometry)}><CoordinateScene geometry={retained.current} cameraReference={cameraReference} vibration={source==='last'?vibration:undefined} onClearVibration={onClearVibration} modePanel={modePanel} highlightedAtoms={highlightedAtoms} reviewMode={reviewMode} reviewAmplitude={reviewAmplitude} onAtomPick={onAtomPick} onFrame={onFrame}/></div>}
     {(!isGeometry(geometry)||geometry.atoms.length>2000)&&modePanel}
     {renderSource?.(source,geometry)}
     {scientificPanel}

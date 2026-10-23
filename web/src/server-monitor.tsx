@@ -1,15 +1,16 @@
 import {useEffect,useState} from 'react';
+import {CapacityOverview} from './capacity-overview';
 import {display,endpoint,get} from './api';
 import type {Study} from './api';
 import {routeHash} from './routing';
 import {Collapsible,DataTable,EmptyState,ErrorNotice,Panel,StatusBadge,statusTone} from './ui';
-import {finishedAttempts,safeIdentity,sampleState} from './jobs-data';
+import {clusterLabel,finishedAttempts,safeIdentity,sampleState} from './jobs-data';
 import type {ClusterRow,LocalAttempt} from './jobs-data';
 import {SnapshotProgress,WalltimeProgress} from './job-progress';
 import './ui/jobs.css';
 type Association={study:string|null;attempt:string|null};
 type Job=Association&{job_id:string;name:string;state:string;queue:string;cores:number|null;mem:string|null;walltime_used:string|null;walltime_limit:string|null;start_time:string|null};
-export type Monitor={schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;ok:boolean;error:string|null;last_ok_at:string|null;own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;shared_with?:string[];jobs:Job[]}|null;cluster:{scheduler?:string;name?:string;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;nodes:{name:string;state:string;cores_total:number|null;cores_used:number|null}[];queues:{name:string;running:number;queued:number}[]}|null;warnings:(Association&{kind:string;job_id:string|null;detail:string})[]};
+export type Monitor={schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;ok:boolean;error:string|null;last_ok_at:string|null;own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;max_queued_cores?:number;scheduler_max_running_cores?:number;max_cores?:number;tiers?:Record<string,{cores:number;mem_gb:number}>;shared_with?:string[];jobs:Job[]}|null;cluster:{scheduler?:string;name?:string;display_name?:string;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;nodes:{name:string;state:string;cores_total:number|null;cores_used:number|null}[];queues:{name:string;running:number;queued:number}[]}|null;warnings:(Association&{kind:string;job_id:string|null;detail:string})[]};
 
 function ageText(seconds:number){
  if(seconds<60)return `${seconds} 秒`;
@@ -40,11 +41,11 @@ export function ServerMonitor({revision}:{revision:number}){
  const jobs=(data?.clusters??[]).flatMap(row=>sampleState(row,now).hasData?(row.snapshot?.own?.jobs??[]).map((job,i)=>({row,job,key:JSON.stringify([row.name,row.source,job.job_id,job.study,job.attempt,i])})):[]);
  const finished=finishedAttempts(local??[]);
  return <section className="jobs-page" aria-label="服务器监控"><div className="jobs-heading"><h2>服务器监控</h2><span className="muted">每 30 秒读取本地采样与记录</span></div>
- {error?<ErrorNotice>{error}</ErrorNotice>:!data?<p role="status">读取采样快照…</p>:data.clusters.length===0?<EmptyState>暂无集群采样。</EmptyState>:<div className="capacity-list">{data.clusters.map(row=><ClusterCapacity key={row.name+row.source} row={row} now={now}/>)}</div>}
+ {error?<ErrorNotice>{error}</ErrorNotice>:!data?<p role="status">读取采样快照…</p>:data.clusters.length===0?<EmptyState>暂无集群采样。</EmptyState>:<><CapacityOverview rows={data.clusters} now={now}/><div className="capacity-list">{data.clusters.map(row=><ClusterCapacity key={row.name+row.source} row={row} now={now}/>)}</div></>}
  <Panel title="本人作业" className="jobs-table"><p className="muted">采样中的全部本人作业；过期、失败或来源歧义的数据保持非最新标记。</p><DataTable label="本人作业表" rows={jobs} rowKey={r=>r.key} columns={[
   {key:'attempt',label:'Attempt',render:({job:j})=><>{safeIdentity(j.study)&&safeIdentity(j.attempt)?<a href={routeHash([j.study,j.attempt])}>{j.attempt}</a>:<span>未关联</span>}<small>{j.name}</small></>},
   {key:'study',label:'Study',render:({job:j})=>safeIdentity(j.study)?<a href={routeHash([j.study])}>{j.study}</a>:display(j.study)},
-  {key:'cluster',label:'集群',render:({row})=><>{row.name}{row.ambiguous&&<small>{row.source} · 来源未确认</small>}{sampleState(row,now).old&&<small className="snapshot-notice">非最新</small>}</>},
+  {key:'cluster',label:'集群',render:({row})=><>{clusterLabel(row)}{row.ambiguous&&<small>{row.source} · 来源未确认</small>}{sampleState(row,now).old&&<small className="snapshot-notice">非最新</small>}</>},
   {key:'state',label:'状态',render:({job:j})=><State value={j.state}/>},
   {key:'cores',label:'核数',className:'numeric',render:({job:j})=>display(j.cores)},
   {key:'time',label:'已用 / walltime',render:({job:j})=><WalltimeProgress used={j.walltime_used} limit={j.walltime_limit}/>},
@@ -58,12 +59,12 @@ export function ServerMonitor({revision}:{revision:number}){
  {localErrors.map((e,i)=><ErrorNotice key={i}>{e}</ErrorNotice>)}{local===null?<p className="muted">{localErrors.length?'本地列表不可用':'读取本地 Attempt…'}</p>:<DataTable label="待取回作业表" rows={finished} rowKey={r=>r.study+':'+r.attempt.id} columns={[
   {key:'attempt',label:'Attempt',render:r=><a href={routeHash([r.study,r.attempt.id])}>{r.attempt.id}</a>},
   {key:'study',label:'Study',render:r=><a href={routeHash([r.study])}>{r.study}</a>},
-  {key:'cluster',label:'集群',render:r=>r.cluster},
+  {key:'cluster',label:'集群',render:r=>{const matches=data?.clusters.filter(row=>row.name===r.cluster)??[];return matches.length===1?clusterLabel(matches[0]):r.cluster;}},
   {key:'state',label:'状态',render:()=> <State value="finished"/>},
   {key:'cores',label:'核数',className:'numeric',render:r=>display(r.cores)},
   {key:'time',label:'已用 / walltime',render:r=><WalltimeProgress used={r.elapsed} limit={r.walltime}/>},
  ]}/>}</Panel>
- {(data?.clusters??[]).map(row=><Collapsible key={row.name+row.source} page="jobs" block={'details:'+row.name+':'+row.source} title={`集群 ${row.name}${row.ambiguous?' · '+row.source:''} · 节点、队列与警告`}><ClusterDetails row={row} now={now}/></Collapsible>)}
+ {(data?.clusters??[]).map(row=><Collapsible key={row.name+row.source} page="jobs" block={'details:'+row.name+':'+row.source} title={`集群 ${clusterLabel(row)}${row.ambiguous?' · '+row.source:''} · 节点、队列与警告`}><ClusterDetails row={row} now={now}/></Collapsible>)}
  </section>;
 }
 function ClusterCapacity({row,now}:{row:ClusterRow;now:number}){
@@ -71,8 +72,8 @@ function ClusterCapacity({row,now}:{row:ClusterRow;now:number}){
  const full=hasData&&own&&own.cores_running!==undefined&&own.cores_queued!==undefined;
  // Configured limits remain readable on failure; first-failure usage is unknown.
  const used=hasData&&own?(full?own.cores_running!+own.cores_queued!:own.cores_in_use):null,cap=own?.committed_cap??null;
- return <section className="capacity-row" aria-label={`集群 ${row.name}${row.ambiguous?' · '+row.source:''}`}><div className="capacity-title"><h3>集群 {row.name}</h3><StatusBadge tone={row.error||!d?'bad':old?'warn':'ok'}>{row.error||!d?'不可用':row.ambiguous?'来源未确认':stale?'数据已过期':!d.ok?'采样失败':'新鲜'}</StatusBadge></div>
- <div className="capacity-value"><span className="muted">本人占用核数{old?' · 非最新':''}</span><p className="core-count">{own?<>{full?`运行 ${own.cores_running} · 排队 ${own.cores_queued}`:used===null?'占用未知':`占用 ${used}`} · {cap===null?'总上限未知（旧快照）':`总上限 ${cap}`}</>:'—'}</p>{used!==null&&cap!==null&&cap>0&&<progress aria-label={`集群 ${row.name} 本人核数占上限`} value={Math.min(used,cap)} max={cap}/>} {used!==null&&cap!==null&&used>cap&&<span className="snapshot-notice">已超过本人上限</span>}{own&&<span className="muted">单作业上限 {own.core_cap} 核</span>}</div>
+ return <section className="capacity-row" aria-label={`集群 ${clusterLabel(row)}${row.ambiguous?' · '+row.source:''}`}><div className="capacity-title"><h3>集群 {clusterLabel(row)}</h3><StatusBadge tone={row.error||!d?'bad':old?'warn':'ok'}>{row.error||!d?'不可用':row.ambiguous?'来源未确认':stale?'数据已过期':!d.ok?'采样失败':'新鲜'}</StatusBadge></div>
+ <div className="capacity-value"><span className="muted">本人占用核数{old?' · 非最新':''}</span><p className="core-count">{own?<>{full?`运行 ${own.cores_running} · 排队 ${own.cores_queued}`:used===null?'占用未知':`占用 ${used}`} · {cap===null?'总上限未提供（旧快照）':`总上限 ${cap}`}</>:'占用未知 · 总上限未提供'}</p>{used!==null&&cap!==null&&cap>0&&<progress aria-label={`集群 ${clusterLabel(row)} 本人核数占上限`} value={Math.min(used,cap)} max={cap}/>} {used!==null&&cap!==null&&used>cap&&<span className="snapshot-notice">已超过本人上限</span>}<span className="muted">单作业上限 {own?`${own.max_cores??own.core_cap} 核`:'未提供'}</span>{own?.max_queued_cores!==undefined?<span className="capacity-queue">排队 {hasData?own.cores_queued??'未提供':'未知'} / 排队上限 {own.max_queued_cores}</span>:<span className="capacity-queue">排队上限：未提供</span>}{own?.scheduler_max_running_cores!==undefined&&<span className="capacity-queue">运行限额 {own.scheduler_max_running_cores} · 由调度器执行，ag 未核实</span>}</div>
  <div className="capacity-time">{d&&<><span>采样时间：<time dateTime={d.sampled_at} title={d.sampled_at}>{localTime(d.sampled_at)}</time>（本地时间）</span><small>距今 {ageText(Math.max(0,Math.floor((now-Date.parse(d.sampled_at))/1000)))}{d.interval_seconds===null?' · 单次采样':` · 采样间隔 ${d.interval_seconds} 秒`}</small></>}</div>
  {!!own?.shared_with?.length&&<p className="capacity-message muted">与 {own.shared_with.join('、')} 共享总上限</p>}
  {row.ambiguous&&<p className="capacity-message notice">检测到两份 default 快照，来源未确认；不能视为当前状态。</p>}{row.error&&<div className="capacity-message"><ErrorNotice>{row.error}</ErrorNotice></div>}
@@ -81,7 +82,7 @@ function ClusterCapacity({row,now}:{row:ClusterRow;now:number}){
 }
 function ClusterDetails({row,now}:{row:ClusterRow;now:number}){
  const data=row.snapshot,{old,hasData}=sampleState(row,now),cluster=hasData?data?.cluster:null;
- return <section aria-label={`集群 ${row.name} 详细信息`}>{cluster&&<>
+ return <section aria-label={`集群 ${clusterLabel(row)} 详细信息`}>{cluster&&<>
  {cluster.budget!=null&&<article aria-label="核时预算"><h3>核时预算{old?' · 非最新':''}</h3><p>预算 {cluster.budget.core_hours} · 已用 {cluster.budget.used} · 预留 {cluster.budget.reserved} 核时</p><p className="muted">本地台账，不代表平台余额。</p></article>}
  {cluster.expires!=null&&<p>到期日期：{cluster.expires}</p>}{cluster.expiry_warning&&<ErrorNotice>{cluster.expiry_warning}</ErrorNotice>}{cluster.storage_kib!=null&&<p>存储占用{old?' · 非最新':''}：{cluster.storage_kib} KiB</p>}
  </>}

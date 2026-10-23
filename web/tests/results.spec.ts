@@ -86,7 +86,7 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  page.on('request',r=>{if(r.url().includes('/api/'))apiReads.push(new URL(r.url()).pathname);if(r.url().endsWith('/api/monitor'))reads++;if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
  await page.goto('/#server');
  await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('00:03:12 / 01:00:00');
- await expect(page.locator('.core-count')).toHaveText('占用 8 · 总上限未知（旧快照）');
+ await expect(page.locator('.core-count')).toHaveText('占用 8 · 总上限未提供（旧快照）');
  await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:'集群 default · 节点、队列与警告'}).click();
  await expect(page.getByRole('table',{name:'节点表'})).toContainText('synthetic-node');
  await expect(page.getByRole('table',{name:'队列表'})).toContainText('demo');
@@ -133,6 +133,8 @@ test('three new views fit mobile viewport',async({page})=>{
 
 test('two cluster sections show Slurm optional fields and retained data honestly',async({page,request},info)=>{
  const original=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ // This case starts fresh even when earlier browser tests outlast the fixture's TTL.
+ original.sampled_at=original.last_ok_at=new Date().toISOString();
  const batch=structuredClone(original);
  batch.own.core_cap=96;
  batch.cluster={name:'batch',scheduler:'slurm',nodes:[],queues:[],cores_total:0,cores_used:0,
@@ -177,7 +179,7 @@ test('first failed sample never renders zero placeholders as measured capacity',
  const section=page.getByRole('region',{name:'集群 batch',exact:true});
  await expect(section).toContainText('尚无成功采样，当前占用与硬件容量未知。');
  await expect(section).not.toContainText('集群核数：0 / 0');
- await expect(section.locator('.core-count')).toHaveText('占用未知 · 总上限未知（旧快照）');
+ await expect(section.locator('.core-count')).toHaveText('占用未知 · 总上限未提供（旧快照）');
  await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
 });
 

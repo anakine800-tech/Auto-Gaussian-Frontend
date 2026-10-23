@@ -3,7 +3,7 @@ import type {ReactNode} from 'react';
 import ReactMarkdown from 'react-markdown';
 import {display,endpoint,get} from './api';
 import type {Document} from './api';
-import {MoleculeViewer} from './molecule-viewer';
+import {FrameViewer} from './frame-viewer';
 
 const plain=(children:ReactNode):string=>Children.toArray(children).map(c=>isValidElement<{children?:ReactNode}>(c)?plain(c.props.children):String(c)).join('');
 const anchor=(text:string)=>text.trim().toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu,'').replace(/\s+/g,'-');
@@ -42,7 +42,7 @@ function OptimizationSegment({segment}:{segment:Segment}){
  <div className="frame-controls"><button disabled={index===0} onClick={()=>{setIndex(i=>i-1);setPlaying(false);}}>上一步</button><label>优化步 <input aria-label={`第 ${segment.index} 段优化步`} type="number" min={1} max={segment.steps.length} value={index+1} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=1&&n<=segment.steps.length){setIndex(n-1);setPlaying(false);}}}/> / {segment.steps.length}</label><button disabled={index===segment.steps.length-1} onClick={()=>{setIndex(i=>i+1);setPlaying(false);}}>下一步</button><button disabled={segment.steps.length<2} onClick={()=>{if(index===segment.steps.length-1)setIndex(0);setPlaying(v=>!v);}}>{playing?'暂停优化播放':'播放优化过程'}</button></div>
  <p>SCF：{step.scf_hartree} Eh · 日志第 {step.line} 行 · 打印步号：{step.printed_step??'—'}</p>
  <div className="table-scroll"><table aria-label={`第 ${segment.index} 段收敛表`}><thead><tr><th>判据</th><th>值</th><th>阈值</th><th>YES / NO</th></tr></thead><tbody>{['Maximum Force','RMS Force','Maximum Displacement','RMS Displacement'].map(label=>{const m=step.metrics.find(m=>m.label===label);return <tr key={label}><td>{label}</td><td>{display(m?.value)}</td><td>{display(m?.threshold)}</td><td>{m?.result??'未打印'}</td></tr>;})}</tbody></table></div>
- {step.geometry?<MoleculeViewer key={index} last={step.geometry} frameLabel={`优化段 ${segment.index} · 步 ${index+1}`}/>:<p className="notice">该步没有完整坐标，不复用其他步的结构。</p>}
+ <FrameViewer geometry={step.geometry} frames={segment.steps.map(s=>s.geometry)} frameLabel={`优化段 ${segment.index} · 步 ${index+1}`}/>
  </>:<p>本段没有可识别的优化步（可能为单点或频率段）。</p>}</article>;
 }
 export function Optimization({study,attempt,log,revision}:{study:string;attempt:string;log:string;revision:number}){
