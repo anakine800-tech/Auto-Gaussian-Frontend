@@ -1,5 +1,5 @@
 export type AttemptFile={kind:'inputs'|'logs'|'record';name:string};
-export type Route={study:string;file?:string;view?:'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;help?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
+export type Route={study:string;file?:string;view?:'chains'|'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;help?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
 const hash=(parts:string[])=>'#/'+parts.map(encodeURIComponent).join('/');
 // Existing page links keep their object identity while adopting the new shell.
 export function routeHash(parts:string[]):string{
@@ -13,6 +13,7 @@ export function routeHash(parts:string[]):string{
 }
 export function studyHash(study:string,...parts:string[]){
  const [section,...rest]=parts;
+ if(section==='chains'&&!rest.length)return hash([study,'chains']);
  const mapped=!section?['research','progress']:section==='attempts'?['research','attempts']:section==='a'?['research','a',...rest]:section==='analysis'?['results',...rest]:section==='files'?['evidence',...rest]:parts;
  return hash(['s',study,...mapped]);
 }
@@ -35,6 +36,7 @@ export function readRoute():Route{
   if(parts.some(p=>!p||p==='.'||p==='..'||/[\/\\\0]/.test(p)))throw Error();
   if(parts.length===1&&parts[0]==='servers')return {study:'',server:true};
   if(parts.length===1&&parts[0]==='help')return {study:'',help:true};
+  if(parts.length===2&&parts[1]==='chains')return {study:parts[0],view:'chains'};
   // T118 document links are already canonical; do not migrate them as legacy links.
   if(parts.length>=3&&parts[1]==='file')return {study:parts[0],view:'files',fileTab:'document',file:parts.slice(2).join('/')};
   if(parts[0]!=='s'){

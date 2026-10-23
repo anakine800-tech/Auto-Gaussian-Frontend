@@ -1,3 +1,4 @@
+import {ChainsView} from './chains-view';
 import {AnalysisLibrary} from './analysis-panels';
 import './ui/analysis.css';
 import {useEffect,useState} from 'react';
@@ -73,9 +74,10 @@ function App(){
  {list?.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
  {route.error&&<ErrorNotice>{route.error}</ErrorNotice>}{error&&<ErrorNotice>{error}</ErrorNotice>}{study&&!data&&!error&&!route.error&&<p role="status">读取 Study…</p>}
  {data&&!route.error&&<>{!attempt&&<div className="study-heading"><div><span className="eyebrow">{top==='study'?'STUDY WORKSPACE':top==='analysis'?'ANALYSIS LIBRARY':'STUDY FILES'}</span><h2>{top==='study'?data.id:top==='analysis'?'报告':'研究证据'}</h2></div><StatusBadge>{data.attempts.length} Attempts</StatusBadge></div>}
- {top==='study'&&<nav className="section-nav" aria-label="Study 内容"><button aria-current={view==='overview'?'page':undefined} onClick={()=>navigate(studyHash(study))}>进展</button><button aria-current={view==='attempts'?'page':undefined} onClick={()=>navigate(studyHash(study,'attempts'))}>全部 Attempt</button></nav>}
+ {top==='study'&&<nav className="section-nav" aria-label="Study 内容"><button aria-current={view==='overview'?'page':undefined} onClick={()=>navigate(studyHash(study))}>进展</button><button aria-current={view==='chains'?'page':undefined} onClick={()=>navigate(studyHash(study,'chains'))}>计算链</button><button aria-current={view==='attempts'?'page':undefined} onClick={()=>navigate(studyHash(study,'attempts'))}>全部 Attempt</button></nav>}
  {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['document','研究说明'],['structures','结构文件'],['graph','关系图'],['analyses','其他分析文件']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
  {data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
+ {view==='chains'&&<ChainsView key={study} data={data}/>}
  {view==='overview'&&<StudyOverview key={study} data={data}/>}
  {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<AnalysisLibrary data={data}/>)}
  {view==='attempts'&&(attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt} selectedFile={route.attemptFile} onLoaded={ignoreAttemptLoaded}/>:<AttemptTable key={study} data={data}/>)}

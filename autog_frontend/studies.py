@@ -27,7 +27,7 @@ from .optimization import parse_optimization
 from .monitor import validate_monitor
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
-from .study_summary import parse_sections
+from .study_summary import parse_sections, energy_basis
 
 
 DOCUMENT_LIMIT = 4 * 1024 * 1024
@@ -48,14 +48,13 @@ SCHEMA_KINDS = {'ag-ensemble/1': 'ensemble', 'ag-irc-review/1': 'irc',
 
 
 def report_category(schema, declared, suffix, name=''):
-    # T119 may insert an explicit catalog source between schema and declaration.
-    # Retain the existing fixed TS-label layout; do not guess other filenames.
-    if re.fullmatch(r'ts-labels/[^/]+/(labels\.json|labels\.md|channel-suggestions\.csv)', name):
-        return 'ts', '按 TS 标签目录'
+    # Registration is applied to study metadata after the file-only cache.
     if isinstance(schema, str) and schema in SCHEMA_KINDS:
         return SCHEMA_KINDS[schema], '按 schema'
     if isinstance(declared, str) and declared in REPORT_KINDS:
         return declared, '按报告声明'
+    if re.fullmatch(r'ts-labels/[^/]+/(labels\.json|labels\.md|channel-suggestions\.csv)', name):
+        return 'ts', '按 TS 标签目录'
     return ('figure' if suffix in IMAGE_TYPES or suffix == '.html' else 'other'), '按文件类型'
 
 
@@ -221,44 +220,61 @@ class Studies:
         except UnicodeError:
             return 'unreadable'
 
-    def catalog_review_scope(self, study):
-        """A stale derived catalog must not silently hide pending reviews."""
-        fallback = {'available': False, 'attempts': [], 'warning': None}
+    def catalog(self, study):
+        """Read one bounded snapshot; stale or unsafe registration is never adopted."""
+        result = {'state': None, 'journal_ok': False, 'warning': None}
+        try:
+            with self.open_dir((study, 'catalog')):
+                pass
+        except StudyError as exc:
+            if exc.status != 404:
+                result['warning'] = '登记记录无法安全读取，按没有登记处理'
+            return result
         try:
             raw = self.read((study, 'catalog', 'state.json'))
             journal = self.read((study, 'catalog', 'journal.jsonl'), limit=16*1024*1024)
-            state = json.loads(raw)
+            state = json.loads(raw, parse_float=finite_float,
+                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
             if not isinstance(state, dict) or state.get('schema') != 'ag-catalog-state/1':
-                raise ValueError('登记格式无法识别')
+                raise ValueError()
             if state.get('journal_sha256') != hashlib.sha256(journal).hexdigest():
-                raise ValueError('登记记录哈希与日志不一致')
+                raise ValueError()
             objects = state.get('objects')
             if not isinstance(objects, list):
-                raise ValueError('登记对象格式无法识别')
-            attempts = set()
+                raise ValueError()
             for obj in objects:
                 if not isinstance(obj, dict) or obj.get('status') not in ('adopted', 'candidate', 'retired'):
-                    raise ValueError('登记对象状态无法识别')
+                    raise ValueError()
+                members, adopted = obj.get('members', []), obj.get('adopted', {})
+                if not isinstance(members, list) or not isinstance(adopted, dict):
+                    raise ValueError()
+                for ref in [*members, *(adopted.get(role) for role in ('opt', 'freq', 'sp'))]:
+                    if ref is not None:
+                        if not isinstance(ref, dict):
+                            raise ValueError()
+                        component(ref.get('attempt'))
+            kinds = state.get('report_kinds', {})
+            if not isinstance(kinds, dict) or any(not isinstance(k, str) or not isinstance(v, str) or v not in REPORT_KINDS for k, v in kinds.items()):
+                raise ValueError()
+            return {'state': state, 'journal_ok': True, 'warning': None}
+        except StudyError:
+            result['warning'] = '登记记录缺失或无法安全读取，按没有登记处理'
+        except (ValueError, UnicodeError, RecursionError):
+            result['warning'] = '登记记录格式或日志哈希不一致，按没有登记处理'
+        return result
+
+    def catalog_review_scope(self, study, catalog=None):
+        """Share the snapshot with chains so review counts cannot disagree."""
+        catalog = self.catalog(study) if catalog is None else catalog
+        attempts = set()
+        if catalog['journal_ok']:
+            for obj in catalog['state']['objects']:
                 if obj['status'] == 'retired':
                     continue
-                refs = obj.get('members') if obj['status'] == 'candidate' else obj.get('adopted')
-                if obj['status'] == 'adopted':
-                    if not isinstance(refs, dict):
-                        raise ValueError('采用记录格式无法识别')
-                    refs = [refs.get(role) for role in ('opt', 'freq', 'sp') if refs.get(role) is not None]
-                if not isinstance(refs, list):
-                    raise ValueError('候选成员格式无法识别')
-                for ref in refs:
-                    if not isinstance(ref, dict):
-                        raise ValueError('Attempt 引用格式无法识别')
-                    attempts.add(component(ref.get('attempt')))
-            return {'available': True, 'attempts': sorted(attempts), 'warning': None}
-        except StudyError as exc:
-            if exc.status != 404:
-                fallback['warning'] = '登记记录无法安全读取，按没有登记处理'
-        except (ValueError, UnicodeError, RecursionError):
-            fallback['warning'] = '登记记录格式或日志哈希不一致，按没有登记处理'
-        return fallback
+                refs = obj.get('members', []) if obj['status'] == 'candidate' else [
+                    obj.get('adopted', {}).get(role) for role in ('opt', 'freq', 'sp')]
+                attempts.update(ref['attempt'] for ref in refs if ref is not None)
+        return {'available': catalog['journal_ok'], 'attempts': sorted(attempts), 'warning': catalog['warning']}
 
     def analysis_document(self, study, parts):
         path = (study, 'analyses', *parts)
@@ -415,8 +431,16 @@ class Studies:
             except StudyError as exc:
                 issues.append({'path': f'analyses/{folder}', 'error': str(exc)})
         document = self.document((study, 'study.md'))
+        catalog = self.catalog(study)
+        # Apply registration after the file metadata cache, so new registrations
+        # take effect even when the report's own bytes/mtime have not changed.
+        kinds = catalog['state'].get('report_kinds', {}) if catalog['journal_ok'] else {}
+        for report in analyses:
+            if report['name'] in kinds:
+                report['catalog_kind'] = kinds[report['name']]
         return {'id': study, 'study': document, 'sections': parse_sections(document['data']), 'attempts': attempts,
-                'catalog_review': self.catalog_review_scope(study),
+                'catalog': catalog, 'energy_basis': energy_basis(document['data']),
+                'catalog_review': self.catalog_review_scope(study, catalog),
                 'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
 
     def comparison_structure(self, study, attempt):

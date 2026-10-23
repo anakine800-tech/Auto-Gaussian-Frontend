@@ -22,6 +22,16 @@ def study_type(name, markdown):
     return 'validation' if name.startswith('val-') else 'test' if name.startswith(('test-', 'demo-')) else 'research'
 
 
+def energy_basis(markdown):
+    """Read only an explicit, supported energy basis from initial front matter."""
+    front = re.match(r'\A\ufeff?---\r?\n(.*?)\r?\n(?:---|\.\.\.)(?:\r?\n|$)', markdown or '', re.S)
+    if front:
+        matches = re.findall(r"^energy_basis:[ \t]*(['\"]?)(E\+ZPE|E|G)\1[ \t]*(?:#.*)?$", front[1], re.M)
+        if len(matches) == 1:
+            return matches[0][1]
+    return 'E+ZPE'
+
+
 def milestone_state(values, table=False):
     text = ' '.join(values).strip()
     if values and all(v == '不适用' for v in values):

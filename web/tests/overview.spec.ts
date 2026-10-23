@@ -19,13 +19,13 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T95 fi
  await page.screenshot({path:info.outputPath(`overview-${size.width}x${size.height}.png`)});
  await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
  const table=page.getByRole('table',{name:'Attempt 结果表'});
- await fullyVisible(table.locator('thead'),page);await expect(table.locator('th')).toHaveCount(10);
+ await fullyVisible(table.locator('thead'),page);await expect(table.locator('th')).toHaveCount(12);
  await expect(table.locator('tbody tr').first()).toContainText('xtb-prepared');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);
  await page.screenshot({path:info.outputPath(`attempts-${size.width}x${size.height}.png`)});
  await page.getByText('显示列',{exact:true}).click();
  for(const label of ['集群','核数','用时','父 Attempt','提交时间'])await page.getByRole('checkbox',{name:label,exact:true}).check();
- await expect(table.locator('th')).toHaveCount(15);
+ await expect(table.locator('th')).toHaveCount(17);
  await expect(table.locator('tbody tr').filter({hasText:'opt-demo'})).toContainText('00:03:12');
  await expect(table.locator('tbody tr').filter({hasText:'opt-demo'}).locator('td').last()).toHaveText('—');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);
@@ -120,7 +120,7 @@ test('table filters and numeric sort survive shared URL, detail reload, return a
  await expect(page.getByLabel('类型筛选')).toHaveValue('gaussian');await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
  await expect.poll(()=>page.evaluate(()=>scrollY)).toBeCloseTo(y,0);
  await table.getByRole('button',{name:'编号',exact:false}).click();await expect(page).toHaveURL(/sort=id&order=asc/);
- await page.goBack();await expect(page).toHaveURL(url);await expect(table.locator('thead th').nth(6)).toHaveAttribute('aria-sort','ascending');
+ await page.goBack();await expect(page).toHaveURL(url);await expect(table.getByRole('columnheader',{name:/电子能 \/ Eh/})).toHaveAttribute('aria-sort','ascending');
 });
 
 test('unknown filters do not silently show unrelated rows, absent facts sort last',async({page})=>{
@@ -130,7 +130,7 @@ test('unknown filters do not silently show unrelated rows, absent facts sort las
  await page.getByRole('button',{name:'重置'}).click();await table.getByRole('button',{name:'电子能 / Eh',exact:false}).click();
  await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
  await table.getByRole('button',{name:'电子能 / Eh',exact:false}).click();
- await expect(table.locator('tbody tr').first()).toContainText('opt-demo');await expect(table.locator('tbody tr').last().locator('td').nth(6)).toHaveText('—');
+ await expect(table.locator('tbody tr').first()).toContainText('opt-demo');await expect(table.locator('tbody tr').last().locator('td').nth(8)).toHaveText('—');
  await page.getByLabel('类型筛选').selectOption('xtb');await expect(table.locator('tbody tr')).toHaveCount(1);
  await expect(table).toContainText('xtb-prepared');
 });
@@ -144,7 +144,7 @@ test('saved values retain their source and missing timestamps are not inferred',
  await page.route('**/api/studies/butane-demo',r=>r.fulfill({json:data}));
  await page.goto('/#/s/butane-demo/attempts?type=xtb');
  const row=page.getByRole('table',{name:'Attempt 结果表'}).locator('tbody tr');
- await expect(row.locator('td').nth(6)).toHaveText('-12.345000');await expect(row.locator('td').nth(9)).toHaveText('—');
+ await expect(row.locator('td').nth(8)).toHaveText('-12.345000');await expect(row.locator('td').nth(11)).toHaveText('—');
  await expect(row.locator('.method-abbreviation[title]')).toHaveAttribute('title',a.manifest.data.science.method_basis);
  await page.getByText('显示列',{exact:true}).click();await page.getByRole('checkbox',{name:'提交时间',exact:true}).check();
  await expect(row.locator('td').last()).toHaveText('—');
