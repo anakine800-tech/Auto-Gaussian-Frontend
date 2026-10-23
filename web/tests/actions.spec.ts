@@ -35,7 +35,7 @@ test('new Attempt, automatic input preview/diff, two-step submit through fake ag
  await input.evaluate(element=>element.scrollTop=0);await input.blur();
  await page.getByRole('region',{name:'计算操作'}).screenshot({path:info.outputPath('new-attempt.png')});
  await page.getByRole('button',{name:'保存并新建',exact:true}).click();
- await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/butane-demo-001-browser$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/research\/a\/butane-demo-001-browser$/);
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('14 / 14 原子');
  await expect(page.getByTestId('input-diff')).toContainText('# HF/STO-3G SP');
  await expect(page.getByTestId('input-diff')).toContainText('# HF/STO-3G Opt Freq');

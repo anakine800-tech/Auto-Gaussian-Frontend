@@ -42,7 +42,7 @@ class SectionsTest(unittest.TestCase):
         self.assertEqual(sections['当前阻塞']['entries'], [{'line': 3, 'text': '解析：等待本地事实。'}])
         self.assertEqual(len(sections['待你决定']['entries']), 1)
         self.assertEqual([e['state'] for e in sections['里程碑签字']['entries']],
-                         ['pending', 'recorded', 'pending', 'not_applicable'])
+                         ['pending', 'recorded', 'not_started', 'not_applicable'])
         self.assertEqual(sections['里程碑签字']['entries'][0]['line'], 12)
         bullets = parse_sections('## 里程碑签字\n- 结构：待签字\n- 代表构象集合：需核对\n- 最终结果：不适用\n')
         self.assertEqual([e['state'] for e in bullets['里程碑签字']['entries']], ['pending', 'unknown', 'not_applicable'])

@@ -10,14 +10,14 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T95 fi
  await page.setViewportSize(size);
  const writes:string[]=[],errors:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/#/s/butane-demo');
- await expect(page.getByRole('article',{name:'待审',exact:true}).locator('.kpi-value')).toHaveText('2');
- await expect(page.getByRole('article',{name:'待签',exact:true}).locator('.kpi-value')).toContainText('2');
+ await expect(page.getByRole('article',{name:'待审阅',exact:true}).locator('.kpi-value')).toHaveText('2');
+ await expect(page.getByRole('article',{name:'待签字',exact:true}).locator('.kpi-value')).toContainText('2');
  await fullyVisible(page.locator('.overview-kpis'),page);
- for(const title of ['要处理的事','关键结果'])await fullyVisible(page.getByRole('heading',{name:title,exact:true}),page);
+ for(const title of ['还缺什么','里程碑'])await fullyVisible(page.getByRole('heading',{name:title,exact:true}),page);
  for(const title of ['研究说明','进度日志'])await expect(page.locator('details').filter({has:page.locator('summary').filter({hasText:new RegExp('^'+title+'$')})})).not.toHaveAttribute('open');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);
  await page.screenshot({path:info.outputPath(`overview-${size.width}x${size.height}.png`)});
- await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
  const table=page.getByRole('table',{name:'Attempt 结果表'});
  await fullyVisible(table.locator('thead'),page);await expect(table.locator('th')).toHaveCount(10);
  await expect(table.locator('tbody tr').first()).toContainText('xtb-prepared');
@@ -39,8 +39,8 @@ test('KPI rules use explicit saved state, facts and review availability',async({
  find('opt-failed').facts={data:null,error:'Malformed synthetic facts'};
  await page.route('**/api/studies/butane-demo',r=>r.fulfill({json:data}));
  await page.goto('/#/s/butane-demo');
- for(const [label,count] of [['在跑','1'],['待审','1'],['待签','2']])await expect(page.getByRole('article',{name:label,exact:true}).locator('.kpi-value')).toContainText(count);
- await page.getByRole('article',{name:'待审',exact:true}).getByRole('link').click();
+ for(const [label,count] of [['在跑','1'],['待审阅','1'],['待签字','2']])await expect(page.getByRole('article',{name:label,exact:true}).locator('.kpi-value')).toContainText(count);
+ await page.getByRole('article',{name:'待审阅',exact:true}).getByRole('link').click();
  await expect(page.getByRole('table',{name:'Attempt 结果表'}).locator('tbody tr')).toHaveCount(1);
  await expect(page.getByRole('table',{name:'Attempt 结果表'})).toContainText('gauche');
  await page.getByRole('button',{name:'重置',exact:true}).click();
@@ -53,7 +53,7 @@ test('missing and empty template sections are explicit, source drawer is readonl
   for(const title of ['当前阻塞','待你决定','里程碑签字'])data.sections[title]={present,text:'',entries:[]};
   await page.route('**/api/studies/butane-demo',r=>r.fulfill({json:data}));
   await page.goto('/?case='+present+'#/s/butane-demo');
-  const work=page.getByRole('region',{name:'要处理的事'});
+  const work=page.getByRole('region',{name:'还缺什么'});
   await expect(work).toContainText(present?'此节暂无条目':'study.md 中没有此节');
   await work.getByRole('button',{name:'当前阻塞 ↗',exact:true}).click();
   await expect(page.getByRole('dialog')).toContainText(present?'此节暂无内容':'study.md 中没有此节');
@@ -70,11 +70,12 @@ test('missing and empty template sections are explicit, source drawer is readonl
 
 test('reports sort by local file update, open the same report and do not invent conclusions',async({page})=>{
  await page.goto('/#/s/butane-demo');
- const panel=page.getByRole('region',{name:'关键结果'});
+ await page.getByText('最近改动的文件',{exact:true}).click();
+ const panel=page.locator('details').filter({has:page.locator('summary').filter({hasText:'最近改动的文件'})});
  await expect(panel.locator('li').first()).toContainText('thermo-demo.json');
  await expect(panel.locator('li').first().locator('time')).toHaveAttribute('datetime','2026-01-02T02:00:00+00:00');
  await panel.getByRole('link',{name:'thermo-demo.json',exact:true}).click();
- await expect(page).toHaveURL(/\/analysis\/thermo\/thermo-demo.json$/);
+ await expect(page).toHaveURL(/\/results\/thermo\/thermo-demo.json$/);
  await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
  await page.getByRole('link',{name:'← 返回列表'}).click();await expect(panel).toBeVisible();
 });
@@ -129,7 +130,8 @@ test('saved values retain their source and missing timestamps are not inferred',
  await page.getByText('显示列',{exact:true}).click();await page.getByRole('checkbox',{name:'提交时间',exact:true}).check();
  await expect(row.locator('td').last()).toHaveText('—');
  await page.goto('/#/s/ensemble-demo');
- await page.getByRole('region',{name:'关键结果'}).getByRole('link',{name:'ensemble.json',exact:true}).click();
- await expect(page).toHaveURL(/\/analysis\/ensemble\/ensemble.json$/);
+ await page.getByText('最近改动的文件',{exact:true}).click();
+ await page.locator('details').filter({has:page.locator('summary').filter({hasText:'最近改动的文件'})}).getByRole('link',{name:'ensemble.json',exact:true}).click();
+ await expect(page).toHaveURL(/\/results\/ensemble\/ensemble.json$/);
  await expect(page.getByRole('table',{name:'构象能量表'})).toBeVisible();
 });

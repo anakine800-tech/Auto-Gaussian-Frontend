@@ -6,7 +6,7 @@ test('list, table/thumbnail/3D linkage, sorting, reasons and saved URL',async({p
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/#/ensemble-demo');
- await page.getByRole('button',{name:'分析',exact:true}).click();
+ await page.getByRole('button',{name:'结果',exact:true}).click();
  await page.getByRole('region',{name:'构象集合列表'}).getByRole('link',{name:'合成水集合'}).click();
  const table=page.getByRole('table',{name:'构象能量表'});
  await expect(table).toContainText('42%');
@@ -31,7 +31,7 @@ test('list, table/thumbnail/3D linkage, sorting, reasons and saved URL',async({p
  await expect(viewer.getByTestId('atom-distance')).toContainText('0.950');
  await expect(page.getByText('sp · unmatched-demo · 未匹配候选')).toBeVisible();
  await table.getByRole('link',{name:'crest-demo'}).first().click();
- await expect(page).toHaveURL(/#\/s\/ensemble-demo\/a\/crest-demo$/);
+ await expect(page).toHaveURL(/#\/s\/ensemble-demo\/research\/a\/crest-demo$/);
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
 

@@ -10,12 +10,15 @@ from starlette.concurrency import run_in_threadpool
 
 from .studies import Studies, StudyError, decode_document
 from .static_ui import load_ui
+from .search_index import SearchIndex
+from .study_summary import study_type
 
 LOCAL_HOSTS = {'localhost', '127.0.0.1', '::1'}
 
 
 def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None):
     store = Studies(studies_root)
+    search_index = SearchIndex(store)
     ui = load_ui(Path(ui_directory)) if ui_directory else {}
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     actions = None
@@ -83,7 +86,14 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
 
     @app.get('/api/studies')
     def list_studies():
-        return store.list_studies()
+        result = store.list_studies()
+        for item in result['studies']:
+            item['type'] = study_type(item['id'], store.document((item['id'], 'study.md'))['data'])
+        return result
+
+    @app.get('/api/search')
+    def search(q: str = Query('', max_length=256)):
+        return search_index.search(q)
 
     @app.get('/api/studies/{study}')
     def study(study: str):

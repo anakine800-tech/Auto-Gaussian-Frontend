@@ -1,4 +1,4 @@
-.overview-kpis{display:grid;grid-template-columns:2fr repeat(3,minmax(0,1fr));gap:var(--space-3)}
+.overview-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3)}
 .overview-kpis .KpiTile{margin:0;min-width:0}.overview-kpis .kpi-value a{text-decoration:none}.overview-kpis .kpi-value button{font-size:var(--fs-kpi);font-weight:inherit}
 .overview-kpis .milestone-kpi .kpi-value{font-size:var(--fs-lg);line-height:1.5}.overview-kpis .KpiTile p{margin-bottom:0}
 .overview-columns{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--space-3);align-items:start}
@@ -16,3 +16,5 @@
 .attempt-table .column-picker fieldset{display:flex;gap:var(--space-3);flex-wrap:wrap}.attempt-table>.Collapsible{margin-top:var(--space-4)}
 .method-abbreviation{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attention-note{display:block;font-size:var(--fs-xs);color:var(--warn);margin-top:var(--space-1)}
 @media(max-width:740px){.overview-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-columns{grid-template-columns:minmax(0,1fr)}.attempt-table .table-scroll{overflow:auto}.attempt-table .table-scroll th{top:0}.attempt-table .table-scroll table{min-width:650px}}
+
+.overview-list small{display:block;color:var(--muted);font-size:var(--fs-xs)}.missing-list{padding-left:22px;margin:0}.missing-list>li{padding:4px 0 10px 6px;border-bottom:1px solid var(--line)}#milestones{scroll-margin-top:calc(var(--header-height) + var(--context-height) + 16px)}

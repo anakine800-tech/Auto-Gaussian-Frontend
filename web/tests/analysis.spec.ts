@@ -64,9 +64,9 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T98 li
  for(const title of ['热化学 / 能量剖面','能量与排序','通道覆盖','TS 标签','NCI','图与演示','其他'])await expect(page.getByRole('heading',{name:new RegExp('^'+title+' ')})).toHaveCount(1);
  for(const title of ['构象集合','IRC','电子态检查','阶段审阅'])await expect(page.getByRole('heading',{name:new RegExp('^'+title+' ')})).toHaveCount(0);
  await fullyVisible(page.locator('.report-layout'),page);expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await expect(page.locator('body')).not.toContainText('已验证');await page.screenshot({path:info.outputPath(`analysis-${size.width}x${size.height}.png`)});
- await page.getByRole('link',{name:'profile-demo.json',exact:true}).click();await expect(page).toHaveURL(/analysis\/thermo\/profile-demo.json$/);await expect(page.locator('pre')).toContainText('ddG_barrier_kcal');await page.goBack();
+ await page.getByRole('link',{name:'profile-demo.json',exact:true}).click();await expect(page).toHaveURL(/results\/thermo\/profile-demo.json$/);await expect(page.locator('pre')).toContainText('ddG_barrier_kcal');await page.goBack();
  await page.route('**/api/studies/butane-demo/attempts/*',async route=>{const id=route.request().url().split('/').at(-1)!;if(['anti','gauche'].includes(id)){const data=attempt(id,id==='anti'?-157:-156.998,id==='anti'?-156.9:-156.897);Object.assign(data.facts.data as object,{termination:id==='anti'?'normal':'error',n_imag:id==='anti'?0:2});await route.fulfill({json:data});}else await route.continue();});
- await page.getByRole('button',{name:'Study',exact:true}).click();await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await page.getByRole('button',{name:'研究',exact:true}).click();await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
  await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await page.getByRole('checkbox',{name:'比较 gauche',exact:true}).check();await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'}),table=dialog.getByRole('table');await expect(table).toContainText('1.255');await expect(table).toContainText('1.883');
  await expect(table.getByRole('columnheader')).toHaveText(['Attempt','termination','n_imag','E / Eh','G / Eh','ΔE / kcal/mol','ΔG / kcal/mol']);
@@ -105,7 +105,7 @@ test('Attempt retains one usable structure selection, with all structure interac
 test('fixed TS labels routes and pending CSV do not claim channel assignment',async({page})=>{
  await page.goto('/#/s/butane-demo/analysis/ts/ts-labels/synthetic/labels.json');await expect(page.locator('pre')).toContainText('product_configuration');
  await page.goto('/#/s/butane-demo/analysis/ts/ts-labels/synthetic/channel-suggestions.csv');await expect(page.getByRole('article',{name:'报告正文'}).getByText('建议，待确认',{exact:true})).toHaveClass(/tone-warn/);await expect(page.getByRole('table')).toContainText('pending_confirmation');await expect(page.locator('body')).not.toContainText('已归类');
- await page.getByRole('textbox',{name:'全局搜索'}).fill('channel-suggestions.csv');await page.getByRole('region',{name:'搜索结果'}).getByRole('link').click();await expect(page).toHaveURL(/analysis\/ts\/ts-labels\/synthetic\/channel-suggestions.csv$/);
+ await page.getByRole('textbox',{name:'全局搜索'}).fill('channel-suggestions.csv');await page.getByRole('region',{name:'搜索结果'}).getByRole('link').click();await expect(page).toHaveURL(/results\/ts\/ts-labels\/synthetic\/channel-suggestions.csv$/);
  await page.goto('/#/s/butane-demo/analysis/ts/other/synthetic/labels.json');await expect(page.getByRole('alert')).toContainText('无法打开链接');
 });
 
