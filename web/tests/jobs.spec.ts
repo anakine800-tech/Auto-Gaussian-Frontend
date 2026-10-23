@@ -20,8 +20,9 @@ test('legacy jobs retain snapshot progress, Attempt links and local finished rec
  const queue=page.getByRole('table',{name:'排队中作业表'}),run=page.getByRole('table',{name:'运行中作业表'});
  await expect(queue).toContainText('片段末次优化步：7');await expect(queue).toContainText('-157.002500');await expect(queue).toContainText('运行中快照，不是结果');await expect(run).toContainText('尚无本地快照');
  await expect(page.getByRole('table',{name:'待取回作业表'})).toContainText('prepared');
+ await expect(run.getByRole('link',{name:'opt-demo',exact:true})).toHaveAttribute('href','#/s/butane-demo/research/a/opt-demo');
  await page.getByRole('button',{name:'选择服务器 batch'}).click();await expect(run).toContainText('54.2%');await expect(run).toContainText('未关联本地 Attempt');
- await page.getByRole('button',{name:'选择服务器 default'}).click();await queue.getByRole('link',{name:'anti',exact:true}).click();await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/anti$/);
+ await page.getByRole('button',{name:'选择服务器 default'}).click();await queue.getByRole('link',{name:'anti',exact:true}).click();await expect(page).toHaveURL(/#\/s\/butane-demo\/research\/a\/anti$/);
 });
 test('missing monitor preserves local finished group and per-Study errors',async({page,request})=>{
  await setup(page,request);await page.route('**/api/monitor',r=>r.fulfill({status:404,json:{detail:'没有本地采样'}}));await page.route('**/api/studies/descriptor-demo',r=>r.fulfill({status:422,json:{detail:'Synthetic unreadable Study'}}));await page.goto('/#/jobs');

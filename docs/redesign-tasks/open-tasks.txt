@@ -1,1 +1,2 @@
 T115 | codex/t115-server-page | 服务器卡片与按入口分组详情；等待 T114、T118 依赖合入及监督方轻审
+T120 — 已 rebase 到含 T118、T115 的 main 5f86886；待 routing 前后 diff 复核及负责人合并。

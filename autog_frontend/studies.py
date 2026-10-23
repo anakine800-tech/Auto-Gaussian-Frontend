@@ -221,6 +221,45 @@ class Studies:
         except UnicodeError:
             return 'unreadable'
 
+    def catalog_review_scope(self, study):
+        """A stale derived catalog must not silently hide pending reviews."""
+        fallback = {'available': False, 'attempts': [], 'warning': None}
+        try:
+            raw = self.read((study, 'catalog', 'state.json'))
+            journal = self.read((study, 'catalog', 'journal.jsonl'), limit=16*1024*1024)
+            state = json.loads(raw)
+            if not isinstance(state, dict) or state.get('schema') != 'ag-catalog-state/1':
+                raise ValueError('登记格式无法识别')
+            if state.get('journal_sha256') != hashlib.sha256(journal).hexdigest():
+                raise ValueError('登记记录哈希与日志不一致')
+            objects = state.get('objects')
+            if not isinstance(objects, list):
+                raise ValueError('登记对象格式无法识别')
+            attempts = set()
+            for obj in objects:
+                if not isinstance(obj, dict) or obj.get('status') not in ('adopted', 'candidate', 'retired'):
+                    raise ValueError('登记对象状态无法识别')
+                if obj['status'] == 'retired':
+                    continue
+                refs = obj.get('members') if obj['status'] == 'candidate' else obj.get('adopted')
+                if obj['status'] == 'adopted':
+                    if not isinstance(refs, dict):
+                        raise ValueError('采用记录格式无法识别')
+                    refs = [refs.get(role) for role in ('opt', 'freq', 'sp') if refs.get(role) is not None]
+                if not isinstance(refs, list):
+                    raise ValueError('候选成员格式无法识别')
+                for ref in refs:
+                    if not isinstance(ref, dict):
+                        raise ValueError('Attempt 引用格式无法识别')
+                    attempts.add(component(ref.get('attempt')))
+            return {'available': True, 'attempts': sorted(attempts), 'warning': None}
+        except StudyError as exc:
+            if exc.status != 404:
+                fallback['warning'] = '登记记录无法安全读取，按没有登记处理'
+        except (ValueError, UnicodeError, RecursionError):
+            fallback['warning'] = '登记记录格式或日志哈希不一致，按没有登记处理'
+        return fallback
+
     def analysis_document(self, study, parts):
         path = (study, 'analyses', *parts)
         doc = self.document(path, parts[-1].lower().endswith('.json'), object_only=False)
@@ -377,6 +416,7 @@ class Studies:
                 issues.append({'path': f'analyses/{folder}', 'error': str(exc)})
         document = self.document((study, 'study.md'))
         return {'id': study, 'study': document, 'sections': parse_sections(document['data']), 'attempts': attempts,
+                'catalog_review': self.catalog_review_scope(study),
                 'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
 
     def comparison_structure(self, study, attempt):

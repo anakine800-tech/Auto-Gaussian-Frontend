@@ -83,21 +83,51 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 
 ## 四个入口与链接
 
-- **作业**：`#/jobs`，显示本地 monitor 快照。
-- **Study**：`#/s/<study>` 展示 KPI、待处理事项、最近分析和折叠的研究说明 / 进度日志；
-  `/attempts` 为可排序筛选的 Attempt 表，筛选排序保存在 URL，
-  `/a/<attempt>` 为详情。首页打开上次访问的 Study，无记录时取列表第一项。
-- **分析**：`#/s/<study>/analysis`；集合、IRC 和普通分析文件分别使用
-  `/analysis/ensemble/<报告>`、`/analysis/irc/<报告>`、`/analysis/file/<文件>`。
-- **文件**：`#/s/<study>/files`；研究说明、结构文件、关系图和其他分析文件。
+- **服务器**：`#/servers`，显示本地监控快照。
+- **研究**：`#/s/<study>/research/progress` 显示进展与来源；
+  `/research/attempts` 为全部 Attempt，`/research/a/<attempt>` 为详情。
+- **结果**：`#/s/<study>/results`；保留报告、构象集合、IRC 与快速比较。
+- **证据**：`#/s/<study>/evidence`；保留研究说明、结构文件、关系图和其他分析文件标签。
+- **使用说明**：`#/help`，口径表与进展页共用常量，说明各页用途、来源与操作边界。
 
-旧 hash 自动替换为新链接，不增加重定向历史。候选、路径点和旧集合筛选参数保留。
-上下文栏“返回列表”恢复来源页面的筛选、排序和滚动；浏览器后退同样可用。
-全局搜索只检索当前浏览器会话已读取的 Study、Attempt 标签和文件名；读取过
-Attempt 详情后，输入、日志和记录文件也会出现在搜索结果中。输入关键词不发请求，
-选择结果时才读取目标。页面刷新会清空内存搜索索引。
-折叠状态与既有集合表排序记在本机浏览器中；存储不可用时使用默认值，仍可正常阅读。
-Attempt 表的筛选和排序保存在 URL，刷新与返回时保留。
+| 旧链接 | 新位置 |
+| --- | --- |
+| `#server`、`#/jobs` | `#/servers` |
+| `#/<study>`、`#/s/<study>` | `#/s/<study>/research/progress` |
+| `#/s/<study>/attempts` | `#/s/<study>/research/attempts` |
+| `#/<study>/<attempt>`、`#/s/<study>/a/<attempt>` | `#/s/<study>/research/a/<attempt>` |
+| `#/s/<study>/analysis/...` | `#/s/<study>/results/...` |
+| `#/s/<study>/files/...` | `#/s/<study>/evidence/...` |
+| `#/<study>/ensembles/<report>` | `#/s/<study>/results/ensemble/<report>` |
+| `#/<study>/irc-reviews/<report>` | `#/s/<study>/results/irc/<report>` |
+| `#/<study>/analyses/<file>` | `results/file/<file>`（XYZ 保持证据结构查看） |
+| `#/<study>/file/…`（T118 本地文件查看） | 保持原路径，不参与旧链接迁移 |
+| 旧 `tab=overview/graph/structures` | 证据的 `document/graph/structures` 标签 |
+| 旧 `tab=attempts` / `tab=analyses/ensembles/irc-reviews` | 全部 Attempt / 结果 |
+
+旧 hash 用 `replaceState` 转换，不增加历史记录。精确文件参数、候选、IRC 方向与路径点、
+旧集合筛选参数保留；返回列表恢复来源页面的筛选、排序和滚动。
+
+上下文栏的 Study 切换器支持筛选、键盘和 Esc，研究与默认收起的验证/测试分组，最近打开优先。
+分组读 study.md 开头的 `type: research|validation|test` 或 `类型: 研究|验证|测试`；
+无字段时，`val-`、`test-`、`demo-` 前缀归入验证与测试，其余归入研究。
+
+全局搜索在首次搜索时由本地后端建立内存索引，覆盖所有 study 的名称、标题、Attempt 编号、
+标签、模板、analyses 与结构文件名；不索引结果正文、输入或日志内容，不发远程请求。
+索引按目录与 manifest 的 mtime/文件身份更新，最多返回 50 条、按 study 分组。
+单 study 最多 1,000 个索引文件、6,000 个目录项，每次搜索最多 30,000 个目录项和 2 秒，
+单份元数据最多 256 KiB；超限或不可安全读取时显示“索引未完成”。
+
+进展数字分别统计本地 running、finished、待审阅 Attempt 和明确待签记录；缺少里程碑节显示未知。
+待审阅要求 fetched、facts 为可读对象且 review.md 缺失/为空。
+有效 catalog/state.json 的日志哈希与 catalog/journal.jsonl 一致时，仅计采用结果引用与候选对象成员；
+退役对象和采用对象的历史成员不计入。无登记或格式/哈希异常时回退全部已取回 Attempt，异常明确提示。
+里程碑区分已签、待签、未开始、不适用、无法识别；工具完成不显示为科学通过。
+最近改动的文件默认收起，只按修改时间；进度日志在折叠区显示最后三条，更早记录另行展开。
+
+比较篮固定在研究和结果页底部，同 Study 最多 6 项，与 Attempt 勾选共用状态。
+选择保存在 sessionStorage 和 URL 的 `cmp` 参数，URL 优先；复制链接、刷新、查看详情和返回均保留。
+“打开比较”使用现有快速比较，结构对比保持 2–3 项限制；计算链与统一比较/证据库分别由 T121、T122 完成。
 
 T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、Attempt 详情与操作抽屉、作业页、分析入口和快速比较（含 termination / n_imag 列），以及 TS 立体标签报告只读查看。T87 提供 IRC 曲线与路径点结构。快速比较为前端计算、非正式结果；工具状态与报告不等于科学验收。
 设计和验收记录见 [T94](docs/t94/design-checkpoint.md)；待审 / 待签计数、字段来源与

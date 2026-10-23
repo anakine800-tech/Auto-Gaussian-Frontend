@@ -70,9 +70,9 @@ test('keyword search and last termination links locate lines',async({page},info)
 test('hash history and unknown attempts do not silently select another',async({page})=>{
  await page.goto('/#/butane-demo/prepared');
  await expect(page.getByLabel('预览结构')).toHaveValue('input');
- await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
  await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'xtb-prepared',exact:true}).click();
- await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/xtb-prepared$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/research\/a\/xtb-prepared$/);
  await openSection(page,'输入文件');await expect(page.getByRole('region',{name:'输入参数'})).toContainText('C4H10');
  await page.goBack();await expect(page.getByRole('table',{name:'Attempt 结果表'})).toBeVisible();
  await page.goBack();await expect(page.getByRole('heading',{name:'prepared',exact:true})).toBeVisible();

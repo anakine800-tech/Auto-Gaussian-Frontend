@@ -21,7 +21,7 @@ test.afterEach(async({page})=>{
 
 test('saved curves, statuses, sources and neutral endpoint supplementation',async({page})=>{
  await page.goto(base+'/#/irc-demo');
- await page.getByRole('button',{name:'分析',exact:true}).click();
+ await page.getByRole('button',{name:'结果',exact:true}).click();
  await page.getByRole('region',{name:'IRC 报告列表'}).getByRole('link',{name:'review.json',exact:true}).click();
  const view=page.getByRole('region',{name:'IRC 查看页',exact:true});
  await expect(view).toContainText('仍需人工审阅 SCF/电子态连续性');
@@ -43,7 +43,7 @@ test('chart point selects actual frame, highlights atoms, restores URL and histo
  await page.goto(base+'/#/irc-demo/irc-reviews/review.json?direction=forward&point=0');
  const energy=page.getByRole('region',{name:'能量曲线',exact:true});
  await energy.locator('circle[data-direction="reverse"][data-point="2"]').click();
- await expect(page).toHaveURL(base+'/#/s/irc-demo/analysis/irc/review.json?direction=reverse&point=2');
+ await expect(page).toHaveURL(base+'/#/s/irc-demo/results/irc/review.json?direction=reverse&point=2');
  await expect(page.getByTestId('irc-selected')).toHaveText('reverse 点 2 · XYZ 帧 2（从 0 开始）');
  const atom=page.locator('.irc-structure [data-testid="molecule-atom"][data-center="1"] circle');
  await expect(atom).toHaveCSS('stroke','rgb(189, 91, 17)');
@@ -113,7 +113,7 @@ test('three final structures use facts, highlight tracked atoms and link to Atte
   await expect(card.locator('dd')).toHaveText([energy,nImag]);
   await expect(card.locator('.irc-structure-distances li')).toHaveText([`1-2${distance}`,'1-31.0000']);
   await expect(card).toContainText('前端按最终几何计算');
-  await expect(card.getByRole('link')).toHaveAttribute('href',`#/s/irc-demo/a/${attempt}`);
+  await expect(card.getByRole('link')).toHaveAttribute('href',`#/s/irc-demo/research/a/${attempt}`);
   for(const atom of [1,2,3])await expect(card.locator(`[data-center="${atom}"] circle`)).toHaveCSS('stroke','rgb(189, 91, 17)');
  }
  const reverse=page.getByTestId('irc-comparison-reverse'),ts=page.getByTestId('irc-comparison-ts');
@@ -122,7 +122,7 @@ test('three final structures use facts, highlight tracked atoms and link to Atte
  await ts.getByTestId('molecule-scene').press('ArrowRight');
  await expect(ts.getByTestId('molecule-atom').first()).not.toHaveAttribute('transform',tsBefore!);
  await expect(reverse.getByTestId('molecule-atom').first()).toHaveAttribute('transform',reverseBefore!);
- await ts.getByRole('link').click();await expect(page).toHaveURL(base+'/#/s/irc-demo/a/synthetic-ts');
+ await ts.getByRole('link').click();await expect(page).toHaveURL(base+'/#/s/irc-demo/research/a/synthetic-ts');
  await page.goBack();await expect(page.getByTestId('irc-comparison-ts')).toContainText('-76.123457');
 });
 

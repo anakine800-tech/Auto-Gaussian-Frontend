@@ -77,7 +77,7 @@ for(const [width,height] of [[1440,860],[1280,720]])for(const count of [2,3])tes
  await dialog.getByLabel('对比原子对').fill('1-2,2-3');await dialog.getByLabel('对齐到第 1 个').check();
  for(let i=1;i<=count;i++){
   const card=page.getByTestId(`structure-comparison-${i}`);await expect(card.locator('.irc-structure-distances li')).toHaveText(['1-21.0000','2-31.4142']);
-  await expect(card.locator('dd').nth(1)).toHaveText(String(i-1));await expect(card.getByRole('link')).toHaveAttribute('href',`#/s/butane-demo/a/${['anti','gauche','prepared'][i-1]}`);
+  await expect(card.locator('dd').nth(1)).toHaveText(String(i-1));await expect(card.getByRole('link')).toHaveAttribute('href',`#/s/butane-demo/research/a/${['anti','gauche','prepared'][i-1]}`);
   await expect(card.locator('[data-highlighted=true]')).toHaveCount(3);
  }
  const alignedAtoms=await page.getByTestId('structure-comparison-1').getByTestId('molecule-atom').evaluateAll(atoms=>atoms.map(a=>({center:a.getAttribute('data-center'),transform:a.getAttribute('transform')})).sort((a,b)=>Number(a.center)-Number(b.center)));

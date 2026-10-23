@@ -22,16 +22,16 @@ test('overview, Attempt sorting, saved thermo and nested representatives',async(
  const writes:string[]=[],errors:string[]=[];
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/#/butane-demo');
- await expect(page.getByRole('button',{name:'概览',exact:true})).toHaveAttribute('aria-current','page');
- await expect(page.getByRole('region',{name:'要处理的事'})).toBeVisible();
- await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await expect(page.getByRole('button',{name:'进展',exact:true})).toHaveAttribute('aria-current','page');
+ await expect(page.getByRole('region',{name:'还缺什么'})).toBeVisible();
+ await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
  const table=page.getByRole('table',{name:'Attempt 结果表'});
  await expect(table).toContainText('-157.0025');await expect(table).toContainText('unknown');
  await table.getByRole('button',{name:'电子能 / Eh',exact:false}).click();
  await expect(table.locator('tbody tr').first()).toContainText('opt-demo');
- await page.getByRole('button',{name:'分析',exact:true}).click();
+ await page.getByRole('button',{name:'结果',exact:true}).click();
  await page.getByRole('link',{name:'thermo-demo.json',exact:true}).click();await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
- await page.getByRole('button',{name:'文件',exact:true}).click();
+ await page.getByRole('button',{name:'证据',exact:true}).click();
  await page.getByRole('button',{name:'结构文件',exact:true}).click();
  await page.getByRole('link',{name:'analyses/cluster-demo/representatives.xyz',exact:true}).click();
  await expect(page.getByRole('heading',{name:'analyses/cluster-demo/representatives.xyz',exact:true})).toBeVisible();
@@ -40,7 +40,7 @@ test('overview, Attempt sorting, saved thermo and nested representatives',async(
  await page.screenshot({path:info.outputPath('results.png'),fullPage:true});
  await page.goto('/#/s/butane-demo/attempts');
  await table.getByRole('link',{name:'opt-demo',exact:true}).click();
- await expect(page).toHaveURL(/#\/s\/butane-demo\/a\/opt-demo$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/research\/a\/opt-demo$/);
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
@@ -50,7 +50,7 @@ test('nested analyses deep link and Markdown isolates scripts while allowing HTT
  await page.goto('/#/butane-demo/analyses/cluster-demo/representatives.xyz');
  await expect(page.getByLabel('帧号')).toHaveValue('1');
  await expect(page.getByRole('region',{name:'三维分子结构'}).last()).toContainText('14 / 14 原子');
- await page.getByRole('button',{name:'文件',exact:true}).click();await page.getByRole('button',{name:'研究说明',exact:true}).click();
+ await page.getByRole('button',{name:'证据',exact:true}).click();await page.getByRole('button',{name:'研究说明',exact:true}).click();
  const md=page.locator('.markdown');
  await expect(md.locator('strong')).toHaveText('Markdown 正常渲染');
  await expect(md.locator('script,img,iframe')).toHaveCount(0);
@@ -99,7 +99,7 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  await page.screenshot({path:info.outputPath('server.png'),fullPage:true});
  await page.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'作业',exact:true}).click();await expect(page.getByRole('heading',{name:'服务器',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'服务器',exact:true}).click();await expect(page.getByRole('heading',{name:'服务器',exact:true})).toBeVisible();
  expect(writes).toEqual([]);
 });
 

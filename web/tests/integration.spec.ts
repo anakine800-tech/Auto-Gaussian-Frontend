@@ -45,7 +45,7 @@ async function decode(page:Page){
 async function healthyResults(page:Page,study:string){
  await page.goto(base+'/#/s/'+study+'/attempts');
  await expect(page.getByRole('table',{name:'Attempt 结果表'})).toContainText('opt-demo');
- await page.getByRole('button',{name:'分析',exact:true}).click();
+ await page.getByRole('button',{name:'结果',exact:true}).click();
  await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
  await page.goto(base+'/#/s/'+study+'/attempts');
  await expect(page.getByRole('table',{name:'Attempt 结果表'})).toBeVisible();
@@ -55,15 +55,15 @@ test('results → ensemble → selected 3D → source CREST frames → back rest
  await healthyResults(page,'butane-demo');
  const results=page.getByRole('table',{name:'Attempt 结果表'});
  for(const id of ['sp-demo','opt-demo','crest-demo','anti'])await expect(results).toContainText(id);
- await page.getByRole('button',{name:'分析',exact:true}).click();
+ await page.getByRole('button',{name:'结果',exact:true}).click();
  await page.getByRole('region',{name:'构象集合列表'}).getByRole('link',{name:'合成水集合'}).click();
  await page.getByRole('button',{name:'候选 2',exact:true}).click();
- const selected=base+'/#/s/butane-demo/analysis/ensemble/ensemble.json?candidate=2';
+ const selected=base+'/#/s/butane-demo/results/ensemble/ensemble.json?candidate=2';
  await expect(page).toHaveURL(selected);
  await expect(page.getByRole('button',{name:'候选 2 缩略图'})).toHaveAttribute('aria-pressed','true');
  await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('候选 2 · 第 2 帧');
  await page.getByRole('table',{name:'构象能量表'}).locator('tr[data-candidate="2"]').getByRole('link',{name:'crest-demo'}).click();
- await expect(page).toHaveURL(base+'/#/s/butane-demo/a/crest-demo');
+ await expect(page).toHaveURL(base+'/#/s/butane-demo/research/a/crest-demo');
  await openSection(page,'输入文件');const crest=page.getByRole('region',{name:'CREST 输出',exact:true});
  await crest.getByRole('link',{name:'attempts/crest-demo/crest-frames/crest_conformers.xyz',exact:true}).click();
  await expect(crest.getByTestId('frame-comment')).toContainText('能量 -76.0 Hartree');
@@ -75,9 +75,9 @@ test('results → ensemble → selected 3D → source CREST frames → back rest
  await expect(page.getByRole('button',{name:'候选 2 缩略图'})).toHaveAttribute('aria-pressed','true');
  await page.reload();await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('候选 2 · 第 2 帧');
  await page.getByRole('link',{name:'返回结果',exact:true}).click();
- await expect(page).toHaveURL(base+'/#/s/butane-demo');
- await expect(page.getByRole('region',{name:'要处理的事'})).toBeVisible();
- await page.getByRole('button',{name:'Attempts',exact:true}).click();
+ await expect(page).toHaveURL(base+'/#/s/butane-demo/research/progress');
+ await expect(page.getByRole('region',{name:'还缺什么'})).toBeVisible();
+ await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
  await expect(results).toBeVisible();
  await expect(page.getByRole('button',{name:'取回结果',exact:true})).toHaveCount(0);
  const response=await page.request.post(base+'/api/actions',{data:{action:'fetch',study:'butane-demo',attempt:'anti'}});
@@ -87,7 +87,7 @@ test('results → ensemble → selected 3D → source CREST frames → back rest
 test('TS frequency → animation → review atom picks → matching saved report',async({page})=>{
  await healthyResults(page,'butane-demo');
  await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'anti',exact:true}).click();
- await expect(page).toHaveURL(base+'/#/s/butane-demo/a/anti');await decode(page);
+ await expect(page).toHaveURL(base+'/#/s/butane-demo/research/a/anti');await decode(page);
  await expect(page.getByLabel('振动模式',{exact:true})).toContainText('-100');
  await page.getByRole('button',{name:'继续播放',exact:true}).click();
  await expect(page.getByTestId('vibration-controls')).toContainText('播放中');
