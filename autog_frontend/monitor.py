@@ -47,6 +47,8 @@ def validate_monitor(data):
             require(type(job['mine']) is bool)
         if new or 'cores_kind' in job:
             require(job['cores_kind'] in ('allocated', 'requested'))
+        if 'mem_source' in job:
+            require(job['mem_source'] in ('scheduler', 'manifest', None))
         if 'mem_gb' in job:
             number(job['mem_gb'], True)
         for key in ('elapsed_seconds', 'walltime_limit_seconds'):
@@ -119,6 +121,8 @@ def validate_monitor(data):
                     timestamp(cluster[key], True)
             if 'storage_error' in cluster:
                 string(cluster['storage_error'], True)
+            if 'job_summary_error' in cluster:
+                string(cluster['job_summary_error'], True)
             if 'jobs_omitted' in cluster:
                 integer(cluster['jobs_omitted'], True)
             if 'jobs' in cluster:

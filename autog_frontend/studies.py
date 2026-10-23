@@ -6,6 +6,7 @@ file from exhausting the viewer. Report metadata is cached in memory only;
 there is no index or derived-file write.
 """
 import codecs
+from itertools import islice
 from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -189,6 +190,8 @@ class Studies:
         self._analysis_cache = OrderedDict()
         self._evidence_cache = OrderedDict()
         self._evidence_cache_lock = Lock()
+        self._evidence_directories = OrderedDict()
+        self._evidence_directory_lock = Lock()
         self._analysis_cache_lock = Lock()
         # Check every component, including the configured root's ancestors.
         with self.open_dir(()):
@@ -516,49 +519,6 @@ class Studies:
                 'catalog_review': self.catalog_review_scope(study, catalog),
                 'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
 
-    def evidence_catalog(self, study):
-        """Only adopted report fields are reference sources; never parse other JSON.
-
-        T121 supplies the shared catalog reader after integration. Until then the
-        same bounded state/journal hash check keeps this branch independently usable.
-        """
-        if hasattr(self, 'catalog'):
-            return self.catalog(study)
-        result = {'state': None, 'journal_ok': False, 'warning': None}
-        try:
-            with self.open_dir((study, 'catalog')):
-                pass
-        except StudyError as exc:
-            if exc.status != 404:
-                result['warning'] = '登记目录无法安全读取'
-            return result
-        try:
-            state = json.loads(self.read((study, 'catalog', 'state.json')), parse_float=finite_float,
-                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-            journal = self.read((study, 'catalog', 'journal.jsonl'), 16*1024*1024)
-            if (not isinstance(state, dict) or state.get('schema') != 'ag-catalog-state/1'
-                    or state.get('journal_sha256') != hashlib.sha256(journal).hexdigest()
-                    or not isinstance(state.get('objects'), list)):
-                raise ValueError()
-            ids = set()
-            for obj in state['objects']:
-                if (not isinstance(obj, dict) or obj.get('status') not in ('adopted', 'candidate', 'retired')
-                        or not isinstance(obj.get('members'), list) or not isinstance(obj.get('adopted', {}), dict)):
-                    raise ValueError()
-                identity = component(obj.get('id'))
-                if identity in ids:
-                    raise ValueError()
-                ids.add(identity)
-                for ref in [*obj['members'], *[obj.get('adopted', {}).get(role) for role in ('opt', 'freq', 'sp')]]:
-                    if ref is not None:
-                        if not isinstance(ref, dict):
-                            raise ValueError()
-                        component(ref.get('attempt'))
-            return {'state': state, 'journal_ok': True, 'warning': None}
-        except (StudyError, ValueError, UnicodeError, RecursionError):
-            result['warning'] = '登记记录缺失、格式异常或日志哈希不一致；未使用采用记录'
-            return result
-
     def evidence_links(self, study, path, budget):
         """Cache only local Markdown link destinations, never document bodies."""
         parts = (study, *path.split('/'))
@@ -593,18 +553,34 @@ class Studies:
         """One row per regular file; descriptor-relative, bounded, read-only walk."""
         study = component(study)
         files, issues, count, truncated = [], [], 0, False
+        def version(info):
+            return tuple(getattr(info, key) for key in
+                         ('st_dev', 'st_ino', 'st_mode', 'st_mtime_ns', 'st_ctime_ns', 'st_size'))
+
         def walk(parts):
             nonlocal count, truncated
-            with self.open_dir((study, *parts)) as directory, os.scandir(directory) as entries:
-                for entry in entries:
+            key = (study, *parts)
+            with self.open_dir(key) as directory:
+                stamp = version(os.fstat(directory))
+                cached = self._evidence_directories.get(key)
+                if cached and cached[0] == stamp:
+                    names, previous = cached[1], cached[2]
+                else:
+                    with os.scandir(directory) as entries:
+                        names = tuple(entry.name for entry in islice(entries, EVIDENCE_ENTRY_LIMIT + 1))
+                    previous = {}
+                validated = {}
+                for name in names:
                     if count >= EVIDENCE_ENTRY_LIMIT:
                         truncated = True
-                        return
+                        break
                     count += 1
                     try:
-                        component(entry.name)
-                        info = entry.stat(follow_symlinks=False)
-                        path = (*parts, entry.name)
+                        component(name)
+                        # Directory mtime does not track in-place file writes.
+                        # Always lstat each name, including on a directory hit.
+                        info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                        path = (*parts, name)
                         if stat.S_ISLNK(info.st_mode):
                             issues.append({'path': '/'.join(path), 'error': '符号链接已拒绝'})
                         elif stat.S_ISDIR(info.st_mode):
@@ -613,26 +589,41 @@ class Studies:
                             else:
                                 walk(path)
                         elif stat.S_ISREG(info.st_mode):
-                            # Reopen rather than trusting scandir metadata: a
-                            # replaced file or parent must pass O_NOFOLLOW again.
-                            with self.open_file((study, *path)) as stream:
-                                info = os.fstat(stream.fileno())
-                            files.append({'path': '/'.join(path), 'type': evidence_type(path),
-                                          'size_bytes': info.st_size,
-                                          'updated_at': datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
+                            old = previous.get(name)
+                            if old and old[0] == version(info):
+                                metadata = old[1]
+                            else:
+                                # New/changed entries must pass the complete
+                                # O_NOFOLLOW path check before metadata is cached.
+                                with self.open_file((study, *path)) as stream:
+                                    info = os.fstat(stream.fileno())
+                                metadata = {'path': '/'.join(path), 'type': evidence_type(path),
+                                            'size_bytes': info.st_size,
+                                            'updated_at': datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()}
+                            validated[name] = (version(info), metadata)
+                            files.append({**metadata,
                                           'attempts': [path[1]] if len(path)>2 and path[0]=='attempts' else [],
                                           'objects': [], 'referenced_by': []})
                         else:
                             issues.append({'path': '/'.join(path), 'error': '非普通文件已拒绝'})
                     except (OSError, StudyError, ValueError, OverflowError):
-                        issues.append({'path': '/'.join((*parts, entry.name)), 'error': '条目变化或无法安全读取'})
-        walk(())
+                        issues.append({'path': '/'.join((*parts, name)), 'error': '条目变化或无法安全读取'})
+                if stamp == version(os.fstat(directory)) and len(names) <= EVIDENCE_ENTRY_LIMIT:
+                    self._evidence_directories[key] = (stamp, names, validated)
+                    self._evidence_directories.move_to_end(key)
+                    # Bound metadata retained across multiple studies, including
+                    # empty directories, by the existing scan budget.
+                    while sum(max(1, len(v[1])) for v in self._evidence_directories.values()) > EVIDENCE_ENTRY_LIMIT:
+                        self._evidence_directories.popitem(last=False)
+        with self._evidence_directory_lock:
+            walk(())
         files.sort(key=lambda item: item['path'])
         by_path = {item['path']: item for item in files}
-        catalog = self.evidence_catalog(study)
-        objects = catalog['state']['objects'] if catalog['journal_ok'] else []
+        catalog = self.catalog(study)
+        objects = [obj for obj in catalog['state']['objects']
+                   if isinstance(obj.get('id'), str) and obj['id'].strip()] if catalog['journal_ok'] else []
         for obj in objects:
-            members = {ref['attempt'] for ref in obj['members']}
+            members = {ref['attempt'] for ref in obj.get('members', [])}
             members.update(ref['attempt'] for role, ref in obj.get('adopted', {}).items()
                            if role in ('opt', 'freq', 'sp') and isinstance(ref, dict))
             for item in files:

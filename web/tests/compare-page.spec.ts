@@ -84,3 +84,32 @@ for(const [width,height] of [[1440,900],[1280,800],[390,844]])test(`three-item c
  await page.getByLabel('比较原子对',{exact:true}).fill('1-2,2-3');await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:info.outputPath(`t122-compare-${width}.png`),fullPage:true});
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
+
+test('chain and comparison adapters return identical deltas, blank reasons and state-gap flags',async()=>{
+ const {catalogObjects,relativeEnergies}=await import('../src/catalog-data');
+ const cases=[
+  {},{route:'# HF/STO-3G Freq Temperature = 298.150 Pressure = 1.000'},
+  {route:'# HF/STO-3G Freq temperature=2.9815D2 pressure=1e0'},
+  {route:'# HF/STO-3G Freq temperature=300'},{route:'# HF/STO-3G Freq pressure=2'},
+  {route:'# HF/STO-3G Freq temperature=unknown'},{route:'# HF/STO-3G Freq pressure='},
+  {route:'# HF/STO-3G Freq temperature=298.15 temperature=300'},
+  {route:'# HF/STO-3G Freq pressure=1e999'},
+  {program_version:'Other revision'},{units:{}},{charge:1},
+  {route:'# B3LYP/STO-3G Freq'},{route:'# MP2/STO-3G Freq'},
+  {route:'# HF/STO-3G Freq SCRF=(SMD,Solvent=Water)'},
+ ];
+ for(const change of cases){
+  const {sources,catalog}=fixture();Object.assign(sources['prepared-freq'].facts.data!,change);
+  const chainObjects=catalogObjects({catalog} as any),objects=comparisonObjects(catalog);
+  const attempts=Object.values(sources).map(s=>({id:s.id,facts:s.facts})) as any;
+  const entries=comparisonEntries(['anti','prepared'],objects,sources);
+  for(const [basis,metric] of [['E','sp'],['E+ZPE','zero'],['G','g']] as const)for(const ref of [0,1]){
+   const referenceId=ref===0?'water-0':'water-2';
+   const rows=relativeEnergies(chainObjects,attempts,sources,basis,referenceId).rows;
+   for(const [i,id] of [[0,'water-0'],[1,'water-2']] as const){
+    const row=rows.find(r=>r.object.id===id)!,cell=comparisonEnergy(entries[i],entries[ref],metric);
+    expect({value:row.energy,delta:row.relative,reason:row.reason??'',stateGap:row.stateGap}).toEqual(cell);
+   }
+  }
+ }
+});

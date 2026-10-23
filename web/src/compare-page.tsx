@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {endpoint,get,object} from './api';
 import type {Study} from './api';
 import {useCompareBasket} from './compare-basket';
-import {comparisonEntries,comparisonObjects,comparisonEnergy,energyMetrics,inspectProtocol,protocolKeys} from './quick-comparison';
+import {comparisonEntries,comparisonObjects,comparisonEnergy,energyMetrics,inspectProtocol,protocolKeys,thermoKeys} from './quick-comparison';
 import type {CompareSource,EvidenceCatalog} from './quick-comparison';
 import {parseAtomPairs,StructureComparison} from './structure-comparison';
 import {isGeometry} from './molecule-viewer';
@@ -40,7 +40,7 @@ export function ComparePage({data,revision}:{data:Study;revision:number}){
  {catalog?.warning&&<ErrorNotice>{catalog.warning}</ErrorNotice>}{error&&<ErrorNotice>{error}</ErrorNotice>}
  {ids.length<2?<p>请从比较篮选择至少 2 个 Attempt。</p>:!sources?<p role="status">读取采用来源，核对比较口径…</p>:<>
  <div className="comparison-controls"><label>参照项 <select aria-label="参照项" value={ref?.id??''} onChange={e=>setReference(e.target.value)}>{entries.map(e=><option value={e.id} key={e.id}>{e.label}</option>)}</select></label><label><input type="checkbox" checked={differences} onChange={e=>setDifferences(e.target.checked)}/>只看有差异的行</label></div>
- <h3>口径核对</h3>{(['opt','sp','freq'] as const).map(layer=>{const inspected=entries.map(e=>inspectProtocol(e.layers[layer]));return <section key={layer}><h4>{layer.toUpperCase()} 层</h4>{table(`${layer} 口径核对`,protocolKeys.map(name=>{const values=inspected.map(s=>s.spec[name]??'缺失'),status=values.includes('缺失')?'缺失':new Set(values).size===1?'一致':'不同';return {name:`${name} · ${status}`,values};}))}{inspected.map((s,i)=>s.errors.length>0&&<p key={entries[i].id} className="notice">{entries[i].id}：{s.errors.join('；')}</p>)}</section>;})}
+ <h3>口径核对</h3>{(['opt','sp','freq'] as const).map(layer=>{const inspected=entries.map(e=>inspectProtocol(e.layers[layer],layer==='freq'));return <section key={layer}><h4>{layer.toUpperCase()} 层</h4>{table(`${layer} 口径核对`,[...protocolKeys,...(layer==='freq'?thermoKeys:[])].map(name=>{const values=inspected.map(s=>s.spec[name]??'缺失'),status=values.includes('缺失')?'缺失':new Set(values).size===1?'一致':'不同';return {name:`${name} · ${status}`,values};}))}{inspected.map((s,i)=>s.errors.length>0&&<p key={entries[i].id} className="notice">{entries[i].id}：{s.errors.join('；')}</p>)}</section>;})}
  <h3>能量</h3><p>Δ 值相对所选参照项，单位 kcal/mol；多重度不同标为电子态能差。方法、基组、色散、溶剂、版本、组成或电荷不符时，该格留空并说明原因。</p>
  {table('分层能量',energyMetrics.map(([metric,name])=>({name,values:entries.map(e=>{const cell=comparisonEnergy(e,ref,metric);return cell.reason?`—（${cell.reason}）`:`${cell.value!.toFixed(6)} Eh · Δ ${cell.delta!.toFixed(3)} kcal/mol${cell.stateGap?' · 电子态能差':''}`;})})))}
  <h3>性质</h3>{table('性质',propertyRows)}

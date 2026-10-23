@@ -55,10 +55,13 @@ class ServerMonitorTests(unittest.TestCase):
             (('cluster', 'storage_checked_at'), 'yesterday'),
             (('cluster', 'storage_sampled_at'), '2026-01-01'),
             (('cluster', 'storage_error'), 7),
+            (('cluster', 'job_summary_error'), 7),
+            (('cluster', 'job_summary_error'), False),
         ]
         for group in ('own', 'cluster'):
             for field, bad in [('cores_kind', 'estimated'), ('cores_kind', None),
                                ('user', 1), ('mine', 1), ('mem_gb', '12'),
+                               ('mem_source', 'guessed'), ('mem_source', 1),
                                ('mem_gb', -1), ('mem_gb', float('inf')), ('mem_gb', True),
                                ('elapsed_seconds', -1), ('walltime_limit_seconds', 1.5),
                                ('elapsed_source', 'guess'), ('start_time', 'bad'),
@@ -85,6 +88,18 @@ class ServerMonitorTests(unittest.TestCase):
                 target[path[-1]] = bad
                 with self.assertRaisesRegex(ValueError, '快照格式不正确'):
                     validate_monitor(data)
+
+    def test_t123_optional_sources_and_partial_failure_remain_compatible(self):
+        for source in ('scheduler', 'manifest', None):
+            data = enriched_snapshot()
+            data['cluster']['job_summary_error'] = 'Synthetic partition sampling failure'
+            data['cluster']['job_summary'] = None
+            for group in ('own', 'cluster'):
+                data[group]['jobs'][0]['mem_source'] = source
+            self.assertIs(validate_monitor(data), data)
+            self.assertTrue(data['ok'])
+        data['cluster']['job_summary_error'] = None
+        self.assertIs(validate_monitor(data), data)
 
     def test_legacy_start_time_remains_compatible(self):
         data = monitor_snapshot()

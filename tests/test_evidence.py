@@ -132,6 +132,36 @@ class EvidenceTest(unittest.TestCase):
             result=self.store.evidence('water-demo')
         self.assertTrue(result['issues']); self.assertNotIn('OUTSIDE_SENTINEL',json.dumps(result))
 
+    def test_shared_catalog_payload_and_warning_match_study_reader(self):
+        state = self.catalog()
+        state['objects'][0].pop('members')
+        self.write('catalog/state.json', json.dumps(state))
+        for journal in ('{"synthetic":true}\n', 'changed'):
+            self.write('catalog/journal.jsonl', journal)
+            self.assertEqual(self.store.evidence('water-demo')['catalog'], self.store.catalog('water-demo'))
+        (self.study/'catalog/state.json').unlink()
+        self.assertEqual(self.store.evidence('water-demo')['catalog'], self.store.catalog('water-demo'))
+
+    def test_directory_cache_revalidates_files_even_without_directory_mtime_change(self):
+        self.store.evidence('water-demo')
+        with patch('autog_frontend.studies.os.scandir', side_effect=AssertionError('directory cache hit')):
+            cached = self.store.evidence('water-demo')
+        self.assertFalse(cached['issues'])
+        directory = self.study/'analyses'; stamp = directory.stat().st_mtime_ns
+        self.write('analyses/data.csv', 'longer synthetic content')
+        self.assertEqual(directory.stat().st_mtime_ns, stamp)
+        rows = {r['path']: r for r in self.store.evidence('water-demo')['files']}
+        self.assertEqual(rows['analyses/data.csv']['size_bytes'], len('longer synthetic content'))
+        self.write('analyses/new.csv', 'new'); (directory/'figure.svg').unlink()
+        rows = {r['path']: r for r in self.store.evidence('water-demo')['files']}
+        self.assertIn('analyses/new.csv', rows); self.assertNotIn('analyses/figure.svg', rows)
+        path = directory/'data.csv'; path.unlink(); path.symlink_to(self.root/'outside')
+        # Even a restored directory mtime must not make a replaced file trusted.
+        os.utime(directory, ns=(stamp, stamp))
+        result = self.store.evidence('water-demo')
+        self.assertNotIn('analyses/data.csv', {r['path'] for r in result['files']})
+        self.assertTrue(any(r['path']=='analyses/data.csv' for r in result['issues']))
+
     def test_hook_uses_local_terms_and_rejects_staged_hits(self):
         repo=self.root/'hook-demo'; repo.mkdir(); (repo/'scripts').mkdir(); (repo/'.githooks').mkdir()
         source=Path(__file__).resolve().parents[1]

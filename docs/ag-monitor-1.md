@@ -122,3 +122,17 @@ Slurm 不显示其他人明细，只显示两个分组各自的“其他用户�
 作业号是可选列；walltime ≥90% 使用警示色，超限仍显示真实百分比。
 节点与队列、限额档位与存储默认收起，PBS 单节点默认展开节点区；Slurm 仅显示分区 CPU 汇总。
 本地状态 `finished` 的 Attempt 在底部“刚结束待取回”中独立列出，不从队列消失推断结束。
+
+## T123：局部采样错误与作业内存来源
+
+可选字段与后端 T123（合并提交 `8ab8b915`）一致；旧快照省略时继续接受。
+
+- `cluster.job_summary_error`：字符串或 null。分区作业汇总查询失败而本人查询成功时，
+  顶层 `ok=true`、本人作业保留，`job_summary` 的汇总值为 null，此字段说明失败原因。
+  硬件采样的错误仍在 `cluster.hardware.error`，不把局部错误扩展成整个快照失败。
+- `own.jobs[]`、`cluster.jobs[]` 的 `mem_source`：`scheduler` / `manifest` / null。
+  PBS 内存来自调度器；Slurm 只对精确关联到 Attempt 的作业取 manifest 档位内存，
+  此时为 `manifest`；没有精确关联时内存与来源都保持 null。
+  前端仅校验和保留来源，不按作业名猜关联、不从来源推导实时内存用量。
+
+校验器对这两个字段进行类型/枚举校验；字段缺失/null 不解释成零或成功。
