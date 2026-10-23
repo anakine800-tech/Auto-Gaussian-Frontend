@@ -150,7 +150,7 @@ T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、
   otherwise it returns the original bytes. All responses have `nosniff`.
   HTML uses an iframe with an empty sandbox, without scripts or same-origin
   permission. SVG is displayed only as an image. Both raw formats receive CSP
-  `sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'`.
+  `sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'`.
 - CSV supports quoted fields, commas, escaped quotes and embedded line breaks;
   at most 5,000 data rows are displayed with a truncation notice. Invalid CSV
   retains its source and physical error line. Any valid report JSON shape is
@@ -162,11 +162,18 @@ T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、
   directory groups nonempty categories by known schema, explicit JSON `kind` or
   Markdown front matter `kind`, then file type; it never guesses from names.
   Metadata reads stay within the document size limit, including late top-level
-  schema/kind fields, and never return report rows in the directory response. The Other group has folder subgroups. Category evidence
+  schema/kind fields, and never return report rows in the directory response.
+  Unchanged metadata is cached in process by path, nanosecond mtime and size;
+  file identity/change time also invalidate replacements. Each lookup still
+  checks the path with `O_NOFOLLOW`. The cache retains at most 1024 metadata
+  entries, never file bodies. Known schemas retain thermochemistry / profiles,
+  channel coverage and NCI groups; the existing fixed TS-label layout keeps its
+  own group. The Other group has folder subgroups. Category evidence
   is shown beside each file. Reports, structure preview and wide tables adapt to
   narrow screens without page overflow.
 - These T118 reading rules supersede the historical T7c link/image restrictions
-  described below. Human reviews remain escaped text. The viewer does not write
+  and the blanket no-cache statement below: report metadata may be cached in
+  memory, with no disk cache. Human reviews remain escaped text. The viewer does not write
   signatures, interpretations, or edits.
 - Attempt states are read as saved, including `unknown`. Refresh rereads local
   files. It does not query a cluster or change a state.

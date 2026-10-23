@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {parseCSV} from '../src/data-table-view';
-import {reportCategory} from '../src/analysis-summary';
+import {reportCategory,reportGroups} from '../src/analysis-summary';
 
 const report=(name:string)=>'/#/s/butane-demo/analysis/file/reading/'+name;
 test('CSV subset preserves quotes, commas, physical newlines and row limits',()=>{
@@ -17,6 +17,11 @@ test('classification uses schema, explicit declaration and type without filename
  expect(reportCategory({name:'x.md',kind:'energy',category_basis:'按报告声明'})).toEqual({kind:'energy',basis:'按报告声明'});
  expect(reportCategory({name:'x.json',kind:'formal',schema:'ag-thermo/1'})).toEqual({kind:'thermo',basis:'按 schema'});
  expect(reportCategory({name:'figure.SVG'})).toEqual({kind:'figure',basis:'按文件类型'});
+ const schemas:Record<string,string>={'ag-ensemble/1':'ensemble','ag-irc-review/1':'irc','ag-thermo/1':'thermo','ag-profile/1':'thermo','ag-channel-coverage/1':'coverage','ag-nci/1':'nci'};
+ for(const [schema,kind] of Object.entries(schemas))expect(reportCategory({name:'report.json',schema,kind:'formal'})).toEqual({kind,basis:'按 schema'});
+ for(const name of ['labels.json','labels.md','channel-suggestions.csv'])expect(reportCategory({name:'ts-labels/synthetic/'+name})).toEqual({kind:'ts',basis:'按 TS 标签目录'});
+ for(const name of ['labels.json','other/labels.json','ts-labels/synthetic/other.json'])expect(reportCategory({name}).kind).toBe('other');
+ expect(reportGroups.slice(5,10)).toEqual([['thermo','热化学 / 能量剖面'],['coverage','通道覆盖'],['ts','TS 标签'],['nci','NCI'],['stage-review','阶段审阅']]);
 });
 for(const [width,height] of [[1440,860],[1280,720],[390,844]])test(`report table, exact Attempt preview and responsive layout ${width}`,async({page},info)=>{
  await page.setViewportSize({width,height});const errors:string[]=[],writes:string[]=[];
@@ -32,6 +37,9 @@ for(const [width,height] of [[1440,860],[1280,720],[390,844]])test(`report table
  const preview=page.getByRole('complementary',{name:'报告结构预览'});await expect(preview.getByTestId('molecule-scene')).toBeVisible();
  await expect(preview.getByRole('link',{name:'打开 Attempt anti',exact:true})).toHaveAttribute('href','#/s/butane-demo/a/anti');
  await expect(page.getByRole('navigation',{name:'报告目录'})).toContainText('按报告声明');
+ await expect(page.getByRole('region',{name:'NCI列表'})).toContainText('nci-demo.json');
+ await expect(page.getByRole('region',{name:'通道覆盖列表'})).toContainText('coverage-demo.json');
+ await expect(page.getByRole('region',{name:'热化学 / 能量剖面列表'})).toContainText('profile-demo.json');
  await expect(page.getByRole('heading',{name:/^正式结论 /})).toHaveCount(0);await expect(page.locator('body')).not.toContainText('暂无可识别报告');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
  if(width===390)await page.locator('.report-body').evaluate(el=>window.scrollTo(0,el.getBoundingClientRect().top+window.scrollY-150));else await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:info.outputPath(`report-${width}x${height}.png`)});
@@ -70,6 +78,6 @@ test('local images and sandboxed HTML/SVG cannot run scripts',async({page,reques
  await page.goto(report('diagram.svg'));await expect(page.locator('.report-body>img')).toHaveCount(1);await expect(page.locator('.report-body svg,.report-body iframe,.report-body object')).toHaveCount(0);
  await page.goto(report('demo.html'));const frame=page.locator('iframe');await expect(frame).toHaveAttribute('sandbox','');await expect(page.frameLocator('iframe').getByRole('heading',{name:'Synthetic HTML report'})).toBeVisible();
  expect(await page.frameLocator('iframe').locator('body').getAttribute('data-executed')).toBeNull();expect(await page.evaluate(()=>Reflect.get(window,'reportInjected'))).toBeUndefined();
- const response=await request.get('/api/studies/butane-demo/files/analyses/reading/demo.html');expect(response.headers()['content-security-policy']).toBe("sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'");
+ const response=await request.get('/api/studies/butane-demo/files/analyses/reading/demo.html');expect(response.headers()['content-security-policy']).toBe("sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'");
  expect(executed).toEqual([]);
 });

@@ -2,9 +2,11 @@
 
 Descriptor-relative O_NOFOLLOW traversal prevents a directory being replaced by
 an escaping symlink between validation and open. Limits prevent a malformed local
-file from exhausting the viewer. There is no cache, index, or derived-file write.
+file from exhausting the viewer. Report metadata is cached in memory only;
+there is no index or derived-file write.
 """
 import codecs
+from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import errno
@@ -17,6 +19,7 @@ import os
 import re
 from pathlib import Path
 import stat
+from threading import Lock
 
 from .geometry import parse_xyz, xyz_frame
 from .inputs import parse_input
@@ -38,15 +41,17 @@ FILE_TYPES = {
 IMAGE_TYPES = {'.png', '.jpg', '.jpeg', '.webp', '.svg'}
 ANALYSIS_TYPES = set(FILE_TYPES) - {'.xyz'}
 REPORT_KINDS = {'formal', 'energy', 'state-check', 'ensemble', 'irc', 'thermo',
-                'stage-review', 'figure', 'other'}
+                'coverage', 'ts', 'nci', 'stage-review', 'figure', 'other'}
 SCHEMA_KINDS = {'ag-ensemble/1': 'ensemble', 'ag-irc-review/1': 'irc',
-                'ag-thermo/1': 'thermo', 'ag-profile/1': 'energy',
-                'ag-channel-coverage/1': 'stage-review', 'ag-nci/1': 'state-check'}
+                'ag-thermo/1': 'thermo', 'ag-profile/1': 'thermo',
+                'ag-channel-coverage/1': 'coverage', 'ag-nci/1': 'nci'}
 
 
-def report_category(schema, declared, suffix):
+def report_category(schema, declared, suffix, name=''):
     # T119 may insert an explicit catalog source between schema and declaration.
-    # Never infer a scientific category from a filename.
+    # Retain the existing fixed TS-label layout; do not guess other filenames.
+    if re.fullmatch(r'ts-labels/[^/]+/(labels\.json|labels\.md|channel-suggestions\.csv)', name):
+        return 'ts', '按 TS 标签目录'
     if isinstance(schema, str) and schema in SCHEMA_KINDS:
         return SCHEMA_KINDS[schema], '按 schema'
     if isinstance(declared, str) and declared in REPORT_KINDS:
@@ -111,6 +116,8 @@ def finite_float(value):
 class Studies:
     def __init__(self, root):
         self.root = Path(os.path.abspath(root))
+        self._analysis_cache = OrderedDict()
+        self._analysis_cache_lock = Lock()
         # Check every component, including the configured root's ancestors.
         with self.open_dir(()):
             pass
@@ -229,14 +236,23 @@ class Studies:
         """Return metadata, never report rows, under the existing file limit.
 
         Read the complete bounded JSON so a late top-level schema still outranks
-        a kind declaration. A truncated prefix cannot establish that priority.
+        a kind declaration. Reuse unchanged metadata without rereading bodies.
         """
         suffix = Path(parts[-1]).suffix.lower()
         result = dict(name='/'.join(parts), data=None, error=None, updated_at=None, schema=None)
+        path = (study, 'analyses', *parts)
+        fields = ('st_mtime_ns', 'st_size', 'st_dev', 'st_ino', 'st_ctime_ns')
         declared = None
         try:
-            with self.open_file((study, 'analyses', *parts)) as stream:
+            # Validate each path again even on cache hits. The identity fields
+            # also invalidate replacements that preserve mtime and size.
+            with self._analysis_cache_lock, self.open_file(path) as stream:
                 info = os.fstat(stream.fileno())
+                version = tuple(getattr(info, field) for field in fields)
+                cached = self._analysis_cache.get(path)
+                if cached and cached[0] == version:
+                    self._analysis_cache.move_to_end(path)
+                    return dict(cached[1])
                 result['updated_at'] = datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()
                 limit = IMAGE_LIMIT if suffix in IMAGE_TYPES else DOCUMENT_LIMIT
                 if info.st_size > limit:
@@ -256,11 +272,20 @@ class Studies:
                         if front:
                             kind = re.search(r"^kind:[ \t]*(['\"]?)([a-z-]+)\1[ \t]*(?:#.*)?$", front[1], re.M)
                             declared = kind[2] if kind else None
+                result['kind'], result['category_basis'] = report_category(result['schema'], declared, suffix, result['name'])
+                after = os.fstat(stream.fileno())
+                # Do not retain metadata if the file changed during the read.
+                if tuple(getattr(after, field) for field in fields) == version:
+                    self._analysis_cache[path] = (version, dict(result))
+                    self._analysis_cache.move_to_end(path)
+                    # Browsing many studies must not retain metadata forever.
+                    if len(self._analysis_cache) > 1024:
+                        self._analysis_cache.popitem(last=False)
         except (ValueError, OverflowError):
             result['error'] = '无法读取报告元数据'
         except StudyError as exc:
             result['error'] = str(exc)
-        result['kind'], result['category_basis'] = report_category(result['schema'], declared, suffix)
+        result['kind'], result['category_basis'] = report_category(result['schema'], declared, suffix, result['name'])
         return result
 
     def report(self, study, parts):

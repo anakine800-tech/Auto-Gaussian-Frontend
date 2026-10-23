@@ -96,7 +96,7 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
             return decode_document(raw, mime == 'application/json')
         headers = {'X-Content-Type-Options': 'nosniff'}
         if mime in ('text/html', 'image/svg+xml'):
-            headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+            headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'"
         return Response(raw, media_type=mime, headers=headers)
 
     @app.get('/api/studies/{study}/reports/{name}')

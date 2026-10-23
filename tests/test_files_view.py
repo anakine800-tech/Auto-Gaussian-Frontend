@@ -1,11 +1,12 @@
 """T118 local reading boundaries and JSON shapes, using invented data only."""
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 from autog_frontend.api import create_app
 from autog_frontend.studies import Studies, StudyError, decode_document
@@ -91,7 +92,7 @@ class FilesViewTest(unittest.TestCase):
             with self.assertRaises(StudyError): self.store.file('butane-demo','swap/outside.txt')
 
     def test_csp_is_preserved_only_for_isolated_active_formats(self):
-        policy="sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+        policy="sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'"
         for name in ('unsafe.html','unsafe.svg'):
             self.write(name, '<script>parent.injected=true</script>')
             response=self.client.get(self.url+'analyses/'+name)
@@ -128,3 +129,73 @@ class FilesViewTest(unittest.TestCase):
         self.assertNotIn('group/deeper/not-listed.md',reports)
         self.write('large.json',json.dumps({'kind':'energy','padding':'x'*100000,'schema':'ag-thermo/1'}))
         self.assertEqual(self.store.analysis_summary('butane-demo',('large.json',))['kind'],'thermo')
+
+    def test_each_schema_keeps_its_original_category_and_ts_layout_is_exact(self):
+        expected = {'ag-ensemble/1': 'ensemble', 'ag-irc-review/1': 'irc',
+                    'ag-thermo/1': 'thermo', 'ag-profile/1': 'thermo',
+                    'ag-channel-coverage/1': 'coverage', 'ag-nci/1': 'nci'}
+        for schema, kind in expected.items():
+            with self.subTest(schema=schema):
+                self.write('mapped.json', json.dumps({'schema': schema, 'kind': 'formal'}))
+                row = self.store.analysis_summary('butane-demo', ('mapped.json',))
+                self.assertEqual((row['kind'], row['category_basis']), (kind, '按 schema'))
+        for filename in ('labels.json', 'labels.md', 'channel-suggestions.csv'):
+            self.write('ts-labels/synthetic/'+filename, '{}' if filename.endswith('.json') else 'saved')
+            row = self.store.analysis_summary('butane-demo', ('ts-labels', 'synthetic', filename))
+            self.assertEqual((row['kind'], row['category_basis']), ('ts', '按 TS 标签目录'))
+        for name in ('labels.json', 'other/labels.json', 'ts-labels/synthetic/other.json'):
+            self.write(name, '{}')
+            self.assertEqual(self.store.analysis_summary('butane-demo', tuple(name.split('/')))['kind'], 'other')
+
+    def test_metadata_cache_skips_unchanged_bodies_and_rechecks_files(self):
+        files = [self.write('cached.json', '{"kind":"energy"}'),
+                 self.write('cached.md', '---\nkind: energy\n---\n# Saved')]
+        original = self.store.open_file
+        reads = []
+
+        @contextmanager
+        def tracked(parts):
+            with original(parts) as stream:
+                spy = Mock(wraps=stream)
+                reads.append(spy)
+                yield spy
+
+        def row(path):
+            return self.store.analysis_summary('butane-demo', (path.name,))
+
+        def read_count():
+            return sum(spy.read.call_count for spy in reads)
+
+        with patch.object(self.store, 'open_file', tracked):
+            for path in files:
+                first = row(path)
+                self.assertEqual(row(path), first)
+                first['kind'] = 'caller mutation'
+                self.assertEqual(row(path)['kind'], 'energy')
+            self.assertEqual(read_count(), 2, 'unchanged JSON and MD bodies are read only once')
+
+            # Same-size edits and size changes with restored mtime both refresh.
+            path = files[0]; before = path.stat()
+            path.write_text('{"kind":"formal"}')
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns+1000000))
+            self.assertEqual(row(path)['kind'], 'formal')
+            self.assertEqual(read_count(), 3)
+            before = path.stat(); path.write_text('{"kind":"energy"} ')
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+            self.assertEqual(row(path)['kind'], 'energy')
+            self.assertEqual(read_count(), 4)
+
+            # Equal mtime/size on a different path must not share a result.
+            other = self.write('other.json', '{"kind":"formal"} ')
+            os.utime(other, ns=(before.st_atime_ns, before.st_mtime_ns))
+            self.assertEqual(row(other)['kind'], 'formal')
+            self.assertEqual(read_count(), 5)
+            os.replace(other, path)
+            self.assertEqual(row(path)['kind'], 'formal')
+            self.assertEqual(read_count(), 6)
+
+            # A cached path becoming a symlink must still fail path validation.
+            outside = self.root/'outside.json'; outside.write_text('{"kind":"formal"}')
+            path.unlink(); path.symlink_to(outside)
+            self.assertIsNotNone(row(path)['error'])
+            self.assertEqual(read_count(), 6)
