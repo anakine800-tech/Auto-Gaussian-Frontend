@@ -6,7 +6,7 @@ test('four entries and help, old links replace history without losing query',asy
   ['#/jobs','#/servers'],['#server','#/servers'],['#/butane-demo','#/s/butane-demo/research/progress'],
   ['#/s/butane-demo','#/s/butane-demo/research/progress'],['#/s/butane-demo/attempts?status=running','#/s/butane-demo/research/attempts?status=running'],
   ['#/s/butane-demo/a/anti?fileKind=record&file=status.json','#/s/butane-demo/research/a/anti?fileKind=record&file=status.json'],
-  ['#/s/butane-demo/analysis','#/s/butane-demo/results'],['#/s/butane-demo/files','#/s/butane-demo/evidence'],
+  ['#/s/butane-demo/analysis','#/s/butane-demo/results'],['#/s/butane-demo/files','#/s/butane-demo/evidence/library'],
  ]){
   await page.goto('/#/help');
   const before=await page.evaluate(()=>history.length);
@@ -65,7 +65,7 @@ test('search reaches unopened studies and incomplete results are explicit',async
  await page.getByLabel('全局搜索').fill('representatives.xyz');
  const results=page.getByRole('region',{name:'搜索结果'});
  await expect(results.getByRole('link').first()).toContainText('representatives.xyz');
- await results.getByRole('link').first().click();await expect(page).toHaveURL(/evidence\/analyses\/(?:cluster-demo\/)?representatives.xyz$/);
+ await results.getByRole('link').first().click();await expect(page).toHaveURL(/evidence\/library\?file=analyses%2F(?:cluster-demo%2F)?representatives.xyz$/);
  await page.route('**/api/search?*',r=>r.fulfill({json:{groups:[],incomplete:true,truncated:false,message:'索引未完成：合成上限'}}));
  await page.getByLabel('全局搜索').fill('absent-synthetic');
  await expect(results).toContainText('索引未完成');await expect(results).toContainText('本机 study 中没有匹配的编号、标签或文件名');
@@ -111,10 +111,8 @@ test('basket survives detail, reload, navigation, shared link and seventh-item r
  const other=await context.newPage();await other.goto(url);await expect(other.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(6);
  await other.goto('/#/s/butane-demo/attempts?cmp=anti,gauche');await expect(other.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(2);
  await other.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'打开比较',exact:true}).click();
- await expect(other.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'})).toBeVisible();
- await other.getByRole('button',{name:'关闭抽屉'}).click();
- await other.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'结构对比',exact:true}).click();
- await expect(other.getByRole('dialog',{name:'结构对比',exact:true})).toBeVisible();await other.close();
+ await expect(other.getByRole('heading',{name:'比较（前端现场计算，非正式结果）'})).toBeVisible();
+ await expect(other.getByRole('region',{name:'任意结构对比'})).toBeVisible();await other.close();
 });
 
 for(const size of [{width:1440,height:860},{width:1280,height:720},{width:390,height:844}])test(`synthetic shell screenshots ${size.width}`,async({page},info)=>{

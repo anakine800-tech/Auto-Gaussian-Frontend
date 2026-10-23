@@ -18,8 +18,9 @@ export function parseAtomPairs(text:string):number[][] {
   return pair;
  });
 }
-export function StructureComparison({study,ids,onClose}:{study:string;ids:string[];onClose:()=>void}){
- const [sources,setSources]=useState<Source[]|null>(null),[error,setError]=useState(''),[align,setAlign]=useState(false),[text,setText]=useState('');
+export function StructureComparison({study,ids,onClose=()=>{},inline=false,initialPairs=''}:{study:string;ids:string[];onClose?:()=>void;inline?:boolean;initialPairs?:string}){
+ const [sources,setSources]=useState<Source[]|null>(null),[error,setError]=useState(''),[align,setAlign]=useState(inline),[text,setText]=useState(initialPairs);
+ useEffect(()=>setText(initialPairs),[initialPairs]);
  const key=JSON.stringify(ids);
  useEffect(()=>{const c=new AbortController();setSources(null);setError('');
   if(ids.length<2||ids.length>3){setError('请选择同一 study 内的 2–3 个 Attempt。');return;}
@@ -36,13 +37,18 @@ export function StructureComparison({study,ids,onClose}:{study:string;ids:string
   return {key:s.id,title:`结构 ${i+1}`,testId:`structure-comparison-${i+1}`,attempt:s.id,geometry:align&&!reason&&g?alignGeometry(g,geometries[0]!):g,error:s.geometry.error,energy_hartree:typeof energy==='number'&&Number.isFinite(energy)?energy:null,cameraReference:align&&!reason?geometries[0]!:undefined,n_imag:row.nImag,method,
    ...(!comparison!.differences.length?{relative:row.relativeElectronic}:{})};
  })??[],[sources,geometries,comparison,align,reason]);
- return <Drawer open title="结构对比" onClose={onClose}><section className="structure-comparison irc-structures" aria-label="任意结构对比">
+ const content=<section className="structure-comparison irc-structures" aria-label="任意结构对比">
   {error?<ErrorNotice>{error}</ErrorNotice>:!sources?<p role="status">读取最终几何与 facts…</p>:<>
    <div className="comparison-controls"><label><input type="checkbox" checked={align&&!reason} disabled={!!reason} onChange={e=>setAlign(e.target.checked)}/>对齐到第 1 个</label><label>原子对 <input aria-label="对比原子对" placeholder="1-5,2-7" value={text} onChange={e=>setText(e.target.value)}/></label></div>
    <p className="comparison-notice">{reason??'全部原子 Kabsch 对齐仅用于显示。'} 距离为前端计算；不写入数据。</p>
    {pairError&&<ErrorNotice>{pairError}</ErrorNotice>}
    {comparison!.differences.length?<details className="comparison-differences" open><summary>口径不同，不给相对能</summary><ul>{comparison!.differences.map((d,i)=><li key={i}>{d}</li>)}</ul></details>:<p className="comparison-notice">相对电子能：前端计算、非正式；所选结构最低电子能为 0。</p>}
+   {!reason&&geometries[0]&&<ul aria-label="Kabsch RMSD">{geometries.map((g,i)=>{
+    const aligned=alignGeometry(g!,geometries[0]!);const rmsd=Math.sqrt(aligned.atoms.reduce((sum,a,j)=>{const b=geometries[0]!.atoms[j];return sum+(a.x-b.x)**2+(a.y-b.y)**2+(a.z-b.z)**2;},0)/aligned.atoms.length);
+    return <li key={sources[i].id}>{sources[i].id} → {sources[0].id}：RMSD {rmsd.toFixed(6)} Å</li>;
+   })}</ul>}
    <StructureCards cards={cards} pairs={pairs} study={study}/>
   </>}
- </section></Drawer>;
+ </section>;
+ return inline?content:<Drawer open title="结构对比" onClose={onClose}>{content}</Drawer>;
 }

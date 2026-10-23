@@ -1,23 +1,13 @@
 import {analysisLink} from './analysis-summary';
 import {ReportPage} from './analysis-panels';
-import {useEffect,useId,useState} from 'react';
+import {useEffect,useState} from 'react';
 import {endpoint,get} from './api';
-import type {Document,Graph} from './api';
+import type {Document} from './api';
 import type {FactLocation} from './attempt-facts';
-import {ActionBar,DataTable,ErrorNotice} from './ui';
+import {ActionBar,ErrorNotice} from './ui';
 
 export function FileView({title,doc}:{title:string;doc:Document}){
  return <section className="file-view" id={`record-${title}`}><h3>{title}</h3>{doc.error?<p role="status" className="notice">{doc.error}</p>:<pre>{typeof doc.data==='string'?doc.data:JSON.stringify(doc.data,null,2)}</pre>}</section>;
-}
-export function RelationshipGraph({graph,onSelect}:{graph:Graph;onSelect:(id:string)=>void}){
- const marker=useId();const count=graph.nodes.length;
- const points=new Map(graph.nodes.map((n,i)=>[n.id,{x:460+330*Math.cos(2*Math.PI*i/Math.max(1,count)),y:270+195*Math.sin(2*Math.PI*i/Math.max(1,count))}]));
- return <section><h2>Attempt 关系图</h2><p className="muted">箭头由 parent 指向 child，标签来自 manifest.parents[].relation。缺失父节点保留显示。</p>{count===0?<p>暂无 Attempt。</p>:<>
- <div className="graph-scroll"><svg className="graph" viewBox="0 0 920 540" role="img" aria-label="Attempt 关系图"><defs><marker id={marker} markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="var(--accent)"/></marker></defs>
- {graph.edges.map((e,i)=>{const a=points.get(e.parent)!,b=points.get(e.child)!;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;return <g key={i}><line x1={a.x} y1={a.y} x2={b.x-18*dx/d} y2={b.y-18*dy/d} stroke="var(--accent)" strokeWidth="2" markerEnd={`url(#${marker})`}/><text x={(a.x+b.x)/2} y={(a.y+b.y)/2-7} textAnchor="middle">{e.relation}</text></g>;})}
- {graph.nodes.map(n=>{const p=points.get(n.id)!;return <g key={n.id}><circle cx={p.x} cy={p.y} r="17" fill={n.missing?'var(--warn)':'var(--accent)'}/><text x={p.x} y={p.y+35} textAnchor="middle">{n.id}</text><text x={p.x} y={p.y+52} textAnchor="middle" className="muted">{n.state}</text></g>;})}</svg></div>
- <ul className="graph-nodes">{graph.nodes.map(n=><li key={n.id}>{n.missing?<span>{n.id} · 缺失父节点</span>:<button onClick={()=>onSelect(n.id)}>{n.id} · {n.state}</button>}</li>)}</ul>
- <DataTable label="Attempt 关系列表" rows={graph.edges.map((edge,i)=>({...edge,key:i}))} rowKey={edge=>edge.key} columns={[{key:'parent',label:'Parent',render:e=>e.parent},{key:'relation',label:'Relation',render:e=>e.relation||'—'},{key:'child',label:'Child',render:e=>e.child}]}/></> }</section>;
 }
 export function Analyses({study,analyses,selected=false}:{study:string;analyses:(Document&{name:string;schema?:string|null})[];selected?:boolean}){
  if(selected&&analyses[0])return <ReportPage study={study} name={analyses[0].name}/>;

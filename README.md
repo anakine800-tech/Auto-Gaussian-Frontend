@@ -86,8 +86,8 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 - **服务器**：`#/servers`，显示本地监控快照。
 - **研究**：`#/s/<study>/research/progress` 显示进展与来源；
   `#/<study>/chains` 为计算链，`/research/attempts` 为全部 Attempt，`/research/a/<attempt>` 为详情。
-- **结果**：`#/s/<study>/results`；保留报告、构象集合、IRC 与快速比较。
-- **证据**：`#/s/<study>/evidence`；保留研究说明、结构文件、关系图和其他分析文件标签。
+- **结果**：`#/s/<study>/results` 显示报告、构象集合与 IRC；`#/<study>/compare` 为统一比较页。
+- **证据**：`#/s/<study>/evidence/library` 为文件库，`/evidence/lineage` 为单对象来源关系，`/evidence/document` 为研究说明。
 - **使用说明**：`#/help`，口径表与进展页共用常量，说明各页用途、来源与操作边界。
 
 | 旧链接 | 新位置 |
@@ -97,12 +97,12 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 | `#/s/<study>/attempts` | `#/s/<study>/research/attempts` |
 | `#/<study>/<attempt>`、`#/s/<study>/a/<attempt>` | `#/s/<study>/research/a/<attempt>` |
 | `#/s/<study>/analysis/...` | `#/s/<study>/results/...` |
-| `#/s/<study>/files/...` | `#/s/<study>/evidence/...` |
+| `#/s/<study>/files/...` | 按 T122 对应表跳到文件库、来源关系或研究说明 |
 | `#/<study>/ensembles/<report>` | `#/s/<study>/results/ensemble/<report>` |
 | `#/<study>/irc-reviews/<report>` | `#/s/<study>/results/irc/<report>` |
 | `#/<study>/analyses/<file>` | `results/file/<file>`（XYZ 保持证据结构查看） |
 | `#/<study>/file/…`（T118 本地文件查看） | 保持原路径，不参与旧链接迁移 |
-| 旧 `tab=overview/graph/structures` | 证据的 `document/graph/structures` 标签 |
+| 旧 `tab=overview/graph/structures` | 证据的 `document/lineage/library` 视图 |
 | 旧 `tab=attempts` / `tab=analyses/ensembles/irc-reviews` | 全部 Attempt / 结果 |
 
 旧 hash 用 `replaceState` 转换，不增加历史记录。精确文件参数、候选、IRC 方向与路径点、
@@ -127,7 +127,7 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 
 比较篮固定在研究和结果页底部，同 Study 最多 6 项，与 Attempt 勾选共用状态。
 选择保存在 sessionStorage 和 URL 的 `cmp` 参数，URL 优先；复制链接、刷新、查看详情和返回均保留。
-“打开比较”使用现有快速比较，结构对比保持 2–3 项限制；计算链已接入；统一比较/证据库由 T122 完成。
+“打开比较”进入统一比较页，选择继续以比较篮和 URL `cmp` 为准；结构叠合从篮中选 2–3 项。
 
 T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、Attempt 详情与操作抽屉、作业页、分析入口和快速比较（含 termination / n_imag 列），以及 TS 立体标签报告只读查看。T87 提供 IRC 曲线与路径点结构。快速比较为前端计算、非正式结果；工具状态与报告不等于科学验收。
 设计和验收记录见 [T94](docs/t94/design-checkpoint.md)；待审 / 待签计数、字段来源与
@@ -247,9 +247,9 @@ E+ZPE 与 G 还分别核对两边已采用 Freq 的方法、色散、基组、�
   signatures, interpretations, or edits.
 - Attempt states are read as saved, including `unknown`. Refresh rereads local
   files. It does not query a cluster or change a state.
-- The relationship graph reads `manifest.parents[].attempt_id` and `relation`.
-  Missing parents remain visible. Cycles and shared children do not cause traversal
-  loops. The accompanying table lists every edge.
+- 来源关系一次显示一个登记对象的计算链；未登记 Attempt 按 parents 的未分配子图连通分组。
+  已登记对象不作为连接桥梁，缺失父节点保留提示；分叉分行、环明确提示且不无限遍历。
+  框色表示 review.md 的记录状态，有记录不代表通过审阅；点击框打开对应 Attempt。
 - The molecule viewer uses `final.xyz` beside `facts.json`. It retains rotation,
   zoom, inferred bonds, and geometric measurements. It never follows paths embedded
   in JSON, including `final_geometry` and remote directory fields.
@@ -687,3 +687,60 @@ T115 已用服务器卡片和按入口切换的详情替换 T110 容量总览；
 最新成功占用和最小总上限，不相加。显示名仅用于标签，不改变入口身份。
 前端不选择集群、不提交作业；调度器运行限额注明“由调度器执行，ag 未核实”。
 动作令牌不匹配时明确提示“前端已重启，请刷新页面”，不自动刷新令牌或重试操作。
+
+
+## T122：比较与证据库
+
+比较页标题为“比较（前端现场计算，非正式结果）”。Opt、SP、Freq 逐层列出方法、基组、
+色散、溶剂模型/溶剂、基函数形式、程序版本、元素组成、电荷和多重度的一致/不同/缺失。
+沿用 T82 的 Gaussian SCF 方法白名单、明确 Hartree 单位和有效最终几何要求；
+非 SCF、自定义基组/ECP/IOp、含糊溶剂与缺失证据仍拒绝计算能差。
+参照项可选，不相容格留空并给原因；跨多重度仅把相同基础方法的 R/U 区别视为电子态差异，
+标“电子态能差”，同多重度的 R/U 方法差异仍拒绝。不做布居、不换温度。
+
+- 登记对象各层只取当前采用的 Opt/Freq/SP；SP、ZPE、G 使用 catalog 的 Hartree 快照，
+  Opt E 读取采用 Opt 的 facts。`E+ZPE = scf_h + zpe_h`；
+  `G = scf_h + (g_h - freq_scf_h)`，缺项不从别层回填。
+- 未登记条目只用自己的 facts，按 route 区分层，Opt+Freq 不伪装为 SP。
+  一个 Attempt 登记到多个对象时提示归属歧义，不擅选采用记录。
+- 性质来自每层 facts，审阅状态来自 review.md 是否可读/存在；来源 Attempt 可打开。
+  “只看有差异的行”用于口径、能量、性质及原子对距离。
+- 几何按比较篮条目 final.xyz 的原编号计算；结构对齐复用 T110 Kabsch，
+  不反射、不重排原子，显示 RMSD 及原子对距离，不写入 study。
+
+`GET /api/studies/{study}/evidence` 只读列出每份普通文件的类型、大小、修改时间、
+关联对象/Attempt 和被谁引用。类型分面为报告、表格、JSON、图片、HTML、结构、审阅意见、
+签字记录（含 analyses/review-manifest-*.json）、输入与日志。文件每页 60 项，预览复用现有文件、结构、输入和分页日志读取器。
+未知格式仍可查看元数据，不扩大文件读取类型白名单。
+
+遍历使用逐级目录描述符和 `O_NOFOLLOW`，不跟随符号链接、不打开特殊文件。
+为防大量嵌套文件耗尽本机资源，一次扫描最多 10,000 个目录项、8 层目录；截断明确提示。
+“被谁引用”只看 analyses 下 Markdown 的本地相对链接（含图片和引用式链接）与当前采用的
+`report`，不解析其他文件正文、裸 URL 或代码块。单份 Markdown 限 4 MiB，
+每次新解析正文总量限 32 MiB；缓存最多 1,024 项，键含路径、mtime、大小及文件身份，
+缓存命中仍重新核对安全路径。报告、引用读取异常均提示，目录项不重复。
+
+| 旧入口 | T122 位置（replaceState，不新增历史记录） |
+| --- | --- |
+| Attempt 表的快速比较 / 结构对比、比较篮“打开比较” | `#/<study>/compare?cmp=<ids>` |
+| `#/s/<study>/files`、`#/s/<study>/evidence` | `#/s/<study>/evidence/library` |
+| 旧 files/evidence 下 graph 或 `tab=graph` | `#/s/<study>/evidence/lineage` |
+| 旧 structures / analyses 标签 | `#/s/<study>/evidence/library` |
+| 旧 structures/analyses 的具体文件 | 文件库 `?file=<study-relative-path>`，保留其他查询参数 |
+| 旧 document / `tab=overview` | `#/s/<study>/evidence/document` |
+| T118 `#/<study>/file/<path>` | 保留原文件阅读链接 |
+
+## 启用提交前扫描
+
+前端 hook 来自后端 `.githooks/pre-commit`，在当前仓库调用 `scripts/scan_public.py`。
+合并并同步后，在前端检出执行：
+
+```sh
+git config core.hooksPath .githooks
+python3 scripts/scan_public.py
+```
+
+词表仅在本机维护，默认读取 `$HOME/.config/auto-gaussian/sensitive-terms.txt`；
+可用 `SCAN_PUBLIC_TERMS_FILE` 指向另一份本机词表。不要把词表或其中内容写入仓库、
+README 或 hook。hook 扫描暂存字节，命中拒绝提交，词表缺失时给出提示；
+README 与 hook 本身不包含任何项目私有词条。

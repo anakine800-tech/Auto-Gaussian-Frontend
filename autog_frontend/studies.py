@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 import stat
 from threading import Lock
+from urllib.parse import unquote, urlsplit
 
 from .geometry import parse_xyz, xyz_frame
 from .inputs import parse_input
@@ -28,6 +29,76 @@ from .monitor import validate_monitor
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
 from .study_summary import parse_sections, energy_basis
+
+
+# Directory and aggregate reference limits prevent a large/sparse local tree
+# from exhausting memory or monopolizing a request. Truncation stays visible.
+EVIDENCE_ENTRY_LIMIT = 10000
+EVIDENCE_DEPTH_LIMIT = 8
+EVIDENCE_REFERENCE_BYTES = 32 * 1024 * 1024
+
+
+def evidence_type(parts):
+    name, suffix = parts[-1], Path(parts[-1]).suffix.lower()
+    if name == 'review.md': return 'review'
+    if parts[0] in ('signoffs', 'signatures') or name.endswith('.signature.json') or (parts[0]=='analyses' and name.startswith('review-manifest-') and suffix=='.json'): return 'signature'
+    if len(parts)>2 and parts[0]=='attempts' and parts[2] in ('inputs', 'outputs'): return 'input-log'
+    if suffix in ('.xyz', '.sdf', '.mol', '.mol2', '.cif', '.cdx', '.cdxml'): return 'structure'
+    if suffix in IMAGE_TYPES: return 'image'
+    if suffix == '.html': return 'html'
+    if suffix in ('.csv', '.tsv', '.xlsx'): return 'table'
+    if suffix in ('.json', '.jsonl'): return 'json'
+    return 'report'
+
+
+def local_evidence_path(url, source):
+    if not url or url.startswith(('#', '/', '\\')) or re.search(r'[\x00-\x1f\x7f]', url):
+        return None
+    try:
+        split = urlsplit(url)
+        if split.scheme or split.netloc: return None
+        path = unquote(split.path, errors='strict')
+    except (ValueError, UnicodeError):
+        return None
+    if not path or path.startswith('/') or '\\' in path or re.search(r'[\x00-\x1f\x7f]', path): return None
+    if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', path): return None
+    parts = source.split('/')[:-1]
+    for part in path.split('/'):
+        if part in ('', '.'): continue
+        if part == '..':
+            if not parts: return None
+            parts.pop()
+        else: parts.append(part)
+    return '/'.join(parts) or None
+
+
+def markdown_local_links(text, source):
+    # Ignore fenced/indented code, inline code, HTML and raw URLs. Only explicit
+    # Markdown links/images (including reference style) are citation sources.
+    lines, fence = [], None
+    for line in text.splitlines():
+        mark = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+        if fence:
+            if mark and mark[1][0]==fence[0] and len(mark[1])>=len(fence): fence=None
+            continue
+        if mark: fence=mark[1]; continue
+        if line.startswith(('    ', '\t')): continue
+        lines.append(line)
+    text = re.sub(r'<!--.*?-->', '', '\n'.join(lines), flags=re.S)
+    text = re.sub(r'(`+)[^`]*?\1', '', text)
+    normalize = lambda label: ' '.join(label.split()).casefold()
+    definitions = {}
+    for match in re.finditer(r'^ {0,3}\[([^][\n]+)\]:[ \t]*(<[^>\n]+>|[^\s]+)', text, re.M):
+        definitions.setdefault(normalize(match[1]), match[2].strip('<>'))
+    text = re.sub(r'^ {0,3}\[[^][\n]+\]:.*$', '', text, flags=re.M)
+    links = set()
+    # Balanced parentheses in destinations, such as image(1).png, are allowed.
+    pattern = r'(?<!\\)\[([^][\n]*)\](?:\((<[^>\n]+>|(?:[^\s()]|\([^()]*\))+)(?:[ \t]+["\'][^\n]*?["\'])?\)|\[([^][\n]*)\])?'
+    for match in re.finditer(pattern, text):
+        url = match[2].strip('<>') if match[2] else definitions.get(normalize(match[3] or match[1]))
+        target = local_evidence_path(url, source) if url else None
+        if target: links.add(target)
+    return tuple(sorted(links))
 
 
 DOCUMENT_LIMIT = 4 * 1024 * 1024
@@ -116,6 +187,8 @@ class Studies:
     def __init__(self, root):
         self.root = Path(os.path.abspath(root))
         self._analysis_cache = OrderedDict()
+        self._evidence_cache = OrderedDict()
+        self._evidence_cache_lock = Lock()
         self._analysis_cache_lock = Lock()
         # Check every component, including the configured root's ancestors.
         with self.open_dir(()):
@@ -442,6 +515,154 @@ class Studies:
                 'catalog': catalog, 'energy_basis': energy_basis(document['data']),
                 'catalog_review': self.catalog_review_scope(study, catalog),
                 'graph': {'nodes': nodes, 'edges': edges}, 'analyses': analyses, 'structure_files': self.structure_files(study), 'issues': issues}
+
+    def evidence_catalog(self, study):
+        """Only adopted report fields are reference sources; never parse other JSON.
+
+        T121 supplies the shared catalog reader after integration. Until then the
+        same bounded state/journal hash check keeps this branch independently usable.
+        """
+        if hasattr(self, 'catalog'):
+            return self.catalog(study)
+        result = {'state': None, 'journal_ok': False, 'warning': None}
+        try:
+            with self.open_dir((study, 'catalog')):
+                pass
+        except StudyError as exc:
+            if exc.status != 404:
+                result['warning'] = '登记目录无法安全读取'
+            return result
+        try:
+            state = json.loads(self.read((study, 'catalog', 'state.json')), parse_float=finite_float,
+                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+            journal = self.read((study, 'catalog', 'journal.jsonl'), 16*1024*1024)
+            if (not isinstance(state, dict) or state.get('schema') != 'ag-catalog-state/1'
+                    or state.get('journal_sha256') != hashlib.sha256(journal).hexdigest()
+                    or not isinstance(state.get('objects'), list)):
+                raise ValueError()
+            ids = set()
+            for obj in state['objects']:
+                if (not isinstance(obj, dict) or obj.get('status') not in ('adopted', 'candidate', 'retired')
+                        or not isinstance(obj.get('members'), list) or not isinstance(obj.get('adopted', {}), dict)):
+                    raise ValueError()
+                identity = component(obj.get('id'))
+                if identity in ids:
+                    raise ValueError()
+                ids.add(identity)
+                for ref in [*obj['members'], *[obj.get('adopted', {}).get(role) for role in ('opt', 'freq', 'sp')]]:
+                    if ref is not None:
+                        if not isinstance(ref, dict):
+                            raise ValueError()
+                        component(ref.get('attempt'))
+            return {'state': state, 'journal_ok': True, 'warning': None}
+        except (StudyError, ValueError, UnicodeError, RecursionError):
+            result['warning'] = '登记记录缺失、格式异常或日志哈希不一致；未使用采用记录'
+            return result
+
+    def evidence_links(self, study, path, budget):
+        """Cache only local Markdown link destinations, never document bodies."""
+        parts = (study, *path.split('/'))
+        fields = ('st_mtime_ns', 'st_size', 'st_dev', 'st_ino', 'st_ctime_ns')
+        with self._evidence_cache_lock, self.open_file(parts) as stream:
+            info = os.fstat(stream.fileno())
+            version = tuple(getattr(info, field) for field in fields)
+            cached = self._evidence_cache.get(parts)
+            if cached and cached[0] == version:
+                self._evidence_cache.move_to_end(parts)
+                return cached[1]
+            # Bound both individual files and the total bodies examined per scan.
+            if info.st_size > DOCUMENT_LIMIT or info.st_size > budget[0]:
+                raise StudyError('引用统计达到 Markdown 读取量上限', 413)
+            raw = stream.read(min(DOCUMENT_LIMIT, budget[0])+1)
+            budget[0] -= len(raw)
+            if len(raw) > DOCUMENT_LIMIT or budget[0] < 0:
+                raise StudyError('引用统计达到 Markdown 读取量上限', 413)
+            try:
+                links = markdown_local_links(raw.decode('utf-8'), path)
+            except UnicodeError:
+                raise StudyError('Markdown 引用无法解码', 422) from None
+            if tuple(getattr(os.fstat(stream.fileno()), field) for field in fields) != version:
+                raise StudyError('Markdown 在读取时变化，请刷新', 409)
+            self._evidence_cache[parts] = (version, links)
+            self._evidence_cache.move_to_end(parts)
+            if len(self._evidence_cache) > 1024:
+                self._evidence_cache.popitem(last=False)
+            return links
+
+    def evidence(self, study):
+        """One row per regular file; descriptor-relative, bounded, read-only walk."""
+        study = component(study)
+        files, issues, count, truncated = [], [], 0, False
+        def walk(parts):
+            nonlocal count, truncated
+            with self.open_dir((study, *parts)) as directory, os.scandir(directory) as entries:
+                for entry in entries:
+                    if count >= EVIDENCE_ENTRY_LIMIT:
+                        truncated = True
+                        return
+                    count += 1
+                    try:
+                        component(entry.name)
+                        info = entry.stat(follow_symlinks=False)
+                        path = (*parts, entry.name)
+                        if stat.S_ISLNK(info.st_mode):
+                            issues.append({'path': '/'.join(path), 'error': '符号链接已拒绝'})
+                        elif stat.S_ISDIR(info.st_mode):
+                            if len(path) >= EVIDENCE_DEPTH_LIMIT:
+                                truncated = True
+                            else:
+                                walk(path)
+                        elif stat.S_ISREG(info.st_mode):
+                            # Reopen rather than trusting scandir metadata: a
+                            # replaced file or parent must pass O_NOFOLLOW again.
+                            with self.open_file((study, *path)) as stream:
+                                info = os.fstat(stream.fileno())
+                            files.append({'path': '/'.join(path), 'type': evidence_type(path),
+                                          'size_bytes': info.st_size,
+                                          'updated_at': datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
+                                          'attempts': [path[1]] if len(path)>2 and path[0]=='attempts' else [],
+                                          'objects': [], 'referenced_by': []})
+                        else:
+                            issues.append({'path': '/'.join(path), 'error': '非普通文件已拒绝'})
+                    except (OSError, StudyError, ValueError, OverflowError):
+                        issues.append({'path': '/'.join((*parts, entry.name)), 'error': '条目变化或无法安全读取'})
+        walk(())
+        files.sort(key=lambda item: item['path'])
+        by_path = {item['path']: item for item in files}
+        catalog = self.evidence_catalog(study)
+        objects = catalog['state']['objects'] if catalog['journal_ok'] else []
+        for obj in objects:
+            members = {ref['attempt'] for ref in obj['members']}
+            members.update(ref['attempt'] for role, ref in obj.get('adopted', {}).items()
+                           if role in ('opt', 'freq', 'sp') and isinstance(ref, dict))
+            for item in files:
+                if members.intersection(item['attempts']):
+                    item['objects'].append(obj['id'])
+            for role in ('opt', 'freq', 'sp'):
+                ref = obj.get('adopted', {}).get(role)
+                report = ref.get('report') if isinstance(ref, dict) else None
+                # T119 report fields are relative to analyses/, not catalog/.
+                target = local_evidence_path(report, 'analyses/_') if isinstance(report, str) else None
+                if target and target.startswith('analyses/') and target in by_path:
+                    item = by_path[target]
+                    item['referenced_by'].append({'kind': 'adoption', 'object': obj['id'], 'role': role})
+                    if obj['id'] not in item['objects']:
+                        item['objects'].append(obj['id'])
+                    if ref['attempt'] not in item['attempts']:
+                        item['attempts'].append(ref['attempt'])
+        budget = [EVIDENCE_REFERENCE_BYTES]
+        for item in files:
+            if not item['path'].startswith('analyses/') or not item['path'].lower().endswith('.md'):
+                continue
+            try:
+                for target in self.evidence_links(study, item['path'], budget):
+                    if target in by_path:
+                        by_path[target]['referenced_by'].append({'kind': 'markdown', 'path': item['path']})
+            except StudyError as exc:
+                issues.append({'path': item['path'], 'error': str(exc)})
+        return {'files': files, 'issues': issues, 'truncated': truncated, 'catalog': catalog,
+                'limits': {'entries': EVIDENCE_ENTRY_LIMIT, 'depth': EVIDENCE_DEPTH_LIMIT,
+                           'reference_bytes': EVIDENCE_REFERENCE_BYTES}}
 
     def comparison_structure(self, study, attempt):
         """Fixed final geometry and facts only; never expand the detail reader.

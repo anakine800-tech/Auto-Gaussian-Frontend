@@ -67,12 +67,12 @@ async function compare(page:Page,count:number,mismatch=false,reordered=false){
  await page.route('**/comparison-structure',r=>{const id=r.request().url().split('/').at(-2)!,i=['anti','gauche','prepared'].indexOf(id),s=source(id,i,i===1?moved(water):water);if(mismatch&&i===1)s.facts.data.route='# B3LYP/STO-3G';if(reordered&&i===1)s.geometry.data={...water,atoms:[water.atoms[1],water.atoms[0],water.atoms[2]]};return r.fulfill({json:s});});
  await page.goto('/#/s/butane-demo/attempts');
  for(const id of ['anti','gauche','prepared'].slice(0,count))await page.getByRole('checkbox',{name:`比较 ${id}`,exact:true}).check();
- await page.getByRole('button',{name:`结构对比（${count}）`,exact:true}).click();
+ await page.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'打开比较',exact:true}).click();
  await expect(page.getByTestId('structure-comparison-1').getByTestId('molecule-scene')).toBeVisible();
 }
 for(const [width,height] of [[1440,860],[1280,720]])for(const count of [2,3])test(`arbitrary ${count} structures, alignment and distances fit ${width}x${height}`,async({page},info)=>{
  await page.setViewportSize({width,height});const reads:string[]=[],writes:string[]=[];page.on('request',r=>{if(r.url().includes('/attempts/'))reads.push(r.url());if(r.method()!=='GET')writes.push(r.method());});
- await compare(page,count);const dialog=page.getByRole('dialog',{name:'结构对比',exact:true});
+ await compare(page,count);const dialog=page.getByRole('region',{name:'任意结构对比',exact:true});
  await expect(dialog).toContainText('前端计算、非正式');await expect(page.getByTestId('structure-comparison-2')).toContainText('1.255');
  await dialog.getByLabel('对比原子对').fill('1-2,2-3');await dialog.getByLabel('对齐到第 1 个').check();
  for(let i=1;i<=count;i++){
@@ -83,17 +83,17 @@ for(const [width,height] of [[1440,860],[1280,720]])for(const count of [2,3])tes
  const alignedAtoms=await page.getByTestId('structure-comparison-1').getByTestId('molecule-atom').evaluateAll(atoms=>atoms.map(a=>({center:a.getAttribute('data-center'),transform:a.getAttribute('transform')})).sort((a,b)=>Number(a.center)-Number(b.center)));
  const otherAtoms=await page.getByTestId('structure-comparison-2').getByTestId('molecule-atom').evaluateAll(atoms=>atoms.map(a=>({center:a.getAttribute('data-center'),transform:a.getAttribute('transform')})).sort((a,b)=>Number(a.center)-Number(b.center)));
  otherAtoms.forEach((a,i)=>{const values=a.transform!.match(/-?[\d.]+/g)!.map(Number),expected=alignedAtoms[i].transform!.match(/-?[\d.]+/g)!.map(Number);values.forEach((n,j)=>expect(n).toBeCloseTo(expected[j],8));});
- await expect.poll(()=>dialog.locator('.structure-comparison').evaluate(el=>getComputedStyle(el).getPropertyValue('--irc-scene-height'))).toMatch(/^\d+px$/);
- for(const card of await dialog.locator('.irc-structure-card').all()){const box=(await card.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y+box.height).toBeLessThanOrEqual(height);await expect(card.getByTestId('molecule-scene')).toBeInViewport({ratio:1});}
+ await expect.poll(()=>dialog.evaluate(el=>getComputedStyle(el).getPropertyValue('--irc-scene-height'))).toMatch(/^\d+px$/);
+ for(const card of await dialog.locator('.irc-structure-card').all()){await card.scrollIntoViewIfNeeded();const box=(await card.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);await expect(card.getByTestId('molecule-scene')).toBeVisible();}
  expect(writes).toEqual([]);expect(reads.every(url=>url.endsWith('/comparison-structure'))).toBe(true);
  await page.screenshot({path:info.outputPath(`t110-comparison-${count}-${width}.png`)});
- await dialog.getByRole('button',{name:'关闭抽屉'}).click();await page.getByRole('checkbox',{name:'比较 waiting',exact:true}).check();if(count===3)await expect(page.getByRole('button',{name:'结构对比（4）'})).toBeDisabled();
+ await page.getByRole('button',{name:'研究',exact:true}).click();await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();await page.getByRole('checkbox',{name:'比较 waiting',exact:true}).check();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText(`${count+1} / 6`);
 });
 test('one selection disabled; incompatible protocols and atom order are explicit; narrow cards stack',async({page})=>{
- await page.goto('/#/s/butane-demo/attempts');await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await expect(page.getByRole('button',{name:'结构对比（1）'})).toBeDisabled();
- await compare(page,2,true,true);const dialog=page.getByRole('dialog',{name:'结构对比',exact:true});await expect(dialog).toContainText('口径不同，不给相对能');await expect(dialog).toContainText('方法不同');await expect(dialog).toContainText('元素顺序不一致');await expect(dialog.getByLabel('对齐到第 1 个')).toBeDisabled();await expect(dialog).not.toContainText('ΔE / kcal/mol');
- await expect.poll(()=>dialog.locator('.structure-comparison').evaluate(el=>getComputedStyle(el).getPropertyValue('--irc-scene-height'))).toMatch(/^\d+px$/);
- for(const card of await dialog.locator('.irc-structure-card').all()){const box=(await card.boundingBox())!;expect(box.y+box.height).toBeLessThanOrEqual(page.viewportSize()!.height);}
+ await page.goto('/#/s/butane-demo/attempts');await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await expect(page.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'打开比较'})).toBeDisabled();
+ await compare(page,2,true,true);const dialog=page.getByRole('region',{name:'任意结构对比',exact:true});await expect(dialog).toContainText('口径不同，不给相对能');await expect(dialog).toContainText('方法不同');await expect(dialog).toContainText('元素顺序不一致');await expect(dialog.getByLabel('对齐到第 1 个')).toBeDisabled();await expect(dialog).not.toContainText('ΔE / kcal/mol');
+ await expect.poll(()=>dialog.evaluate(el=>getComputedStyle(el).getPropertyValue('--irc-scene-height'))).toMatch(/^\d+px$/);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
  await page.setViewportSize({width:390,height:844});const cards=dialog.locator('.irc-structure-card'),first=(await cards.nth(0).boundingBox())!,second=(await cards.nth(1).boundingBox())!;expect(second.y).toBeGreaterThanOrEqual(first.y+first.height);expect(second.x).toBe(first.x);
  await dialog.getByLabel('对比原子对').fill('1-99');await expect(dialog).toContainText('原子编号超出');await expect(dialog.locator('[data-highlighted=true]')).toHaveCount(0);
 });
@@ -121,7 +121,7 @@ test('invalid action token has dedicated restart message, other 403 stays distin
 });
 
 test('non-Gaussian saved energies display without granting relative comparison; missing geometry is per card',async({page})=>{
- await compare(page,2);await page.getByRole('button',{name:'关闭抽屉'}).click();
+ await compare(page,2);
  await page.route('**/comparison-structure',r=>{const id=r.request().url().split('/').at(-2)!,s=source(id,0) as any;s.facts.data.program=id==='anti'?'xtb':'crest';s.facts.data.total_energy=-12.3456789;s.facts.data.best_energy=-13.4567891;delete s.facts.data.route;if(id==='gauche')s.geometry={data:null,error:'Invalid final.xyz'};return r.fulfill({json:s});});
- await page.getByRole('button',{name:'结构对比（2）'}).click();await expect(page.getByTestId('structure-comparison-1')).toContainText('-12.345679');await expect(page.getByTestId('structure-comparison-2')).toContainText('-13.456789');await expect(page.getByTestId('structure-comparison-2')).toContainText('Invalid final.xyz');await expect(page.getByTestId('structure-comparison-1').getByTestId('molecule-scene')).toBeVisible();await expect(page.getByRole('dialog',{name:'结构对比',exact:true})).toContainText('口径不同，不给相对能');
+ await page.reload();await expect(page.getByTestId('structure-comparison-1')).toContainText('-12.345679');await expect(page.getByTestId('structure-comparison-2')).toContainText('-13.456789');await expect(page.getByTestId('structure-comparison-2')).toContainText('Invalid final.xyz');await expect(page.getByTestId('structure-comparison-1').getByTestId('molecule-scene')).toBeVisible();await expect(page.getByRole('region',{name:'任意结构对比',exact:true})).toContainText('口径不同，不给相对能');
 });

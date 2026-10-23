@@ -6,14 +6,14 @@ import {ActionOutput,actionToken} from './actions';
 import type {ActionResult} from './actions';
 import {createRoot} from 'react-dom/client';
 import {endpoint,get} from './api';
-import {StructureFiles} from './preview-panels';
+import {ComparePage} from './compare-page';
+import {EvidencePage} from './evidence-page';
 import {IRCPage} from './irc-panels';
 import {EnsemblePage} from './ensemble-panels';
 import {routeHash,studyHash} from './routing';
 import type {Study} from './api';
 import {ServerMonitor} from './server-monitor';
-import {StudyMarkdown} from './results-panels';
-import {Analyses,RelationshipGraph} from './study-panels';
+import {Analyses} from './study-panels';
 import {AttemptView} from './attempt-view';
 import {ErrorNotice,StatusBadge,readPreference,savePreference} from './ui';
 import {GlobalSearch} from './ui/search';
@@ -59,9 +59,9 @@ function App(){
  const navigate=(hash:string)=>{window.location.hash=hash;};
  const choose=(id:string)=>navigate(routeHash([study,id]));
  const completed=(result:ActionResult)=>{setActionResult(result);setRevision(r=>r+1);if(result.new_attempt)choose(result.new_attempt);};
- const top=route.help?'help':route.server?'jobs':view==='analysis'?'analysis':view==='files'?'files':'study';
+ const top=route.help?'help':route.server?'jobs':(view==='analysis'||view==='compare')?'analysis':view==='files'?'files':'study';
  const attempt=route.attempt;
- const fileTab=route.fileTab??'document';
+ const fileTab=route.fileTab??'library';
  const detail=route.attempt??route.ensemble?.join('/')??route.irc?.join('/')??route.structure?.join('/')??route.report;
  const back=route.attempt?studyHash(study,'attempts'):view==='analysis'?studyHash(study,'analysis'):studyHash(study,'files',fileTab);
  return <><header className="app-header">
@@ -73,15 +73,16 @@ function App(){
  {route.help?<main><HelpPage/></main>:route.server?<main className="server-page"><ServerMonitor revision={revision}/></main>:<div className="workspace"><main>
  {list?.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
  {route.error&&<ErrorNotice>{route.error}</ErrorNotice>}{error&&<ErrorNotice>{error}</ErrorNotice>}{study&&!data&&!error&&!route.error&&<p role="status">读取 Study…</p>}
- {data&&!route.error&&<>{!attempt&&<div className="study-heading"><div><span className="eyebrow">{top==='study'?'STUDY WORKSPACE':top==='analysis'?'ANALYSIS LIBRARY':'STUDY FILES'}</span><h2>{top==='study'?data.id:top==='analysis'?'报告':'研究证据'}</h2></div><StatusBadge>{data.attempts.length} Attempts</StatusBadge></div>}
+ {data&&!route.error&&<>{!attempt&&<div className="study-heading"><div><span className="eyebrow">{top==='study'?'STUDY WORKSPACE':top==='analysis'?'ANALYSIS LIBRARY':'STUDY FILES'}</span><h2>{top==='study'?data.id:top==='analysis'?(view==='compare'?'结果 · 比较':'报告'):'研究证据'}</h2></div><StatusBadge>{data.attempts.length} Attempts</StatusBadge>{top==='analysis'&&<nav aria-label="结果内容"><a href={studyHash(study,'analysis')}>报告</a> · <a href={routeHash([study,'compare'])}>比较</a></nav>}</div>}
  {top==='study'&&<nav className="section-nav" aria-label="Study 内容"><button aria-current={view==='overview'?'page':undefined} onClick={()=>navigate(studyHash(study))}>进展</button><button aria-current={view==='chains'?'page':undefined} onClick={()=>navigate(studyHash(study,'chains'))}>计算链</button><button aria-current={view==='attempts'?'page':undefined} onClick={()=>navigate(studyHash(study,'attempts'))}>全部 Attempt</button></nav>}
- {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['document','研究说明'],['structures','结构文件'],['graph','关系图'],['analyses','其他分析文件']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
+ {top==='files'&&<nav className="section-nav" aria-label="文件内容">{[['library','文件库'],['lineage','来源关系'],['document','研究说明']].map(([id,label])=><button key={id} aria-current={fileTab===id?'page':undefined} onClick={()=>navigate(studyHash(study,'files',id))}>{label}</button>)}</nav>}
  {data.issues.map((x,i)=><p className="notice" key={i}>{x.path}：{x.error}</p>)}
  {view==='chains'&&<ChainsView key={study} data={data}/>}
  {view==='overview'&&<StudyOverview key={study} data={data}/>}
  {view==='analysis'&&(route.irc?<IRCPage key={study+route.irc.join('/')} study={study} parts={route.irc} direction={route.direction??'forward'} point={route.point??0} revision={revision}/>:route.ensemble?<EnsemblePage study={study} parts={route.ensemble} candidate={route.candidate} revision={revision}/>:route.report?data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>报告文件不存在：{route.report}</ErrorNotice>:<AnalysisLibrary data={data}/>)}
  {view==='attempts'&&(attempt?<AttemptView key={study+attempt} study={study} id={attempt} revision={revision} busy={busy} onBusy={setBusy} onResult={completed} autoCompare={actionResult?.new_attempt===attempt} selectedFile={route.attemptFile} onLoaded={ignoreAttemptLoaded}/>:<AttemptTable key={study} data={data}/>)}
- {view==='files'&&(route.report?(data.analyses.some(a=>a.name===route.report)?<Analyses study={study} analyses={data.analyses.filter(a=>a.name===route.report)} selected/>:<ErrorNotice>找不到分析文件：{route.report}</ErrorNotice>):fileTab==='document'?<StudyMarkdown doc={data.study}/>:fileTab==='graph'?<RelationshipGraph graph={data.graph} onSelect={choose}/>:fileTab==='structures'||route.structure?<StructureFiles study={study} files={data.structure_files} selected={route.structure??null} onSelect={parts=>navigate(routeHash([study,...parts]))} revision={revision}/>:<Analyses study={study} analyses={data.analyses}/>)}
+ {view==='compare'&&<ComparePage key={study} data={data} revision={revision}/>}
+ {view==='files'&&<EvidencePage key={study} data={data} tab={fileTab} selected={route.file} revision={revision}/>}
  </>}
  </main></div>}
  {data?.id===study&&!route.help&&!route.server&&top!=='files'&&<CompareTray key={study} study={study}/>}

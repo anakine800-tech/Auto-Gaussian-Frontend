@@ -6,18 +6,18 @@ test('old entry routes and tabs resolve to the same files',async({page})=>{
   ['#server','#/servers','服务器'],
   ['#/butane-demo','#/s/butane-demo/research/progress','还缺什么'],
   ['#/butane-demo?tab=overview','#/s/butane-demo/evidence/document?tab=overview','study.md'],
-  ['#/butane-demo?tab=graph','#/s/butane-demo/evidence/graph?tab=graph','Attempt 关系图'],
+  ['#/butane-demo?tab=graph','#/s/butane-demo/evidence/lineage?tab=graph','来源关系'],
   ['#/butane-demo?tab=attempts','#/s/butane-demo/research/attempts?tab=attempts','Attempt 表'],
   ['#/butane-demo?tab=analyses','#/s/butane-demo/results?tab=analyses','报告'],
   ['#/butane-demo/analyses/thermo-demo.json','#/s/butane-demo/results/file/thermo-demo.json','thermo-demo.json'],
-  ['#/s/butane-demo/files/analyses/thermo-demo.json','#/s/butane-demo/evidence/analyses/thermo-demo.json','thermo-demo.json'],
+  ['#/s/butane-demo/files/analyses/thermo-demo.json','#/s/butane-demo/evidence/library?file=analyses%2Fthermo-demo.json','thermo-demo.json'],
  ]){
   await page.goto('/'+old);await expect.poll(()=>new URL(page.url()).hash).toBe(canonical);
   await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible();
  }
  await page.goto('/?tab=structures&keep=1#/butane-demo');
- await expect(page).toHaveURL(/\?tab=structures&keep=1#\/s\/butane-demo\/evidence\/structures$/);
- await expect(page.getByRole('heading',{name:'结构与构象文件',exact:true})).toBeVisible();
+ await expect(page).toHaveURL(/\?tab=structures&keep=1#\/s\/butane-demo\/evidence\/library$/);
+ await expect(page.getByRole('heading',{name:'文件库',exact:true})).toBeVisible();
  await page.goto('/#/s/butane-demo/analysis/file/missing.json');await expect(page.getByRole('alert')).toContainText('missing.json');
 });
 
