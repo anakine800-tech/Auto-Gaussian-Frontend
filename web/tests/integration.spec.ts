@@ -143,14 +143,14 @@ test('truncated log explains unavailable displacement but retains raw log and st
 });
 test('T51 monitor snapshot displays running, queued and committed cap',async({page})=>{
  await page.goto(base+'/#server');
- await expect(page.getByRole('region',{name:'集群 fresh',exact:true})).toContainText('运行 8 · 排队 16 · 总上限 88');
+ await expect(page.getByRole('region',{name:'集群 fresh',exact:true})).toContainText('运行 8 · 排队 16 / 总上限 88');
 });
-for(const [name,reason] of [['expired','数据已过期'],['failed','采样失败：Synthetic sampling failure']]){
+for(const [name,reason] of [['expired','非最新'],['failed','采样失败：Synthetic sampling failure']]){
  test(name+' monitor labels retained values as noncurrent',async({page})=>{
   await page.goto(base+'/#server');
   const cluster=page.getByRole('region',{name:'集群 '+name,exact:true});
-  await expect(cluster).toContainText(reason);await expect(cluster).toContainText('本人占用核数 · 非最新');
-  await expect(cluster).toContainText('运行 8 · 排队 16 · 总上限 88');
+  await expect(cluster).toContainText(reason);
+  await expect(cluster).toContainText(name==='failed'?'运行 未知 · 排队 未知 / 总上限 88':'运行 8 · 排队 16 / 总上限 88');
   await expect(page.getByRole('region',{name:'集群 fresh',exact:true})).not.toContainText('非最新');
   await healthyResults(page,'butane-demo');
  });

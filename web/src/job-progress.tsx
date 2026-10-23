@@ -4,8 +4,10 @@ import {duration,latestSnapshot,safeIdentity} from './jobs-data';
 import type {Snapshot} from './jobs-data';
 import {ErrorNotice} from './ui';
 export function WalltimeProgress({used,limit}:{used:unknown;limit:unknown}){
- const elapsed=duration(used),maximum=duration(limit);
- return <div className="job-walltime"><span>{display(used)} / {display(limit)}</span>{elapsed!==null&&maximum!==null&&maximum>0?<><progress aria-label="已用时长占 walltime" value={Math.min(elapsed,maximum)} max={maximum}/><small>{(elapsed/maximum*100).toFixed(1)}%{elapsed>maximum?' · 已超 walltime':''}</small></>:<small className="muted">进度未知</small>}</div>;
+ const seconds=(v:unknown)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?v:duration(v);
+ const format=(v:unknown)=>typeof v==='number'&&seconds(v)!==null?`${Math.floor(v/3600).toString().padStart(2,'0')}:${Math.floor(v%3600/60).toString().padStart(2,'0')}:${(v%60).toString().padStart(2,'0')}`:v==null?'未知':display(v);
+ const elapsed=seconds(used),maximum=seconds(limit),ratio=elapsed!==null&&maximum!==null&&maximum>0?elapsed/maximum:null;
+ return <div className={'job-walltime'+(ratio!==null&&ratio>=.9?' walltime-warning':'')}><span>{format(used)} / {format(limit)}</span>{ratio!==null?<><progress aria-label="已用时长占 walltime" value={Math.min(elapsed!,maximum!)} max={maximum!}/><small>{(ratio*100).toFixed(1)}%{ratio>1?' · 已超 walltime':''}</small></>:<small className="muted">进度未知</small>}</div>;
 }
 export function SnapshotProgress({study,attempt,revision}:{study:string|null;attempt:string|null;revision:number}){
  const [data,setData]=useState<Snapshot[]|null>(null),[error,setError]=useState('');

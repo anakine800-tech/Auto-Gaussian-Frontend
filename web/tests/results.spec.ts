@@ -11,10 +11,10 @@ test('local sample time and optional running/queued core totals',async({browser,
  await page.goto('http://127.0.0.1:18765/#server');
  await expect(page.locator('time')).toContainText('20:34:56');
  await expect(page.locator('time')).toHaveAttribute('datetime',data.sampled_at);
- await expect(page.locator('.core-count')).toHaveText('运行 8 · 排队 22 · 总上限 88');
+ await expect(page.locator('.server-card')).toContainText('运行 8 · 排队 22 / 总上限 88');
  await page.screenshot({path:info.outputPath('server-t11.png'),fullPage:true});
  delete data.own.cores_queued;
- await page.reload();await expect(page.locator('.core-count')).toHaveText('占用 8 · 总上限 88');
+ await page.reload();await expect(page.locator('.server-card')).toContainText('运行 8 · 排队 未知 / 总上限 88');
  await context.close();
 });
 
@@ -85,9 +85,9 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  let reads=0;const writes:string[]=[],apiReads:string[]=[];
  page.on('request',r=>{if(r.url().includes('/api/'))apiReads.push(new URL(r.url()).pathname);if(r.url().endsWith('/api/monitor'))reads++;if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
  await page.goto('/#server');
- await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('00:03:12 / 01:00:00');
- await expect(page.locator('.core-count')).toHaveText('占用 8 · 总上限未提供（旧快照）');
- await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:'集群 default · 节点、队列与警告'}).click();
+ await expect(page.getByRole('table',{name:'运行中作业表'})).toContainText('00:03:12 / 01:00:00');
+ await expect(page.locator('.server-card')).toContainText('总上限 未知');
+
  await expect(page.getByRole('table',{name:'节点表'})).toContainText('synthetic-node');
  await expect(page.getByRole('table',{name:'队列表'})).toContainText('demo');
  await expect(page.getByText('需人工确认后 ag cancel',{exact:true})).toBeVisible();
@@ -97,7 +97,7 @@ test('server snapshot, warnings, links and 30 second GET polling',async({page},i
  await page.screenshot({path:info.outputPath('server.png'),fullPage:true});
  await page.getByRole('link',{name:'opt-demo',exact:true}).click();
  await expect(page.getByRole('heading',{name:'opt-demo',exact:true})).toBeVisible();
- await page.getByRole('button',{name:'作业',exact:true}).click();await expect(page.getByRole('heading',{name:'服务器监控',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'作业',exact:true}).click();await expect(page.getByRole('heading',{name:'服务器',exact:true})).toBeVisible();
  expect(writes).toEqual([]);
 });
 
@@ -115,8 +115,8 @@ test('server stale, failed, one-shot, missing, malformed and oversized states',a
  for(const c of cases){
   await page.route('**/api/monitor',route=>route.fulfill({status:c.status??200,contentType:'application/json',body:JSON.stringify(c.status?c.body:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:c.body,error:null}]})}));
   await page.goto('/?snapshot='+cases.indexOf(c)+'#server');await expect(page.getByRole('region',{name:'服务器监控'})).toContainText(c.text);
-  if(c.text==='非最新')await expect(page.getByRole('table',{name:'本人作业表'})).toContainText('synthetic-opt');
-  if(c.text==='单次采样')await expect(page.getByText('数据已过期',{exact:true})).toBeVisible();
+  if(c.text==='非最新')await expect(page.getByRole('table',{name:'运行中作业表'})).toContainText('synthetic-opt');
+  if(c.text==='单次采样')await expect(page.locator('.server-stale').filter({hasText:'数据已过期'})).toBeVisible();
   await page.unroute('**/api/monitor');
  }
 });
@@ -144,20 +144,22 @@ test('two cluster sections show Slurm optional fields and retained data honestly
   {name:'batch',source:'named',ambiguous:false,snapshot:batch,error:null}];
  await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:rows}}));
  await page.goto('/#server');
- await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:'集群 batch · 节点、队列与警告'}).click();
+ await page.getByRole('button',{name:'选择服务器 batch'}).click();
+ await page.locator('.server-detail summary').filter({hasText:'限额、档位与存储'}).click();
+ await page.locator('.server-detail summary').filter({hasText:'节点与队列'}).click();
  const section=page.getByRole('region',{name:'集群 batch 详细信息',exact:true});
  await expect(page.getByRole('region',{name:'集群 default',exact:true})).toBeVisible();
  await expect(section).toContainText('预算 100 · 已用 1.5 · 预留 2.25 核时');
  await expect(section).toContainText('到期日期：2099-01-01');
- await expect(section).toContainText('存储占用：1024 KiB');
- await expect(section).toContainText('集群硬件容量未知');
+ await expect(section).toContainText('存储占用：0 GB');
+ await expect(section).toContainText('分区 CPU：已分配 未知');
  await expect(section).not.toContainText('集群核数：0 / 0');
  await page.screenshot({path:info.outputPath('multi-cluster-monitor.png'),fullPage:true});
  batch.ok=false;batch.error='Synthetic failure';batch.last_ok_at='2000-01-01T00:00:00Z';
- await page.reload();await expect(section).toContainText('核时预算 · 非最新');await expect(section).toContainText('存储占用 · 非最新');
+ await page.reload();await page.getByRole('button',{name:'选择服务器 batch'}).click();await expect(section).toContainText('非最新');await expect(section).toContainText('预算 100');
  delete batch.cluster.budget;delete batch.cluster.expires;delete batch.cluster.storage_kib;
- await page.reload();await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
- await expect(section).not.toContainText('存储占用');await expect(section).not.toContainText('到期日期');
+ await page.reload();await page.getByRole('button',{name:'选择服务器 batch'}).click();await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
+ await expect(section).toContainText('存储占用：未知');await expect(section).not.toContainText('到期日期');
 });
 
 test('conflicting default snapshots are identified instead of silently selecting an old source',async({page,request})=>{
@@ -177,9 +179,9 @@ test('first failed sample never renders zero placeholders as measured capacity',
  await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:[{name:'batch',source:'named',ambiguous:false,snapshot:sample,error:null}]}}));
  await page.goto('/#server');
  const section=page.getByRole('region',{name:'集群 batch',exact:true});
- await expect(section).toContainText('尚无成功采样，当前占用与硬件容量未知。');
+ await expect(section).toContainText('当前占用与硬件容量未知');
  await expect(section).not.toContainText('集群核数：0 / 0');
- await expect(section.locator('.core-count')).toHaveText('占用未知 · 总上限未提供（旧快照）');
+ await expect(section).toContainText('本人：运行 未知 · 排队 未知 / 总上限 未知');
  await expect(section.getByRole('article',{name:'核时预算'})).toHaveCount(0);
 });
 
@@ -199,8 +201,8 @@ test('monitor one-shot expiry, continuous boundary, elapsed clock and readable a
   await page.route('**/api/monitor',route=>route.fulfill({json:{clusters:[{name:'default',source:'legacy',ambiguous:false,snapshot:{...data,interval_seconds:c.interval,sampled_at:new Date(now-c.seconds*1000).toISOString()},error:null}]}}));
   await page.goto('/?age='+c.seconds+'#server');
   await expect(page.getByRole('region',{name:'服务器监控'})).toContainText('距今 '+c.age);
-  await expect(page.getByText('数据已过期',{exact:true})).toHaveCount(c.stale?1:0);
-  if(c.seconds===600){await page.clock.setFixedTime(now+1001);await page.clock.runFor(1000);await expect(page.getByText('数据已过期',{exact:true})).toBeVisible();}
+  await expect(page.locator('.server-stale').filter({hasText:'数据已过期'})).toHaveCount(c.stale?1:0);
+  if(c.seconds===600){await page.clock.setFixedTime(now+1001);await page.clock.runFor(1000);await expect(page.locator('.server-stale').filter({hasText:'数据已过期'})).toBeVisible();}
   await page.unroute('**/api/monitor');
  }
 });

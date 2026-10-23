@@ -106,20 +106,14 @@ test('frame alignment changes displayed coordinates and disables incompatible or
  await page.getByRole('button',{name:'下一帧',exact:true}).click();await expect(page.getByLabel('对齐到参考帧')).toBeDisabled();await expect(page.locator('.frame-alignment')).toContainText('元素顺序不一致');
 });
 const now=Date.parse('2026-10-23T03:00:00Z');
-for(const [width,height] of [[1440,860],[1280,720]])test(`four cluster overview, shared counts, limits and tiers fit ${width}x${height}`,async({page,request},info)=>{
- await page.setViewportSize({width,height});await page.clock.install({time:now});
+test('shared capacity groups never sum duplicate samples or substitute per-job caps',async({request})=>{
  const sample=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
- sample.sampled_at=sample.last_ok_at=new Date(now).toISOString();Object.assign(sample.own,{cores_running:8,cores_queued:16,committed_cap:128,max_queued_cores:64,scheduler_max_running_cores:32,max_cores:32,tiers:{mini:{cores:4,mem_gb:8},simple:{cores:8,mem_gb:16},general:{cores:16,mem_gb:32},complex:{cores:32,mem_gb:64}}});
- const rows=['batch','batch-test','pbs-a','pbs-b'].map(name=>({name,source:'named',ambiguous:false,error:null,snapshot:structuredClone(sample)}));rows[0].snapshot.own.shared_with=['batch-test'];rows[1].snapshot.own.shared_with=['batch'];delete rows[2].snapshot.own.tiers;delete rows[2].snapshot.own.max_queued_cores;rows[3].snapshot.ok=false;rows[3].snapshot.error='Synthetic sample failure';
- await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:rows}}));await page.goto('/#/jobs');const table=page.getByRole('table',{name:'集群容量总览表',exact:true});await expect(table.locator('tbody tr')).toHaveCount(3);
- await expect(table.getByTestId('remaining-cores')).toHaveText(['104','104','未知']);await expect(table).toContainText('共享一组');await expect(table).toContainText('未知（后端未提供）');await expect(table).toContainText('complex 32 核 / 64 GB');
- const card=page.getByRole('region',{name:'集群 batch',exact:true});await expect(card).toContainText('排队 16 / 排队上限 64');await expect(card).toContainText('单作业上限 32 核');await expect(card).toContainText('由调度器执行，ag 未核实');await expect(page.getByRole('region',{name:'集群 pbs-a',exact:true})).toContainText('排队上限：未提供');
- const box=(await table.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y+box.height).toBeLessThanOrEqual(height);expect(await page.evaluate(()=>scrollY)).toBe(0);
- await page.screenshot({path:info.outputPath(`t110-capacity-${width}.png`)});
- await page.clock.fastForward(361000);await expect(table.getByTestId('remaining-cores')).toHaveText(['未知','未知','未知']);
- const missing=structuredClone(rows);missing[1].snapshot.own.committed_cap=96;expect(capacityGroups(missing,now)[0].available).toBe(72);expect(capacityGroups(rows.slice(0,1),now)[0].available).toBeNull();
+ sample.sampled_at=sample.last_ok_at=new Date(now).toISOString();Object.assign(sample.own,{cores_running:8,cores_queued:16,committed_cap:128,max_queued_cores:64});
+ const rows=['batch','batch-test'].map(name=>({name,source:'named',ambiguous:false,error:null,snapshot:structuredClone(sample)}));rows[0].snapshot.own.shared_with=['batch-test'];rows[1].snapshot.own.shared_with=['batch'];
+ expect(capacityGroups(rows,now)[0].available).toBe(104);rows[1].snapshot.own.committed_cap=96;expect(capacityGroups(rows,now)[0].available).toBe(72);expect(capacityGroups(rows.slice(0,1),now)[0].available).toBeNull();
  const retained=structuredClone(rows);retained[0].snapshot.ok=false;retained[0].snapshot.sampled_at=new Date(now+1000).toISOString();retained[0].snapshot.last_ok_at=new Date(now-600000).toISOString();retained[0].snapshot.own.cores_running=99;
  expect(capacityGroups(retained,now)[0].running).toBe(8);expect(capacityGroups(retained,now)[0].available).toBeNull();
+ delete rows[1].snapshot.own.committed_cap;expect(capacityGroups(rows,now)[0].cap).toBeNull();
 });
 test('invalid action token has dedicated restart message, other 403 stays distinct',async({page})=>{
  let posts=0,token=true;await page.route('**/api/actions',r=>{posts++;return r.fulfill({status:403,json:{detail:token?'Invalid action token':'Local same-origin access only'}});});await page.goto('http://127.0.0.1:18766/#/s/butane-demo/a/prepared');await page.getByRole('button',{name:'刷新状态',exact:true}).click();await expect(page.getByRole('alert')).toHaveText('前端已重启，请刷新页面');expect(posts).toBe(1);
