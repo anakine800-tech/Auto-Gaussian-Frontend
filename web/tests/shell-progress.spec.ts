@@ -23,6 +23,22 @@ test('four entries and help, old links replace history without losing query',asy
  for(const rule of [PROGRESS.running.detail,PROGRESS.fetch.detail,PROGRESS.review.detail,PROGRESS.sign.detail,PROGRESS.reviewFallback])await expect(page.locator('.help-page')).toContainText(rule);
 });
 
+test('T118 file viewer stays canonical across reload and legacy navigation',async({page})=>{
+ const file='#/butane-demo/file/notes/'+encodeURIComponent('说明.txt')+'?source=report';
+ await page.goto('/#/help');
+ const before=await page.evaluate(()=>history.length);
+ await page.evaluate(hash=>{history.replaceState(null,'',hash);location.reload();},file);
+ await expect(page.locator('pre')).toHaveText('只读本地文件示例');
+ expect(new URL(page.url()).hash).toBe(file);expect(await page.evaluate(()=>history.length)).toBe(before);
+ await expect(page.getByRole('navigation',{name:'顶部导航'}).getByRole('button',{name:'证据',exact:true})).toHaveAttribute('aria-current','page');
+ await page.reload();await expect(page.locator('pre')).toHaveText('只读本地文件示例');expect(new URL(page.url()).hash).toBe(file);
+ await page.goto('/#/s/butane-demo/analysis/file/reading/overview.md');
+ await expect(page).toHaveURL(/\/results\/file\/reading\/overview.md$/);
+ await page.getByRole('article',{name:'报告正文'}).getByRole('link',{name:'普通文件',exact:true}).click();
+ await expect(page.locator('pre')).toHaveText('只读本地文件示例');
+ expect(new URL(page.url()).hash).toBe(file.split('?')[0]);
+});
+
 test('switcher groups, filter, recent order, keyboard and Escape restore focus',async({page})=>{
  await page.route('**/api/studies',r=>r.fulfill({json:{studies:[
   {id:'butane-demo',title:'Synthetic butane',type:'research'},

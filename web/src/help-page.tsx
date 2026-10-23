@@ -1,9 +1,9 @@
 import {PROGRESS,MILESTONES} from './progress-definitions';
 import './ui/help.css';
 const pages=[
- {id:'servers',name:'服务器',see:'集群快照、容量与本人占用、作业状态和刚结束待取回记录。',actions:'查看入口和作业，点击 Attempt 阅读记录；展开节点、限额和存储信息。',source:'本机 .ag-monitor 快照。过期、失败和未知值保留提示；页面不直接查询集群。'},
+ {id:'servers',name:'服务器',see:'服务器卡片、本人/他人/空闲资源分段、运行与排队作业，以及刚结束待取回记录。',actions:'选择服务器卡片或标签；筛选只看本人；点击 Attempt 阅读记录；展开节点、限额和存储信息。',source:'本机 .ag-monitor 快照。过期、失败和未知值保留提示；页面不直接查询集群。'},
  {id:'research',name:'研究',see:'进展数字、还缺什么、里程碑，以及全部 Attempt。',actions:'切换 Study；按状态或待审阅筛选；查看原文；勾选至比较篮。',source:'study.md、manifest.json、status.json、facts.json、review.md；有登记时核对 catalog 状态与日志哈希。'},
- {id:'results',name:'结果 · 报告',see:'本机已有分析文件、热化学、构象集合、IRC 与审阅报告。',actions:'打开报告，查看来源 Attempt；从比较篮打开快速比较或 2–3 项结构对比。',source:'analyses 中已有报告及其明确引用的数据；正式结论以 ag 报告和人的审阅为准。'},
+ {id:'results',name:'结果 · 报告',see:'分类报告目录、Markdown/CSV/JSON 正文与表格、热化学、构象集合、IRC 与审阅报告。',actions:'排序报告表格、点击 Attempt 预览结构、打开本地引用文件；HTML/SVG 隔离阅读，HTTPS 外链在新标签打开；比较篮可打开快速比较或 2–3 项结构对比。',source:'analyses 中已有报告及其明确引用的数据；正式结论以 ag 报告和人的审阅为准。'},
  {id:'evidence',name:'证据',see:'研究说明、结构文件、关系图与其他分析文件。',actions:'切换现有标签；查看只读原文、结构与来源关系。',source:'study.md、structures、analyses 与 Attempt 的本地记录。'},
 ];
 export function HelpPage(){return <article className="help-page"><span className="eyebrow">LOCAL STUDY VIEWER</span><h2>使用说明</h2><p>先选 Study，再从问题对应的入口开始。状态描述本地记录，不能替代科学审阅。</p>

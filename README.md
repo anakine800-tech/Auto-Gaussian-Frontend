@@ -101,6 +101,7 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 | `#/<study>/ensembles/<report>` | `#/s/<study>/results/ensemble/<report>` |
 | `#/<study>/irc-reviews/<report>` | `#/s/<study>/results/irc/<report>` |
 | `#/<study>/analyses/<file>` | `results/file/<file>`（XYZ 保持证据结构查看） |
+| `#/<study>/file/…`（T118 本地文件查看） | 保持原路径，不参与旧链接迁移 |
 | 旧 `tab=overview/graph/structures` | 证据的 `document/graph/structures` 标签 |
 | 旧 `tab=attempts` / `tab=analyses/ensembles/irc-reviews` | 全部 Attempt / 结果 |
 

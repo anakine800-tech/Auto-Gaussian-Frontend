@@ -35,7 +35,7 @@ for(const [width,height] of [[1440,860],[1280,720],[390,844]])test(`report table
  await expect(table.getByRole('link',{name:'anti-extra',exact:true})).toHaveCount(0);
  await table.getByRole('link',{name:'anti',exact:true}).click();
  const preview=page.getByRole('complementary',{name:'报告结构预览'});await expect(preview.getByTestId('molecule-scene')).toBeVisible();
- await expect(preview.getByRole('link',{name:'打开 Attempt anti',exact:true})).toHaveAttribute('href','#/s/butane-demo/a/anti');
+ await expect(preview.getByRole('link',{name:'打开 Attempt anti',exact:true})).toHaveAttribute('href','#/s/butane-demo/research/a/anti');
  await expect(page.getByRole('navigation',{name:'报告目录'})).toContainText('按报告声明');
  await expect(page.getByRole('region',{name:'NCI列表'})).toContainText('nci-demo.json');
  await expect(page.getByRole('region',{name:'通道覆盖列表'})).toContainText('coverage-demo.json');
@@ -53,10 +53,10 @@ test('local document links resolve against source and refuse escape or protocols
  for(const name of ['越界链接','绝对链接','脚本链接'])await expect(body.getByRole('link',{name,exact:true})).toHaveCount(0);
  await expect(body.getByText('越界链接',{exact:true})).toHaveAttribute('title','链接越出本 study');
  await expect(body.getByRole('link',{name:'外部文档'})).toHaveAttribute('target','_blank');await expect(body.getByRole('link',{name:'外部文档'})).toHaveAttribute('rel','noopener noreferrer');
- await expect(body.getByRole('link',{name:'同目录 CSV'})).toHaveAttribute('href',/#\/s\/butane-demo\/analysis\/file\/reading\/quoted.csv$/);
- await expect(body.getByRole('link',{name:'上级报告'})).toHaveAttribute('href',/#\/s\/butane-demo\/analysis\/thermo\/profile-demo.json$/);
- await expect(body.getByRole('link',{name:'Attempt',exact:true})).toHaveAttribute('href','#/s/butane-demo/a/anti');
- await expect(body.getByRole('link',{name:'结构文件'})).toHaveAttribute('href','#/s/butane-demo/files/analyses/representatives.xyz');
+ await expect(body.getByRole('link',{name:'同目录 CSV'})).toHaveAttribute('href',/#\/s\/butane-demo\/results\/file\/reading\/quoted.csv$/);
+ await expect(body.getByRole('link',{name:'上级报告'})).toHaveAttribute('href',/#\/s\/butane-demo\/results\/thermo\/profile-demo.json$/);
+ await expect(body.getByRole('link',{name:'Attempt',exact:true})).toHaveAttribute('href','#/s/butane-demo/research/a/anti');
+ await expect(body.getByRole('link',{name:'结构文件'})).toHaveAttribute('href','#/s/butane-demo/evidence/analyses/representatives.xyz');
  await body.getByRole('link',{name:'普通文件'}).click();await expect(page).toHaveURL(/butane-demo\/file\/notes\//);await expect(page.locator('pre')).toHaveText('只读本地文件示例');
  await page.reload();await expect(page.locator('pre')).toHaveText('只读本地文件示例');await page.goBack();
  await page.goto('/#/s/butane-demo/files/document');await page.getByRole('link',{name:'本地报告',exact:true}).click();await expect(page.getByRole('table',{name:'报告表格'})).toBeVisible();

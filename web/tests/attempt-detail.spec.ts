@@ -29,9 +29,9 @@ for(const state of ['prepared','submitting','submitted','running','finished','fe
 });
 test('numeric cells, measured sticky offset and metadata-only study response',async({page,request})=>{
  const metadata=await (await request.get('/api/studies/butane-demo')).json();expect(metadata.analyses.every((r:{data:unknown})=>r.data===null)).toBe(true);
- const bodies:string[]=[];page.on('request',r=>{if(r.url().includes('/reports/'))bodies.push(r.url());});await page.goto('/#/s/butane-demo');
+ const bodies:string[]=[];page.on('request',r=>{if(r.url().includes('/reports/')||r.url().includes('/files/analyses/'))bodies.push(r.url());});await page.goto('/#/s/butane-demo');
  await page.getByText('最近改动的文件',{exact:true}).click();
- const link=page.getByRole('link',{name:'thermo-demo.json',exact:true});await expect(link).toHaveAttribute('href','#/s/butane-demo/results/thermo/thermo-demo.json');expect(bodies).toHaveLength(0);await link.click();await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');expect(bodies.filter(url=>url.endsWith('/thermo-demo.json'))).toHaveLength(1);
+ const link=page.getByRole('link',{name:'thermo-demo.json',exact:true});await expect(link).toHaveAttribute('href','#/s/butane-demo/results/thermo/thermo-demo.json');expect(bodies).toHaveLength(0);await link.click();await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');expect(bodies.filter(url=>new URL(url).pathname.endsWith('/files/analyses/thermo-demo.json'))).toHaveLength(1);
  await page.goto('/#/s/butane-demo/attempts');const table=page.getByRole('table',{name:'Attempt 结果表'}),row=table.locator('tbody tr').filter({has:page.getByRole('link',{name:'opt-demo',exact:true})});await expect(row.locator('td.numeric').first()).toHaveText('-157.002500');await expect(row.locator('[title="-157.0025"]')).toBeVisible();expect(await row.locator('td.numeric').first().evaluate(el=>getComputedStyle(el).textAlign)).toBe('right');
  const offset=await table.locator('th').first().evaluate(el=>parseFloat(getComputedStyle(el).top)),actual=await page.evaluate(()=>document.querySelector('.app-header')!.getBoundingClientRect().height+document.querySelector('.context-bar')!.getBoundingClientRect().height);expect(offset).toBeCloseTo(actual,1);
 });
