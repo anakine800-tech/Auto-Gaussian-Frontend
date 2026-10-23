@@ -47,6 +47,25 @@ test('KPI rules use explicit saved state, facts and review availability',async({
  await expect(page.getByRole('table',{name:'Attempt 结果表'}).locator('tbody tr')).toHaveCount(data.attempts.length);
 });
 
+test('missing list hides zero counts but keeps positive items and unknown signatures',async({page,request})=>{
+ const data=await (await request.get('/api/studies/butane-demo')).json();
+ await page.route('**/api/studies/butane-demo',r=>r.fulfill({json:data}));
+ await page.goto('/#/s/butane-demo');
+ const work=page.getByRole('region',{name:'还缺什么'});
+ await expect(work.getByRole('heading',{name:/^待取回/})).toHaveCount(0);
+ await expect(work.getByRole('heading',{name:'待审阅（2）',exact:true})).toBeVisible();
+ await expect(work.getByRole('heading',{name:'待签字（2）',exact:true})).toBeVisible();
+ data.attempts=[];data.sections['里程碑签字']={present:true,text:'',entries:[]};
+ await page.reload();
+ for(const name of ['待取回','待审阅','待签字']){
+  await expect(work.getByRole('heading',{name:new RegExp('^'+name)})).toHaveCount(0);
+  await expect(page.getByRole('article',{name,exact:true}).locator('.kpi-value')).toHaveText('0');
+ }
+ data.sections['里程碑签字'].present=false;await page.reload();
+ await expect(work.getByRole('heading',{name:'待签字（未知）',exact:true})).toBeVisible();
+ await expect(page.getByRole('article',{name:'待签字',exact:true}).locator('.kpi-value')).toHaveText('—');
+});
+
 test('missing and empty template sections are explicit, source drawer is readonly',async({page,request})=>{
  const data=await (await request.get('/api/studies/butane-demo')).json();
  for(const present of [false,true]){

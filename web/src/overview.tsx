@@ -35,10 +35,10 @@ export function StudyOverview({data}:{data:Study}){
  <div className="overview-columns">
  <Panel title="还缺什么"><ol className="missing-list">
  <li>{sourceGroup('当前阻塞')}</li>
- <li><h3><a href={studyHash(data.id,'attempts')+'?status=finished'}>待取回（{finished.length}）</a></h3>{attempts(finished,'待取回')}</li>
- <li><h3><a href={studyHash(data.id,'attempts')+'?review=1'}>待审阅（{unreviewed.length}）</a></h3>{attempts(unreviewed,'待审阅')}</li>
+ {finished.length>0&&<li><h3><a href={studyHash(data.id,'attempts')+'?status=finished'}>待取回（{finished.length}）</a></h3>{attempts(finished,'待取回')}</li>}
+ {unreviewed.length>0&&<li><h3><a href={studyHash(data.id,'attempts')+'?review=1'}>待审阅（{unreviewed.length}）</a></h3>{attempts(unreviewed,'待审阅')}</li>}
  <li>{sourceGroup('待你决定')}</li>
- <li><h3>待签字（{milestones.present?pending.length:'未知'}）</h3>{pending.length?<ul className="overview-list">{pending.map((e,i)=><li key={i}>{sourceButton('里程碑签字',e.line,e.label??e.text)}<small>来源：study.md 第 {e.line} 行</small></li>)}</ul>:<p className="muted">{milestones.present?'没有明确待签的记录':'study.md 中没有此节'}</p>}</li>
+ {(!milestones.present||pending.length>0)&&<li><h3>待签字（{milestones.present?pending.length:'未知'}）</h3>{pending.length?<ul className="overview-list">{pending.map((e,i)=><li key={i}>{sourceButton('里程碑签字',e.line,e.label??e.text)}<small>来源：study.md 第 {e.line} 行</small></li>)}</ul>:<p className="muted">study.md 中没有此节</p>}</li>}
  </ol></Panel>
  <div id="milestones"><Panel title="里程碑">
  <p className="muted">来源：{sourceButton('里程碑签字')}；按记录显示，不推定研究阶段。</p>

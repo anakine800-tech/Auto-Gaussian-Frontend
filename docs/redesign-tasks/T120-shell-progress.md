@@ -135,3 +135,12 @@
   `frames-compare-capacity.spec.ts`、`integration.spec.ts`、`irc-review.spec.ts`、`jobs.spec.ts`、
   `overview.spec.ts`、`preview.spec.ts`、`results.spec.ts`、`shell-continuity.spec.ts`、`shell.spec.ts`、
   `study-viewer.spec.ts`、`shell-progress.spec.ts`。
+
+
+### 轻审跟进（2026-10-23）
+
+- 监督方对 `82662fda3f17e5cf56b5464a06058fcad03176cd` 轻审通过。
+- 按本 PR 建议隐藏“还缺什么”中的待取回、待审阅、待签字零数量项；四个指标仍显示真实的 0，里程碑记录缺失仍提示未知。
+- 新增覆盖零数量/正数量/未知区别的浏览器用例，更新六张原有合成截图；相关浏览器测试 18/18、类型检查和构建通过，最终全量结果见 PR 的 CI。
+- 截图夹具增加 `val-` Study 的建议留待后续，不改变本次类型规则。
+- T118（#31）、T115（#29）仍未合并，本轮未 rebase。以后若冲突仅涉及路由表和 studies.py 的加法，按审阅意见无需重审；若涉及逻辑，须提供 rebase 前后 diff。
