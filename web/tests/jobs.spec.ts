@@ -94,3 +94,47 @@ for(const [width,height] of [[1440,860],[1280,720]])test(`T103 shared caps and n
  for(const name of ['batch','batch-test'])await page.locator('.jobs-page > .Collapsible > summary').filter({hasText:`集群 ${name} · 节点、队列与警告`}).click();
  await expect(page.getByRole('article',{name:'核时预算'})).toHaveCount(0);await expect(page.getByText('到期日期：',{exact:false})).toHaveCount(0);
 });
+
+for(const [width,height] of [[1440,860],[1280,720]])test(`T110 display names preserve entries, shared limits and job identities ${width}x${height}`,async({page,request},info)=>{
+ await page.setViewportSize({width,height});await page.clock.install({time:now});
+ const sample=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
+ sample.sampled_at=sample.last_ok_at=new Date(now).toISOString();
+ Object.assign(sample.own,{cores_running:8,cores_queued:8,committed_cap:88});
+ const rows=['default','newhpc','scnet','scnet-test'].map(name=>{
+  const snapshot=structuredClone(sample);snapshot.cluster.name=name;
+  snapshot.own.jobs=[{...sample.own.jobs[0],job_id:`${name}:synthetic-001`,name:'Synthetic display-name job'}];
+  return {name,source:'named',ambiguous:false,error:null,snapshot};
+ });
+ rows[1].snapshot.cluster.display_name='新集群';rows[1].snapshot.ok=false;rows[1].snapshot.error='Synthetic sampling failure';
+ rows[2].snapshot.own.shared_with=['scnet-test'];rows[3].snapshot.own.shared_with=['scnet'];rows[3].snapshot.cluster.display_name='scnet-初筛';
+ await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:rows}}));
+ const study=await (await request.get('/api/studies/butane-demo')).json();
+ const finished=study.attempts.find((a:{id:string})=>a.id==='prepared');finished.state='finished';finished.manifest.data.cluster='scnet-test';
+ await page.route('**/api/studies/butane-demo',r=>r.fulfill({json:study}));
+ const writes:string[]=[],errors:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/#/jobs');
+ const labels=['default','新集群（newhpc）','scnet','scnet-初筛（scnet-test）'];
+ await expect(page.locator('.capacity-list > .capacity-row')).toHaveCount(4);
+ for(const label of labels)await expect(page.getByRole('region',{name:`集群 ${label}`,exact:true})).toBeVisible();
+ const overview=page.getByRole('table',{name:'集群容量总览表',exact:true});
+ await expect(overview.locator('tbody tr')).toHaveCount(3);await expect(overview).toContainText('scnet / scnet-初筛（scnet-test）');
+ await expect(overview.getByTestId('remaining-cores')).toHaveText(['72','未知','72']);
+ const jobs=page.getByRole('table',{name:'本人作业表',exact:true});
+ await expect(jobs.locator('tbody tr')).toHaveCount(4);
+ for(let i=0;i<labels.length;i++)await expect(jobs.locator('tbody tr').nth(i).locator('td').nth(2)).toContainText(labels[i]);
+ await expect(jobs.locator('tbody tr').nth(1)).toContainText('非最新');
+ await expect(jobs.getByRole('link',{name:'opt-demo',exact:true}).first()).toHaveAttribute('href','#/s/butane-demo/a/opt-demo');
+ await expect(page.getByRole('table',{name:'待取回作业表'})).toContainText('scnet-初筛（scnet-test）');
+ await page.locator('.jobs-table').first().locator('.column-picker summary').click();await page.getByRole('checkbox',{name:'作业号',exact:true}).check();await page.locator('.jobs-table').first().locator('.column-picker summary').click();
+ await expect(jobs).toContainText('scnet-test:synthetic-001');
+ await page.evaluate(()=>scrollTo(0,0));
+ const box=(await overview.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.y).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y+box.height).toBeLessThanOrEqual(height);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+ await page.screenshot({path:info.outputPath(`t110-display-names-${width}x${height}.png`),fullPage:true});
+ rows[3].snapshot.ok=false;rows[3].snapshot.last_ok_at=null;rows[3].snapshot.own=null;
+ await page.clock.fastForward(30001);const failed=page.getByRole('region',{name:'集群 scnet-初筛（scnet-test）',exact:true});
+ await expect(failed).toContainText('尚无成功采样');await expect(overview.getByTestId('remaining-cores')).toHaveText(['72','未知','未知']);
+ delete rows[3].snapshot.cluster.display_name;await page.clock.fastForward(30001);
+ await expect(page.getByRole('region',{name:'集群 scnet-test',exact:true})).toBeVisible();await expect(page.getByRole('table',{name:'待取回作业表'})).not.toContainText('scnet-初筛');
+ expect(writes).toEqual([]);expect(errors).toEqual([]);
+});

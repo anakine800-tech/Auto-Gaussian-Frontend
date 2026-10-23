@@ -60,6 +60,24 @@ class ComparisonTests(unittest.TestCase):
 
 
 class MonitorFieldsTests(unittest.TestCase):
+    def test_display_names_on_success_retained_and_first_failure_snapshots(self):
+        for ok, previous_success in [(True, True), (False, True), (False, False)]:
+            data = monitor_snapshot();data['ok'] = ok
+            if not previous_success:
+                data['last_ok_at'] = None
+                data['own'] = None
+                data['cluster'].update(cores_total=None, cores_used=None, nodes=[], queues=[])
+            for name in ['scnet-初筛', '筛' * 32]:
+                data['cluster']['display_name'] = name
+                with self.subTest(ok=ok, previous_success=previous_success, name=name):
+                    self.assertIs(validate_monitor(data), data)
+
+    def test_invalid_display_names_are_rejected(self):
+        for name in [None, 3, [], '', '筛' * 33, 'line\nbreak', 'tab\tname', 'bad\x00name', '\u200bhidden']:
+            data = monitor_snapshot();data['cluster']['display_name'] = name
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, '快照格式不正确'):
+                validate_monitor(data)
+
     def test_old_success_and_failure_snapshots_accept_additive_fields(self):
         for ok in [True, False]:
             data = monitor_snapshot();data['ok'] = ok

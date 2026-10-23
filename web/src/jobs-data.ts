@@ -2,6 +2,10 @@ import type {AttemptSummary,Document} from './api';
 import {object} from './api';
 import type {Monitor} from './server-monitor';
 export type ClusterRow={name:string;source:string;ambiguous:boolean;snapshot:Monitor|null;error:string|null};
+export function clusterLabel(row:Pick<ClusterRow,'name'|'snapshot'>){
+ const name=row.snapshot?.cluster?.display_name;
+ return name?`${name}（${row.name}）`:row.name;
+}
 export type LocalAttempt={study:string;attempt:AttemptSummary};
 export const safeIdentity=(s:string|null):s is string=>!!s&&!['.','..'].includes(s)&&!/[\/\\\0]/.test(s);
 export function sampleState(row:ClusterRow,now:number){

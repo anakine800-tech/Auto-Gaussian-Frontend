@@ -73,6 +73,10 @@ def validate_monitor(data):
                 for key in ('mem', 'walltime_used', 'walltime_limit', 'start_time', 'study', 'attempt'):
                     string(job.get(key), True)
         if cluster is not None:
+            if 'display_name' in cluster:
+                name = cluster['display_name']
+                string(name)
+                require(1 <= len(name) <= 32 and name.isprintable())
             for key in ('name', 'scheduler', 'expires', 'expiry_warning'):
                 if key in cluster:
                     string(cluster[key], True)
