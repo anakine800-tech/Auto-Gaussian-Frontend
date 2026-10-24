@@ -12,10 +12,12 @@ test('study navigation, saved thermo, missing parents and unknown status',async(
  await expect(table).toContainText('简并度');await expect(table).toContainText('50.000%');
  await expect(page.getByText('ensemble_G', {exact:false}).first()).toContainText('-157.00065446');
 
- await page.getByRole('button',{name:'证据',exact:true}).click();await page.getByRole('button',{name:'关系图',exact:true}).click();
- await expect(page.getByRole('img',{name:'Attempt 关系图'})).toBeVisible();
- await expect(page.getByText('missing-seed · 缺失父节点')).toBeVisible();
- await page.getByRole('button',{name:'waiting · unknown'}).click();
+ await page.getByRole('button',{name:'证据',exact:true}).click();await page.getByRole('button',{name:'来源关系',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'来源关系'})).toBeVisible();
+ const options=await page.getByLabel('来源对象').locator('option').evaluateAll(nodes=>nodes.map(n=>(n as HTMLOptionElement).value));
+ for(const id of options){await page.getByLabel('来源对象').selectOption(id);if(await page.locator('.lineage-node').filter({hasText:'waiting'}).count())break;}
+ await expect(page.locator('.lineage-view')).toContainText('missing-seed（缺失父节点）');
+ await page.locator('.lineage-node').filter({hasText:'waiting'}).click();
  await openSection(page,'来源与哈希');
  await expect(page.locator('#record-status\\.json')).toContainText('unknown');
  await expect(page.getByRole('heading',{name:'waiting',exact:true})).toBeVisible();
@@ -49,7 +51,7 @@ test('all UI traffic is read-only, old controls absent and refresh works',async(
  page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.url());});
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/');
- for(const name of ['全部 Attempt','证据','关系图','结果','证据','研究说明'])await page.getByRole('button',{name,exact:true}).click();
+ for(const name of ['全部 Attempt','证据','来源关系','结果','证据','研究说明'])await page.getByRole('button',{name,exact:true}).click();
  await page.getByRole('button',{name:'刷新',exact:true}).click();
  await expect(page.getByRole('heading',{name:'study.md'})).toBeVisible();
  for(const name of ['提交','取消作业','任务中心','项目库','归档导入','连接集群'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);

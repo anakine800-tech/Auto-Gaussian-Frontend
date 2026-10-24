@@ -99,6 +99,10 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     def study(study: str):
         return store.study(study)
 
+    @app.get('/api/studies/{study}/evidence')
+    def evidence(study: str):
+        return store.evidence(study)
+
     @app.get('/api/studies/{study}/files/{path:path}')
     def file(study: str, path: str, document: bool = False):
         raw, mime = store.file(study, path)

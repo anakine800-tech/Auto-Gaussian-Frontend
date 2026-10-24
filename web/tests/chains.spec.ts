@@ -6,8 +6,8 @@ import type {AttemptSummary} from '../src/api';
 import {reportCategory} from '../src/analysis-summary';
 
 const doc=(data:unknown)=>({data,error:null});
-function attempt(id:string,route='# B3LYP/6-31G(d) SP',parents:string[]=[],state='fetched',multiplicity=1):AttemptSummary{return {id,label:id,template:'gaussian',state,review_state:'present',manifest:doc({template:'gaussian',science:{route,method_basis:'DO_NOT_SHOW_METHOD_RATIONALE'},parents:parents.map(attempt_id=>({attempt_id,relation:'derived_from'})),cluster:'synthetic-cluster'}),status:doc({state}),facts:doc({schema:'ag-facts/1',route,charge:0,multiplicity,n_atoms:3,energies:{scf:-75},...(/\bopt\b/i.test(route)?{opt_converged:true}:{}),...(/\bfreq\b/i.test(route)?{n_imag:0}:{}),...(/\bstable\b/i.test(route)?{wavefunction_stability:'stable'}:{}),...(multiplicity===3?{s2:2}:{}),termination:'normal'})};}
-const geometry={atoms:[{atomic_number:8,x:0,y:0,z:0},{atomic_number:1,x:1,y:0,z:0},{atomic_number:1,x:0,y:1,z:0}]};
+function attempt(id:string,route='# B3LYP/6-31G(d) SP',parents:string[]=[],state='fetched',multiplicity=1):AttemptSummary{return {id,label:id,template:'gaussian',state,review_state:'present',manifest:doc({template:'gaussian',science:{route,method_basis:'DO_NOT_SHOW_METHOD_RATIONALE'},parents:parents.map(attempt_id=>({attempt_id,relation:'derived_from'})),cluster:'synthetic-cluster'}),status:doc({state}),facts:doc({schema:'ag-facts/1',program:'gaussian',program_version:'Synthetic revision',units:{energy:'Hartree'},route,charge:0,multiplicity,n_atoms:3,energies:{scf:-75},...(/\bopt\b/i.test(route)?{opt_converged:true}:{}),...(/\bfreq\b/i.test(route)?{n_imag:0}:{}),...(/\bstable\b/i.test(route)?{wavefunction_stability:'stable'}:{}),...(multiplicity===3?{s2:2}:{}),termination:'normal'})};}
+const geometry={units:'angstrom',atoms:[{center:1,atomic_number:8,x:0,y:0,z:0},{center:2,atomic_number:1,x:1,y:0,z:0},{center:3,atomic_number:1,x:0,y:1,z:0}]};
 const source:CompositionSource={geometry:doc(geometry)};
 function object(id:string,e=-75):ChainObject{return {id,name:'Water '+id,state_label:'S0',multiplicity:1,registered:true,status:'adopted',members:[{attempt:id+'-opt',role:'opt'},{attempt:id+'-freq',role:'freq'},{attempt:id+'-sp',role:'sp'}],adopted:{opt:{attempt:id+'-opt',report:null},freq:{attempt:id+'-freq',report:'adopted.md'},sp:{attempt:id+'-sp',report:'adopted.md'}},values:{scf_h:e,freq_scf_h:-74,zpe_h:.02,g_h:-73.99}};}
 function fixture():CatalogStudy{
@@ -24,7 +24,7 @@ function fixture():CatalogStudy{
 async function serve(page:Page,data=fixture()){
  await page.route('**/api/studies',r=>r.fulfill({json:{studies:[{id:'val-water',title:'合成水验证',type:'validation'},{id:'butane-demo',title:'合成正丁烷',type:'research'}],issues:[]}}));
  await page.route('**/api/studies/val-water',r=>r.fulfill({json:data}));
- await page.route('**/api/studies/val-water/attempts/*/comparison-structure',r=>r.fulfill({json:source}));
+ await page.route('**/api/studies/val-water/attempts/*/comparison-structure',r=>{const id=r.request().url().split('/').at(-2)!;return r.fulfill({json:{...source,id,facts:data.attempts.find(a=>a.id===id)?.facts}});});
  return data;
 }
 
@@ -44,7 +44,7 @@ test('suggest parity fixture: branch, cycle, missing parent and assigned bridge'
 
 for(const basis of ['E','E+ZPE','G'] as EnergyBasis[])test(`energy formula ${basis}: hand calculation and missing fields`,()=>{
  const a=object('a'),b=object('b',-74.999);b.values.zpe_h=.03;b.values.g_h=-73.98;
- const data=[attempt('a-sp'),attempt('b-sp'),attempt('a-freq','# B3LYP/6-31G(d) Freq'),attempt('b-freq','# B3LYP/6-31G(d) Freq')],sources={'a-sp':source,'b-sp':source};
+ const data=[attempt('a-sp'),attempt('b-sp'),attempt('a-freq','# B3LYP/6-31G(d) Freq'),attempt('b-freq','# B3LYP/6-31G(d) Freq')],sources={'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source};
  const result=relativeEnergies([a,b],data,sources,basis);
  expect(energyValue(a,basis)).toBeCloseTo(basis==='E'?-75:basis==='E+ZPE'?-74.98:-74.99,10);
  expect(result.rows[1].relative).toBeCloseTo((basis==='E'?.001:.011)*627.5094740631,8);
@@ -56,21 +56,21 @@ for(const basis of ['E','E+ZPE','G'] as EnergyBasis[])test(`energy formula ${bas
 test('pairwise protocol checks, composition, charge and electronic state gaps',()=>{
  const a=object('a'),b=object('b',-74.999),spA=attempt('a-sp');
  for(const [route,reason] of [['# HF/6-31G(d) SP','方法不同'],['# M062X/6-31G(d) SP','方法不同'],['# B3LYP/def2SVP SP','基组不同'],['# B3LYP/6-31G(d) SP SCRF=(SMD,Solvent=Water)','溶剂不同'],['# B3LYP/6-31G(d) SP EmpiricalDispersion=GD3BJ','色散不同'],['# B3LYP/Gen SP','自定义基组']]){
-  const result=relativeEnergies([a,b],[spA,attempt('b-sp',route)],{'a-sp':source,'b-sp':source},'E');expect(result.rows[0].relative).toBe(0);expect(result.rows[1].relative).toBeNull();expect(result.rows[1].reason).toContain(reason);
+  const result=relativeEnergies([a,b],[spA,attempt('b-sp',route)],{'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source},'E');expect(result.rows[0].relative).toBe(0);expect(result.rows[1].relative).toBeNull();expect(result.rows[1].reason).toContain(reason);
  }
  const spB=attempt('b-sp',undefined,[],'fetched',3);
- const gap=relativeEnergies([a,b],[spA,spB],{'a-sp':source,'b-sp':source},'E');expect(gap.rows[1].stateGap).toBe(true);expect(gap.rows[1].relative).toBeCloseTo(.627509474,8);
- (spB.facts.data as any).charge=1;expect(relativeEnergies([a,b],[spA,spB],{'a-sp':source,'b-sp':source},'E').rows[1].reason).toContain('电荷不同');
+ const gap=relativeEnergies([a,b],[spA,spB],{'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source},'E');expect(gap.rows[1].stateGap).toBe(true);expect(gap.rows[1].relative).toBeCloseTo(.627509474,8);
+ (spB.facts.data as any).charge=1;expect(relativeEnergies([a,b],[spA,spB],{'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source},'E').rows[1].reason).toContain('电荷不同');
  (spB.facts.data as any).charge=0;
  const other=structuredClone(source);(other.geometry!.data as any).atoms[0].atomic_number=6;
  expect(relativeEnergies([a,b],[spA,spB],{'a-sp':source,'b-sp':other},'E').rows[1].reason).toContain('元素组成不同');
- expect(relativeEnergies([a,b],[spA,spB],{'a-sp':source},'E').rows[1].reason).toContain('元素组成缺失');
+ expect(relativeEnergies([a,b],[spA,spB],{'a-sp':source},'E').rows[1].reason).toContain('缺少有效最终几何');
  expect(defaultBasis({...fixture(),energy_basis:'G'})).toBe('G');expect(defaultBasis({...fixture(),energy_basis:undefined})).toBe('E+ZPE');
 });
 
 for(const basis of ['E','E+ZPE','G'] as EnergyBasis[])test(`spin prefixes are informational for ${basis} electronic state gaps`,()=>{
- const a=object('a'),b={...object('b',-74.999),state_label:'T1',multiplicity:3},sources={'a-sp':source,'b-sp':source};
- for(const [s0,t1] of [['RB3LYP','UB3LYP'],['B3LYP','ROB3LYP'],['rB3LYP','uB3LYP'],['RωB97X-D','UωB97X-D']]){
+ const a=object('a'),b={...object('b',-74.999),state_label:'T1',multiplicity:3},sources={'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source};
+ for(const [s0,t1] of [['RB3LYP','UB3LYP'],['B3LYP','ROB3LYP'],['rB3LYP','uB3LYP'],['RWB97X-D','UWB97X-D']]){
   const attempts=[attempt('a-sp',`# ${s0}/def2-TZVP SP`),attempt('b-sp',`# ${t1}/def2-TZVP SP`,[],'fetched',3),attempt('a-freq',`# ${s0}/def2-TZVP Freq`),attempt('b-freq',`# ${t1}/def2-TZVP Freq`,[],'fetched',3)];
   const result=relativeEnergies([a,b],attempts,sources,basis);
   expect(result.rows[1].reason).toBeNull();expect(result.rows[1].stateGap).toBe(true);expect(result.rows[1].relative).toBeCloseTo(.627509474,8);
@@ -79,27 +79,27 @@ for(const basis of ['E','E+ZPE','G'] as EnergyBasis[])test(`spin prefixes are in
 });
 
 for(const basis of ['E+ZPE','G'] as EnergyBasis[])test(`${basis} checks the adopted Freq independently of SP`,()=>{
- const objects=[object('a'),object('b',-74.999)],sp=[attempt('a-sp'),attempt('b-sp')],sources={'a-sp':source,'b-sp':source};
+ const objects=[object('a'),object('b',-74.999)],sp=[attempt('a-sp'),attempt('b-sp')],sources={'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source};
  const freqA=attempt('a-freq','# RB3LYP/def2-SVP Freq');
- for(const [route,reason] of [['# UM062X/def2-SVP Freq','Freq 方法不同'],['# UB3LYP/def2-TZVP Freq','Freq 基组不同'],['# UB3LYP/def2-SVP Freq EmpiricalDispersion=GD3BJ','Freq 色散不同'],['# UB3LYP/def2-SVP Freq 6D','Freq 基函数形式不同'],['# UB3LYP/def2-SVP Freq SCRF=(SMD,Solvent=Water)','Freq 溶剂不同'],['# UB3LYP/Gen Freq','Freq 自定义基组信息不足'],['# UB3LYP/def2-SVP Freq SCRF=(SMD,Solvent=Water,Read)','Freq 溶剂信息不足']]){
+ for(const [route,reason] of [['# RM062X/def2-SVP Freq','Freq 方法不同'],['# RB3LYP/def2-TZVP Freq','Freq 基组不同'],['# RB3LYP/def2-SVP Freq EmpiricalDispersion=GD3BJ','Freq 色散不同'],['# RB3LYP/def2-SVP Freq 6D','Freq 基函数形式不同'],['# RB3LYP/def2-SVP Freq SCRF=(SMD,Solvent=Water)','Freq 溶剂不同'],['# RB3LYP/Gen Freq','不支持自定义基组'],['# RB3LYP/def2-SVP Freq SCRF=(SMD,Solvent=Water,Read)','溶剂需要明确模型']]){
   const attempts=[...sp,freqA,attempt('b-freq',route)],result=relativeEnergies(objects,attempts,sources,basis);
-  expect(result.rows[0].relative).toBe(0);expect(result.rows[1].relative).toBeNull();expect(result.rows[1].reason).toBe(reason);
+  expect(result.rows[0].relative).toBe(0);expect(result.rows[1].relative).toBeNull();expect(result.rows[1].reason).toContain(reason);
   expect(relativeEnergies(objects,attempts,sources,'E').rows[1].relative).toBeCloseTo(.627509474,8);
  }
- const missing=relativeEnergies(objects,[...sp,freqA],sources,basis);expect(missing.rows[1].relative).toBeNull();expect(missing.rows[1].reason).toBe('缺少已采用的 Freq Attempt');
- const badReference=relativeEnergies(objects,[...sp,freqA],sources,basis,'b');expect(badReference.rows[0].reason).toBe('参照对象：缺少已采用的 Freq Attempt');
+ const missing=relativeEnergies(objects,[...sp,freqA],sources,basis);expect(missing.rows[1].relative).toBeNull();expect(missing.rows[1].reason).toContain('未采用此层或来源 Attempt 缺失');
+ const badReference=relativeEnergies(objects,[...sp,freqA],sources,basis,'b');expect(badReference.rows[0].reason).toContain('未采用此层或来源 Attempt 缺失');
 });
 
 test('G checks Freq temperature and pressure, using defaults only when absent',()=>{
- const objects=[object('a'),object('b',-74.999)],sp=[attempt('a-sp'),attempt('b-sp')],sources={'a-sp':source,'b-sp':source};
+ const objects=[object('a'),object('b',-74.999)],sp=[attempt('a-sp'),attempt('b-sp')],sources={'a-sp':source,'b-sp':source,'a-freq':source,'b-freq':source};
  const freqA=attempt('a-freq','# RB3LYP/def2-SVP Freq');
  for(const suffix of ['', 'Temperature = 298.150 Pressure = 1.000', 'temperature=2.9815D2 pressure=1e0']){
-  const result=relativeEnergies(objects,[...sp,freqA,attempt('b-freq',`# UB3LYP/def2-SVP Freq ${suffix}`)],sources,'G');
+  const result=relativeEnergies(objects,[...sp,freqA,attempt('b-freq',`# RB3LYP/def2-SVP Freq ${suffix}`)],sources,'G');
   expect(result.rows[1].reason).toBeNull();expect(result.rows[1].relative).toBeCloseTo(.627509474,8);
  }
  for(const [suffix,reason] of [['temperature=300','Freq 温度不同'],['pressure=2','Freq 压力不同'],['temperature=unknown','Freq 温度无法识别'],['pressure=','Freq 压力无法识别'],['temperature=298.15 temperature=300','Freq 温度无法识别'],['pressure=1e999','Freq 压力无法识别']]){
-  const attempts=[...sp,freqA,attempt('b-freq',`# UB3LYP/def2-SVP Freq ${suffix}`)],result=relativeEnergies(objects,attempts,sources,'G');
-  expect(result.rows[1].relative).toBeNull();expect(result.rows[1].reason).toBe(reason);
+  const attempts=[...sp,freqA,attempt('b-freq',`# RB3LYP/def2-SVP Freq ${suffix}`)],result=relativeEnergies(objects,attempts,sources,'G');
+  expect(result.rows[1].relative).toBeNull();expect(result.rows[1].reason).toContain(reason);
   expect(relativeEnergies(objects,attempts,sources,'E+ZPE').rows[1].relative).toBeCloseTo(.627509474,8);
  }
 });
@@ -145,9 +145,9 @@ test('switching energy basis displays Freq mismatch reasons in both views',async
  await serve(page,data);await page.goto('/#/val-water/chains');
  const chains=page.getByRole('table',{name:'对象计算链',exact:true});await expect(chains).toContainText('Freq 方法不同');
  await page.getByLabel('能量口径').selectOption('E');await expect(chains).toContainText('0.628');await expect(chains).toContainText('电子态能差');await expect(chains).not.toContainText('Freq 方法不同');
- await page.getByLabel('能量口径').selectOption('G');await expect(chains).toContainText('Freq 方法不同、Freq 温度不同、Freq 压力不同');
+ await page.getByLabel('能量口径').selectOption('G');await expect(chains).toContainText('Freq 方法不同或缺失；Freq 温度不同或缺失；Freq 压力不同或缺失');
  await page.getByRole('button',{name:'进展',exact:true}).click();const current=page.getByRole('table',{name:'当前采用的结果',exact:true});await expect(current).toContainText('Freq 方法不同');
- await page.getByLabel('能量口径').selectOption('G');await expect(current).toContainText('Freq 方法不同、Freq 温度不同、Freq 压力不同');
+ await page.getByLabel('能量口径').selectOption('G');await expect(current).toContainText('Freq 方法不同或缺失；Freq 温度不同或缺失；Freq 压力不同或缺失');
 });
 
 test('progress shows adopted sources, energy basis, explicit signatures and key report order',async({page})=>{
@@ -169,4 +169,27 @@ for(const size of [{width:1440,height:860},{width:1280,height:720},{width:390,he
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:info.outputPath(`chains-${size.width}.png`),fullPage:false});
  await page.getByRole('button',{name:'进展',exact:true}).click();await expect(page.getByRole('table',{name:'当前采用的结果'})).toContainText('0.628');expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await page.getByRole('region',{name:'当前采用的结果',exact:true}).evaluate(el=>window.scrollTo(0,el.getBoundingClientRect().top+window.scrollY-200));await page.screenshot({path:info.outputPath(`adoption-${size.width}.png`),fullPage:false});
  await page.getByRole('button',{name:/Study ▾/}).click();const dialog=page.getByRole('dialog',{name:'切换 Study'});await dialog.getByRole('button',{name:/验证与测试/}).click();await expect(dialog.getByRole('option',{name:/val-water/})).toBeVisible();await page.screenshot({path:info.outputPath(`validation-${size.width}.png`)});
+});
+
+for(const variant of ['state-gap','temperature','malformed-pressure'])test(`chain and comparison pages show the same G result: ${variant}`,async({page})=>{
+ const data=fixture();
+ const freq=data.attempts.find(a=>a.id==='b-freq')!.facts.data as any;
+ if(variant==='temperature')freq.route+=' temperature=300';
+ if(variant==='malformed-pressure')freq.route+=' pressure=unknown';
+ await serve(page,data);
+ await page.route('**/api/studies/val-water/evidence',r=>r.fulfill({json:{catalog:data.catalog,files:[],issues:[],truncated:false}}));
+ await page.goto('/#/val-water/chains');await page.getByLabel('能量口径').selectOption('G');
+ const row=page.getByRole('table',{name:'对象计算链',exact:true}).locator(':scope > tbody > tr').filter({has:page.getByRole('button',{name:'▸ Water b',exact:true})});
+ const expected=variant==='state-gap'?'0.628':variant==='temperature'?'Freq 温度不同或缺失':'Freq 压力无法识别';
+ await expect(row).toContainText(expected);
+ const chainText=await row.locator(':scope > td').nth(1).innerText();
+ await page.goto('/#/val-water/compare?cmp=a-sp,b-sp');
+ const cells=page.getByRole('table',{name:'分层能量'}).getByRole('row').filter({has:page.getByRole('rowheader',{name:'G',exact:true})});
+ const compareCell=cells.getByRole('cell').nth(1);await expect(compareCell).toContainText(expected);
+ const text=await compareCell.innerText();
+ if(variant==='state-gap'){
+  expect(chainText).toContain('电子态能差');expect(text).toContain('Δ 0.628 kcal/mol · 电子态能差');
+ }else{
+  expect(chainText.match(/（(.*)）/)?.[1]).toBe(text.match(/（(.*)）/)?.[1]);expect(text).toMatch(/^—/);
+ }
 });

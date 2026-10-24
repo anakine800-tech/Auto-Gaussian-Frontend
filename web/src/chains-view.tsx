@@ -34,7 +34,7 @@ export function EnergyCell({row}:{row:EnergyRow}){return <span className="chain-
 function useEnergies(data:CatalogStudy,objects:ChainObject[]){
  const [basis,setBasis]=useState<EnergyBasis>(()=>defaultBasis(data)),[reference,setReference]=useState('');
  const [loaded,setLoaded]=useState<{key:string;sources:Record<string,CompositionSource>}>({key:'',sources:{}});
- const ids=[...new Set(objects.filter(o=>o.status==='adopted').flatMap(o=>o.adopted.sp?[o.adopted.sp.attempt]:[]))].sort(),key=data.id+'/'+ids.join('/');
+ const ids=[...new Set(objects.filter(o=>o.status==='adopted').flatMap(o=>Object.values(o.adopted).flatMap(ref=>ref?[ref.attempt]:[])))].sort(),key=data.id+'/'+ids.join('/');
  useEffect(()=>{const c=new AbortController();setLoaded({key:'',sources:{}});
   Promise.all(ids.map(async id=>{try{return [id,await get<CompositionSource>(endpoint(data.id,'attempts',id,'comparison-structure'),c.signal)] as const;}catch{return [id,{error:'元素组成读取失败'}] as const;}})).then(entries=>{if(!c.signal.aborted)setLoaded({key,sources:Object.fromEntries(entries)});});
   return()=>c.abort();
@@ -46,7 +46,7 @@ function EnergyControls({model,objects}:{model:ReturnType<typeof useEnergies>;ob
  <p className="energy-notice">{ENERGY_NOTICE}</p><ActionBar label="能量换算选项">
  <label>口径 <select aria-label="能量口径" value={model.basis} onChange={e=>model.setBasis(e.target.value as EnergyBasis)}>{['E','E+ZPE','G'].map(b=><option key={b}>{b}</option>)}</select></label>
  <label>参照对象 <select aria-label="参照对象" value={model.referenceId} onChange={e=>model.setReference(e.target.value)}><option value="">自动：最低能已采用对象</option>{objects.filter(o=>o.registered&&o.status==='adopted').map(o=><option key={o.id} value={o.id}>{o.name} · {electronicState(o)}</option>)}</select></label>
- <button onClick={()=>model.setReference('')}>恢复最低能参照</button><span className="muted">相对能量 / kcal/mol{model.loading?' · 正在核对 SP 元素组成':''}</span>
+ <button onClick={()=>model.setReference('')}>恢复最低能参照</button><span className="muted">相对能量 / kcal/mol{model.loading?' · 正在核对采用来源与口径':''}</span>
  </ActionBar></>;}
 function CompareObject({data,obj}:{data:Study;obj:ChainObject}){const id=representativeAttempt(obj,data.attempts);return <button disabled={!id} title={id?`代表 Attempt：${id}`:'没有可用的代表 Attempt'} onClick={()=>addObjectToBasket(data.id,obj,data.attempts)}>＋比较</button>;}
 export function ChainsView({data}:{data:CatalogStudy}){

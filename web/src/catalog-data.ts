@@ -1,6 +1,8 @@
 import {object} from './api';
 import type {AttemptSummary,Study} from './api';
 import {reportCategory} from './analysis-summary';
+import {comparisonEntries,comparisonEnergy,comparisonValue,spinTreatmentOf} from './quick-comparison';
+import type {CompareEntry,CompareSource,ComparedObject,EnergyMetric} from './quick-comparison';
 
 export type EnergyBasis='E'|'E+ZPE'|'G';
 export type Adoption={attempt:string;report:string|null};
@@ -77,97 +79,36 @@ export function chainStatus(obj:ChainObject,attempts:AttemptSummary[]){
  if(obj.status==='retired')return '历史';if(obj.status==='adopted')return '已采用';
  return obj.members.some(m=>attempts.some(a=>a.id===m.attempt&&a.state==='finished'))?'待取回':'候选';
 }
+const metricFor=(basis:EnergyBasis):EnergyMetric=>basis==='E'?'sp':basis==='E+ZPE'?'zero':'g';
+const comparedObject=(obj:ChainObject):ComparedObject=>({...obj,members:obj.members.map(m=>m.attempt),adopted:Object.fromEntries(Object.entries(obj.adopted).map(([role,ref])=>[role,ref.attempt]))});
 export function energyValue(obj:ChainObject,basis:EnergyBasis):number|null{
- if(!obj.registered||obj.status!=='adopted')return null;
- const e=finite(obj.values.scf_h),zpe=finite(obj.values.zpe_h),g=finite(obj.values.g_h),freq=finite(obj.values.freq_scf_h);
- if(e===null||!obj.adopted.sp)return null;
- // All values are catalog Hartree snapshots. Never backfill a missing Freq
- // SCF with SP SCF, and never add the total Freq Gibbs energy directly to SP.
- const value=basis==='E'?e:!obj.adopted.freq?null:basis==='E+ZPE'?(zpe===null?null:e+zpe):(g===null||freq===null?null:e+(g-freq));
- return finite(value);
+ return comparisonValue({id:obj.id,label:obj.name,object:comparedObject(obj),layers:{},error:obj.registered?'':'未登记'},metricFor(basis));
 }
 export const defaultBasis=(data:CatalogStudy):EnergyBasis=>['E','E+ZPE','G'].includes(data.energy_basis??'')?data.energy_basis!:'E+ZPE';
-export type CompositionSource={geometry?:{data:unknown;error:string|null};error?:string};
+export type CompositionSource=Partial<CompareSource>&{error?:string};
 export type EnergyRow={object:ChainObject;energy:number|null;relative:number|null;reason:string|null;stateGap:boolean};
-export const HARTREE_TO_KCAL=627.5094740631;
+export {HARTREE_TO_KCAL} from './quick-comparison';
 
 export function methodFromRoute(route:string){
  const pairs=[...route.replace(/\s*\/\s*/g,'/').matchAll(/(?:^|[\s#])([^\s/#]+)\/([^\s]+)/g)];
  return pairs.length===1?`${pairs[0][1]}/${pairs[0][2]}`:null;
 }
-function methodParts(method:string){
- const prefix=method.match(/^(ro|r|u)/i)?.[1];
- return prefix&&method.length>prefix.length?{method:method.slice(prefix.length),spin:prefix.toUpperCase()}:{method,spin:'未显式指定'};
-}
-export function spinTreatment(route:string){const pair=methodFromRoute(route);return pair?methodParts(pair.split('/')[0]).spin:'—';}
-function routeProtocol(a:AttemptSummary|undefined,role:'SP'|'Freq'){
- if(!a)throw Error(`缺少已采用的 ${role} Attempt`);
- const route=routeOf(a).replace(/\s*([=,/])\s*/g,'$1').replace(/\(\s*/g,'(').replace(/\s*\)/g,')').toLowerCase();
- const pair=methodFromRoute(route);if(!pair)throw Error(`${role} 方法或基组缺失 / 无法识别`);
- const [rawMethod,basis]=pair.split('/'),{method}=methodParts(rawMethod);
- // R/U/RO describe spin treatment, not a different method for state gaps.
- // Matching the word "gen" cannot establish identical basis definitions.
- if(['gen','genecp','chkbasis'].includes(basis)||/\b(?:pseudo|extrabasis)\b/.test(route))throw Error(`${role} 自定义基组信息不足`);
- const scrfs=[...route.matchAll(/\bscrf\b\s*=?\s*(\([^)]*\)|[^\s]*)/g)];
- let solvent='gas';if(scrfs.length){
-  if(scrfs.length!==1)throw Error(`${role} 溶剂设置有歧义`);
-  const options=scrfs[0][1].replace(/^\(|\)$/g,'').split(',').sort();
-  if(!options.some(s=>s.startsWith('solvent='))||options.some(s=>['read','external','generic','solvent=generic'].includes(s)))throw Error(`${role} 溶剂信息不足`);
-  solvent=options.join(',');
- }
- // The adopted Freq supplies corrections, so its route must be checked too.
- const dispersion=route.match(/\b(?:empiricaldispersion|em)=(\([^)]*\)|[^\s]+)/)?.[1]??'default';
- const angular=[...route.matchAll(/\b(5d|6d|7f|10f)\b/g)].map(m=>m[1]).sort().join(',');
- return {route,spec:{方法:method,色散:dispersion,基组:basis,基函数形式:angular,溶剂:solvent}};
-}
-function thermodynamicSetting(route:string,key:'temperature'|'pressure'){
- const matches=[...route.matchAll(new RegExp(`\\b${key}\\b(?:=([^\\s]+))?`,'g'))];
- if(!matches.length)return key==='temperature'?'298.15':'1';
- const raw=matches[0][1]??'',value=Number(raw.replace(/d/i,'e'));
- // A present but unreadable setting must not silently become a default.
- if(matches.length!==1||!/^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:[ed][+-]?\d+)?$/i.test(raw)||!Number.isFinite(value)||value<=0)throw Error(`Freq ${key==='temperature'?'温度':'压力'}无法识别`);
- return String(value);
-}
-function protocol(a:AttemptSummary|undefined,source:CompositionSource|undefined,freq:AttemptSummary|undefined,basis:EnergyBasis){
- const sp=routeProtocol(a,'SP');
- const spec:Record<string,string>={...sp.spec};
- if(basis!=='E'){
-  const correction=routeProtocol(freq,'Freq');
-  for(const [key,value] of Object.entries(correction.spec))spec[`Freq ${key}`]=value;
-  if(basis==='G'){
-   spec['Freq 温度']=thermodynamicSetting(correction.route,'temperature');
-   spec['Freq 压力']=thermodynamicSetting(correction.route,'pressure');
-  }
- }
- const f=record(a!.facts.data);if(!Number.isInteger(f.charge))throw Error('SP 电荷缺失');
- if(!Number.isInteger(f.multiplicity)||Number(f.multiplicity)<1)throw Error('SP 多重度缺失');
- if(source?.error||source?.geometry?.error)throw Error('SP 元素组成无法读取');
- const atoms=record(source?.geometry?.data).atoms;
- if(!Array.isArray(atoms)||!atoms.length||atoms.length!==f.n_atoms)throw Error('SP 元素组成缺失或原子数不符');
- const counts=new Map<number,number>();for(const atom of atoms){const z=record(atom).atomic_number;if(!Number.isInteger(z)||Number(z)<1||Number(z)>118)throw Error('SP 元素组成无法识别');counts.set(Number(z),(counts.get(Number(z))??0)+1);}
- const composition=[...counts].sort((a,b)=>a[0]-b[0]).map(([z,n])=>`${z}:${n}`).join(',');
- spec['元素组成']=composition;spec['电荷']=String(f.charge);
- return {spec,multiplicity:Number(f.multiplicity)};
-}
+export function spinTreatment(route:string){const pair=methodFromRoute(route);return pair?spinTreatmentOf(pair.split('/')[0]):'—';}
 export function relativeEnergies(objects:ChainObject[],attempts:AttemptSummary[],sources:Record<string,CompositionSource>,basis:EnergyBasis,referenceId=''){
- const rows:EnergyRow[]=objects.map(o=>({object:o,energy:energyValue(o,basis),relative:null,reason:!o.registered?'未登记':o.status!=='adopted'?'未采用':null,stateGap:false}));
- const ref=(referenceId?rows.find(r=>r.object.id===referenceId):rows.filter(r=>r.energy!==null).sort((a,b)=>a.energy!-b.energy!||a.object.id.localeCompare(b.object.id))[0]);
- const inspect=(o:ChainObject)=>protocol(attempts.find(a=>a.id===o.adopted.sp?.attempt),sources[o.adopted.sp?.attempt??''],attempts.find(a=>a.id===o.adopted.freq?.attempt),basis);
- let refSpec:ReturnType<typeof protocol>|null=null,refError='';
- if(ref)try{refSpec=inspect(ref.object);}catch(e){refError=(e as Error).message;}
- for(const row of rows){if(row.reason)continue;
-  if(row.energy===null){row.reason=`${basis} 所需能量或采用来源缺失`;continue;}
-  if(!ref||ref.energy===null){row.reason='参照对象能量缺失';continue;}
-  if(!refSpec){row.reason=`参照对象：${refError}`;continue;}
-  try{const spec=inspect(row.object),keys=Object.keys(spec.spec) as (keyof typeof spec.spec)[];
-   const differences=keys.filter(k=>spec.spec[k]!==refSpec!.spec[k]);
-   if(differences.length){row.reason=differences.map(k=>`${k}不同`).join('、');continue;}
-   const delta=(row.energy-ref.energy)*HARTREE_TO_KCAL;
-   if(!Number.isFinite(delta)){row.reason='能量差超出有限数值范围';continue;}
-   row.relative=delta;row.stateGap=spec.multiplicity!==refSpec.multiplicity;
-  }catch(e){row.reason=(e as Error).message;}
- }
- return {rows,referenceId:ref?.object.id??''};
+ const loaded:Record<string,CompareSource>=Object.fromEntries(attempts.map(a=>[a.id,{id:a.id,facts:sources[a.id]?.facts??a.facts,geometry:sources[a.id]?.geometry??{data:null,error:sources[a.id]?.error??'最终几何缺失'}}]));
+ const registered=objects.filter(o=>o.registered).map(comparedObject);
+ const entries:CompareEntry[]=objects.map(o=>{
+  const id=o.adopted.sp?.attempt??o.members[0]?.attempt??o.id;
+  const entry=comparisonEntries([id],registered,loaded)[0];
+  return o.registered?entry:{...entry,error:'未登记'};
+ });
+ const refIndex=referenceId?objects.findIndex(o=>o.id===referenceId):objects.map((o,i)=>({i,value:energyValue(o,basis)})).filter(r=>r.value!==null).sort((a,b)=>a.value!-b.value!||objects[a.i].id.localeCompare(objects[b.i].id))[0]?.i??-1;
+ const rows:EnergyRow[]=objects.map((object,i)=>{
+  if(refIndex<0)return {object,energy:null,relative:null,reason:entries[i].error||'参照项所需能量缺失',stateGap:false};
+  const cell=comparisonEnergy(entries[i],entries[refIndex],metricFor(basis));
+  return {object,energy:cell.value,relative:cell.delta,reason:cell.reason||null,stateGap:cell.stateGap};
+ });
+ return {rows,referenceId:objects[refIndex]?.id??''};
 }
 
 // Only explicit report references support a signature label; an unrelated

@@ -1,11 +1,14 @@
 export type AttemptFile={kind:'inputs'|'logs'|'record';name:string};
-export type Route={study:string;file?:string;view?:'chains'|'overview'|'attempts'|'analysis'|'files';fileTab?:string;server?:boolean;help?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
+export type Route={study:string;file?:string;view?:'chains'|'overview'|'attempts'|'analysis'|'files'|'compare';fileTab?:string;server?:boolean;help?:boolean;attempt?:string;attemptFile?:AttemptFile;structure?:string[];report?:string;ensemble?:string[];irc?:string[];direction?:'forward'|'reverse';point?:number;candidate?:number;error?:string};
+export const compareHash=(study:string,ids:string[]=[])=>'#/'+encodeURIComponent(study)+'/compare?'+new URLSearchParams({cmp:ids.join(',')});
+export const evidenceHash=(study:string,tab='library',file?:string)=>studyHash(study,'evidence',tab)+(file?'?'+new URLSearchParams({file}):'');
 const hash=(parts:string[])=>'#/'+parts.map(encodeURIComponent).join('/');
 // Existing page links keep their object identity while adopting the new shell.
 export function routeHash(parts:string[]):string{
  if(!parts.length)return '#/';
  const [study,kind,...rest]=parts;
  if(!kind)return studyHash(study);
+ if(kind==='compare')return '#/'+encodeURIComponent(study)+'/compare';
  if(kind==='ensembles'||kind==='irc-reviews')return studyHash(study,'analysis',kind==='ensembles'?'ensemble':'irc',...rest);
  if(kind==='analyses'&&!rest.at(-1)?.endsWith('.xyz'))return studyHash(study,'analysis','file',...rest);
  if(kind==='structures'||kind==='analyses')return studyHash(study,'files',kind,...rest);
@@ -37,6 +40,7 @@ export function readRoute():Route{
   if(parts.length===1&&parts[0]==='servers')return {study:'',server:true};
   if(parts.length===1&&parts[0]==='help')return {study:'',help:true};
   if(parts.length===2&&parts[1]==='chains')return {study:parts[0],view:'chains'};
+  if(parts.length===2&&parts[1]==='compare')return {study:parts[0],view:'compare'};
   // T118 document links are already canonical; do not migrate them as legacy links.
   if(parts.length>=3&&parts[1]==='file')return {study:parts[0],view:'files',fileTab:'document',file:parts.slice(2).join('/')};
   if(parts[0]!=='s'){
@@ -52,6 +56,22 @@ export function readRoute():Route{
   if(study&&(!section||['attempts','a','analysis','files'].includes(section))){
    history.replaceState(history.state,'',location.pathname+location.search+studyHash(study,...parts.slice(2))+query);
    return readRoute();
+  }
+  if(section==='results'&&rest.length===1&&rest[0]==='compare'){
+   history.replaceState(history.state,'',location.pathname+location.search+'#/'+encodeURIComponent(study)+'/compare'+query);return readRoute();
+  }
+  if(section==='evidence'){
+   const tab=rest[0],params=new URLSearchParams(query);
+   if(!tab||['graph','structures','analyses'].includes(tab)){
+    if(rest.length>1&&['structures','analyses'].includes(tab))params.set('file',rest.join('/'));
+    const target=evidenceHash(study,tab==='graph'?'lineage':'library');
+    history.replaceState(history.state,'',location.pathname+location.search+target+(params.size?'?'+params:''));return readRoute();
+   }
+   if(['library','lineage'].includes(tab)&&rest.length===1){
+    const file=params.get('file');
+    if(params.getAll('file').length>1||file&&file.split('/').some(p=>!p||p==='.'||p==='..'||/[\\\0]/.test(p)))throw Error();
+    return {study,view:'files',fileTab:tab,file:file??undefined};
+   }
   }
   // Keep the existing detail parser, including exact file queries, intact.
   if(section==='research'){

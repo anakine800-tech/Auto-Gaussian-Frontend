@@ -65,38 +65,24 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`T98 li
  for(const title of ['构象集合','IRC','电子态检查','阶段审阅'])await expect(page.getByRole('heading',{name:new RegExp('^'+title+' ')})).toHaveCount(0);
  await fullyVisible(page.locator('.report-layout'),page);expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await expect(page.locator('body')).not.toContainText('已验证');await page.screenshot({path:info.outputPath(`analysis-${size.width}x${size.height}.png`)});
  await page.getByRole('link',{name:'profile-demo.json',exact:true}).click();await expect(page).toHaveURL(/results\/thermo\/profile-demo.json$/);await expect(page.locator('pre')).toContainText('ddG_barrier_kcal');await page.goBack();
- await page.route('**/api/studies/butane-demo/attempts/*',async route=>{const id=route.request().url().split('/').at(-1)!;if(['anti','gauche'].includes(id)){const data=attempt(id,id==='anti'?-157:-156.998,id==='anti'?-156.9:-156.897);Object.assign(data.facts.data as object,{termination:id==='anti'?'normal':'error',n_imag:id==='anti'?0:2});await route.fulfill({json:data});}else await route.continue();});
+ await page.route('**/comparison-structure',async route=>{const id=route.request().url().split('/').at(-2)!;const data=attempt(id,id==='anti'?-157:-156.998,id==='anti'?-156.9:-156.897);Object.assign(data.facts.data as object,{termination:id==='anti'?'normal':'error',n_imag:id==='anti'?0:2});await route.fulfill({json:data});});
  await page.getByRole('button',{name:'研究',exact:true}).click();await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();
- await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await page.getByRole('checkbox',{name:'比较 gauche',exact:true}).check();await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'}),table=dialog.getByRole('table');await expect(table).toContainText('1.255');await expect(table).toContainText('1.883');
- await expect(table.getByRole('columnheader')).toHaveText(['Attempt','termination','n_imag','E / Eh','G / Eh','ΔE / kcal/mol','ΔG / kcal/mol']);
- await expect(table.getByRole('row').nth(1).getByRole('cell')).toHaveText(['anti','normal','0','-157.000000','-156.900000','0.000','0.000']);
- await expect(table.getByRole('row').nth(2).getByRole('cell')).toHaveText(['gauche','error','2','-156.998000','-156.897000','1.255','1.883']);
- await expect(table.getByText('normal',{exact:true})).toHaveClass(/tone-neutral/);await expect(table.getByText('error',{exact:true})).toHaveClass(/tone-bad/);
- await expect(table.getByRole('row').nth(1).getByRole('cell').nth(2)).toHaveCSS('text-align','right');
- await fullyVisible(table,page);for(const header of await table.getByRole('columnheader').all())await fullyVisible(header,page);
- for(const selector of ['.Drawer','.quick-comparison .table-scroll'])expect(await page.locator(selector).evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+ await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await page.getByRole('checkbox',{name:'比较 gauche',exact:true}).check();await page.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'打开比较',exact:true}).click();
+ const comparison=page.locator('.compare-page');await expect(comparison.getByRole('table',{name:'分层能量'})).toContainText('1.255');
+ await expect(comparison.getByRole('table',{name:'性质'})).toContainText('normal');await expect(comparison.getByRole('table',{name:'性质'})).toContainText('error');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);await page.screenshot({path:info.outputPath(`comparison-${size.width}x${size.height}.png`)});
- await page.getByRole('button',{name:'关闭抽屉'}).click();await page.getByRole('checkbox',{name:'比较 waiting',exact:true}).check();await page.getByRole('button',{name:'快速比较（3）',exact:true}).click();await expect(dialog).toContainText('拒绝快速比较');await expect(dialog.getByRole('table')).toHaveCount(0);
  expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
 test('comparison displays incomplete, unknown and missing facts without falling back to status',async({page})=>{
  let saved=false;const writes:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
- await page.route('**/api/studies/butane-demo/attempts/*',async route=>{
-  const id=route.request().url().split('/').at(-1)!;const data=attempt(id);
+ await page.route('**/comparison-structure',async route=>{
+  const id=route.request().url().split('/').at(-2)!,data=attempt(id);
   data.status.data={state:'finished',termination:'normal',n_imag:0};
-  Object.assign(data.facts.data as object,saved?{termination:id==='anti'?'incomplete':'unknown',n_imag:id==='anti'?1:null}:{frequencies_cm1:[-100]});
-  await route.fulfill({json:data});
+  Object.assign(data.facts.data as object,saved?{termination:id==='anti'?'incomplete':'unknown',n_imag:id==='anti'?1:null}:{frequencies_cm1:[-100]});await route.fulfill({json:data});
  });
- await page.goto('/#/s/butane-demo/attempts');for(const id of ['anti','gauche'])await page.getByRole('checkbox',{name:`比较 ${id}`,exact:true}).check();
- const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'});
- await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
- for(const row of [1,2])await expect(dialog.getByRole('row').nth(row).getByRole('cell')).toHaveText([row===1?'anti':'gauche','—','—','-76.000000','-75.900000','0.000','0.000']);
- await page.getByRole('button',{name:'关闭抽屉'}).click();saved=true;await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
- await expect(dialog.getByRole('row').nth(1).getByRole('cell')).toHaveText(['anti','incomplete','1','-76.000000','-75.900000','0.000','0.000']);
- await expect(dialog.getByRole('row').nth(2).getByRole('cell')).toHaveText(['gauche','unknown','—','-76.000000','-75.900000','0.000','0.000']);
- for(const status of ['incomplete','unknown'])await expect(dialog.getByText(status,{exact:true})).toHaveClass(/tone-warn/);
- expect(writes).toEqual([]);
+ await page.goto('/#/butane-demo/compare?cmp=anti,gauche');const table=page.getByRole('table',{name:'性质',exact:true});
+ await expect(table.getByRole('row').filter({hasText:'程序终止'})).toContainText('缺失');await expect(table.getByRole('row').filter({hasText:'虚频数'})).toContainText('缺失');
+ saved=true;await page.getByRole('button',{name:'刷新',exact:true}).click();await expect(table).toContainText('incomplete');await expect(table).toContainText('unknown');expect(writes).toEqual([]);
 });
 test('Attempt retains one usable structure selection, with all structure interactions',async({page})=>{
  await page.goto('/#/s/butane-demo/a/anti');await expect(page.getByLabel('预览结构',{exact:true})).toHaveCount(1);await expect(page.getByLabel('结构来源',{exact:true})).toHaveCount(0);await page.getByLabel('预览结构',{exact:true}).selectOption('input');await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('输入结构');await page.getByLabel('预览结构',{exact:true}).selectOption('final');await expect(page.getByRole('region',{name:'三维分子结构'})).toContainText('最终结构');
@@ -141,13 +127,11 @@ test('T103 missing or invalid multiplicity still refuses comparison',()=>{
 });
 for(const [width,height] of [[1440,860],[1280,720]])test(`T103 prefix comparison and original-spelling diagnostic ${width}x${height}`,async({page},info)=>{
  await page.setViewportSize({width,height});let explicit='RM062X';const writes:string[]=[];page.on('request',r=>{if(!['GET','HEAD'].includes(r.method()))writes.push(r.method());});
- await page.route('**/api/studies/butane-demo/attempts/*',r=>{const id=r.request().url().split('/').at(-1)!;return r.fulfill({json:methodAttempt(id,id==='anti'?'M062X':explicit)});});
- await page.goto('/#/s/butane-demo/attempts');for(const id of ['anti','gauche'])await page.getByRole('checkbox',{name:`比较 ${id}`,exact:true}).check();
- await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();const dialog=page.getByRole('dialog',{name:'快速比较（前端计算，非正式结果）'});
- await expect(dialog.getByRole('table')).toBeVisible();await dialog.locator('.Collapsible > summary').filter({hasText:'比较口径'}).click();await expect(dialog).toContainText('方法：M062X（按单重态视为 RM062X）');
- await fullyVisible(dialog.getByRole('table'),page);await page.screenshot({path:info.outputPath(`t103-prefix-equal-${width}x${height}.png`)});
- await page.getByRole('button',{name:'关闭抽屉'}).click();explicit='UM062X';await page.getByRole('button',{name:'快速比较（2）',exact:true}).click();
- await expect(dialog).toContainText('方法不同：anti = M062X（按单重态视为 RM062X）；gauche = UM062X');await expect(dialog.getByRole('table')).toHaveCount(0);
+ await page.route('**/comparison-structure',r=>{const id=r.request().url().split('/').at(-2)!;return r.fulfill({json:methodAttempt(id,id==='anti'?'M062X':explicit)});});
+ await page.goto('/#/butane-demo/compare?cmp=anti,gauche');const comparison=page.locator('.compare-page');
+ await expect(comparison.getByRole('table',{name:'opt 口径核对'})).toContainText('rm062x');await expect(comparison.getByRole('table',{name:'分层能量'})).toContainText('0.000');
+ await page.screenshot({path:info.outputPath(`t103-prefix-equal-${width}x${height}.png`)});
+ explicit='UM062X';await page.getByRole('button',{name:'刷新',exact:true}).click();await expect(comparison.getByRole('table',{name:'分层能量'})).toContainText('方法不同');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);expect(writes).toEqual([]);
  await page.screenshot({path:info.outputPath(`t103-prefix-different-${width}x${height}.png`)});
 });

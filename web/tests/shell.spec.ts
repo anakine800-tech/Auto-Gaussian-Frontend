@@ -16,7 +16,7 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`four e
   await expect(page.getByRole('heading',{name:ready,exact:true})).toBeVisible();
   if(entry==='服务器')await expect(page.getByRole('table',{name:'运行中作业表'})).toBeVisible();
   if(entry==='结果')await expect(page.getByRole('link',{name:'thermo-demo.json',exact:true})).toBeVisible();
-  if(entry==='证据')await expect(page.getByRole('heading',{name:'study.md',exact:true})).toBeVisible();
+  if(entry==='证据')await expect(page.getByRole('heading',{name:'文件库',exact:true})).toBeVisible();
   await page.evaluate(()=>window.scrollTo(0,0));
   await fullyVisible(page.locator('.app-header'),page);await fullyVisible(page.locator('.context-bar'),page);
   await fullyVisible(page.getByRole('heading',{name:ready,exact:true}),page);
@@ -27,17 +27,17 @@ for(const size of [{width:1440,height:860},{width:1280,height:720}])test(`four e
 
 test('legacy exact links replace history and preserve both query locations',async({page})=>{
  await page.goto('/?keep=1#/s/butane-demo/files');
- await expect(page.getByRole('heading',{name:'study.md',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'文件库',exact:true})).toBeVisible();
  await page.evaluate(()=>{location.hash='#/butane-demo/prepared?extra=retained';});
  await expect(page).toHaveURL(/\?keep=1#\/s\/butane-demo\/research\/a\/prepared\?extra=retained$/);
  await expect(page.getByRole('heading',{name:'prepared',exact:true})).toBeVisible();
- await page.goBack();await expect(page).toHaveURL(/#\/s\/butane-demo\/evidence$/);
+ await page.goBack();await expect(page).toHaveURL(/#\/s\/butane-demo\/evidence\/library$/);
  await page.goForward();await expect(page).toHaveURL(/#\/s\/butane-demo\/research\/a\/prepared\?extra=retained$/);
  await page.goto('/#/ensemble-demo/ensembles/ensemble.json?candidate=2');
  await expect(page).toHaveURL(/#\/s\/ensemble-demo\/results\/ensemble\/ensemble.json\?candidate=2$/);
  await expect(page.getByRole('button',{name:'候选 2 缩略图'})).toHaveAttribute('aria-pressed','true');
  await page.goto('/#/butane-demo/structures/butane/conformers.xyz');
- await expect(page).toHaveURL(/#\/s\/butane-demo\/evidence\/structures\/butane\/conformers.xyz$/);
+ await expect(page).toHaveURL(/#\/s\/butane-demo\/evidence\/library\?file=structures%2Fbutane%2Fconformers.xyz$/);
  await expect(page.getByLabel('帧号')).toHaveValue('1');
 });
 

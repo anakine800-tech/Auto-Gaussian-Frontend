@@ -32,8 +32,8 @@ test('overview, Attempt sorting, saved thermo and nested representatives',async(
  await page.getByRole('button',{name:'结果',exact:true}).click();
  await page.getByRole('link',{name:'thermo-demo.json',exact:true}).click();await expect(page.getByRole('table',{name:'热化学表'})).toContainText('50.000%');
  await page.getByRole('button',{name:'证据',exact:true}).click();
- await page.getByRole('button',{name:'结构文件',exact:true}).click();
- await page.getByRole('link',{name:'analyses/cluster-demo/representatives.xyz',exact:true}).click();
+ await page.getByRole('complementary',{name:'文件类型'}).getByRole('button',{name:/^结构（/}).click();
+ await page.getByRole('table',{name:'证据文件列表'}).getByRole('button',{name:'analyses/cluster-demo/representatives.xyz',exact:true}).click();
  await expect(page.getByRole('heading',{name:'analyses/cluster-demo/representatives.xyz',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'下一帧',exact:true}).click();
  await expect(page.getByLabel('帧号')).toHaveValue('2');
