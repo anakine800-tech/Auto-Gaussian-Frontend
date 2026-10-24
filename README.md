@@ -1,6 +1,10 @@
-# Auto-Gaussian Study Viewer v4.4.0
+# Auto-Gaussian Study Viewer v4.5.0
 
-**配合 ag 4.4.0 使用。** This is the v4.4.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v440).
+**配合 ag 4.5.0 使用。** This is the v4.5.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v450).
+
+升级后重新构建前端，两个常驻服务各重启一次；操作版令牌会更换，已打开页面须刷新。
+顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
+构建依赖 setuptools 83.0.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -65,7 +69,7 @@ source installation above serves the explicit Vite build.
 
 ## 只读模式在计算机上启动
 
-1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.4.0 使用。
+1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.5.0 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -607,30 +611,36 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.4.0 includes T103 and T104: separate total and per-job core limits,
-explicit unknown totals for old snapshots, shared-entry notices, multiplicity-based
-R/U prefix completion with original and completed spellings in quick comparison,
-and side-by-side IRC TS and optimized endpoint structures. The three structures
-include source hash checks, electronic energies, imaginary-frequency counts,
-Attempt links and atom-pair highlights, with the human-review notice visible above.
-Pair it with backend ag 4.4.0. Both T107 PRs change only versions and release
-documentation. Read-only defaults, path/size checks and ag-mediated actions stay
-unchanged; submit and cancel still require a human click in the Mac dialog.
-Synthetic tests demonstrate software behavior, not scientific acceptance.
+V4.5.0 includes T110, T115, T116, T118, T120–T122 and T113: stable frame
+switching, structure comparison, server resource cards, report reading, four-entry
+navigation, local search, persistent comparison selection, calculation chains,
+adopted results, unified comparison and an evidence library. Public-file scanning
+and dependency updates are included. Pair it with backend ag 4.5.0.
+Both T126 PRs change only versions and release documentation. Read-only defaults,
+path/size checks and ag-mediated actions stay unchanged. The existing UI passes
+no approval/policy option, so its submit and cancel actions still use the Mac dialog.
 
-快速比较只在前端计算相对能量，非正式结果；正式结论以 ag 报告为准。
-`termination` 和 `n_imag` 只显示 facts 保存值，不作为自动验收。
+页面上的相对能量和比较均为前端现场计算的非正式结果，正式数值以报告和登记为准；
+工具状态、采用记录、`termination` 和 `n_imag` 均不等于科学验收。
 
 Supervisory review and owner merge are required for both PRs. The owner creates
-`v4.4.0` tags on each PR's exact merge commit, after verifying the release commit,
-and uses each repository's v4.4.0 CHANGELOG section for release notes. Do not
+`v4.5.0` tags on each PR's exact merge commit after verifying the release commit,
+and uses each repository's v4.5.0 CHANGELOG section for release notes. Do not
 select whichever commit main happens to point to later. After merge, sync both
-main checkouts, rebuild the frontend and open all four entries once. The owner
-schedules the calculation-machine update after confirming no fetch, submit or
-reparse is in progress. This release task does not deploy or run calculations.
+main checkouts, rebuild the frontend, restart both resident services once, refresh
+open action pages for the new token and open all four entries once. The owner
+schedules the calculation-machine update after confirming no fetch, submit,
+reparse or catalog write is in progress. This release task does not deploy or run calculations.
+
+### 已知问题
+
+- studies 根目录中的容器目录（例如 `_archive/`）可能在 Study 列表显示“File not available”，不影响有效 study 使用；后续按约定跳过以 `_` 或 `.` 开头的目录。
+- 证据库冷启动在已有测量中约 2.5 秒，实际耗时随本机与文件数量变化。
+- source-map-js 的临时 override 待 PostCSS 自然升级到修复版本后删除。
 
 ## 版本历史
 
+- **v4.5.0**：T110 切帧与结构对比、T115 服务器卡片、T118 报告阅读、T120 导航与进展、T121 计算链与采用结果、T122 比较与证据库、T116 公开扫描及 T113 依赖安全更新；配合 ag 4.5.0。[发布说明](CHANGELOG.md#v450)
 - **v4.4.0**：T103 监控总上限、共享入口说明与快速比较 R/U 前缀修复；T104 IRC 的 TS 与两端点三维并排审阅；配合 ag 4.4.0。[发布说明](CHANGELOG.md#v440)
 - **v4.3.0**：T87 IRC 查看与过期提示、T94–T98a 四入口改版、详情与作业页、分析和快速比较、TS 标签只读展示；配合 ag 4.3.0。[发布说明](CHANGELOG.md#v430)
 - **v4.2.1**：T71 局部构象分组、近边界筛选、关键距离与汇总导航。[发布说明](CHANGELOG.md#v421)
