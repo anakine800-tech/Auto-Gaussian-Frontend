@@ -1,5 +1,44 @@
 # Changelog
 
+## v4.5.0
+
+### 升级须知
+
+1. 顶部导航调整为**服务器 / 研究 / 结果 / 证据**，右侧为使用说明；旧链接自动跳到新位置并保留对应选择参数。[#32](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/32)、[#35](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/35)
+2. 升级后重新构建前端，两个常驻服务各重启一次；操作版令牌随重启更换，已打开页面须刷新，令牌失效时页面给出提示，不自动重试操作。[#28](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/28)
+3. 前端仓库启用 `.githooks/pre-commit`，方法见 [README](README.md#启用提交前扫描)；本机敏感词表不进入仓库。[#30](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/30)、[#33](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/33)
+4. Python 构建依赖固定为 **setuptools 83.0.0**，安装及构建环境须同步。[#36](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/36)
+
+配合 ag 4.5.0 使用。按 `git log v4.4.0..main --first-parent` 核对全部 8 个主线 PR：T110 #28、T115 #29、T116 #30（包含合入该功能分支的 #33）、T118 #31、T120 #32、T121 #34、T122 #35、T113 #36。T126 只准备版本号和发布文档；两个仓库均须监督方审阅、负责人合并，再由负责人在各自 PR 的确切合并提交上创建 `v4.5.0` tag/release，不直接选择届时的 main。
+
+### 结构与服务器
+
+- T110 切换优化、IRC、集合及 XYZ 帧时保留相机、缩放和滚动，支持任意 2–3 个结构对比、可选刚体对齐及原子对高亮；增加集群容量总览、显示名和令牌失效提示。对齐只改变显示，不写回坐标。[#28](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/28)
+- T115 将容量总览重构为每台服务器一张卡片，用本人 / 他人 / 空闲分段条显示核数和内存；运行中、排队中作业按服务器分组，可只看本人，节点与队列、限额与存储默认折叠。共享入口不重复累加，未知和过期数据保留提示。[#29](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/29)
+
+### 报告与导航
+
+- T118 将 Markdown 表格、CSV 和 JSON 对象数组显示为可排序表格，支持图片和隔离显示的 HTML、本地相对链接，并按 schema 和报告声明分类；损坏或不可安全读取的内容明确提示，报告只读。[#31](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/31)
+- T120 提供四入口导航、Study 切换器、本机全局搜索、区分工具状态与签字状态的进展页、跨页保留的比较篮和使用说明；旧链接迁移，筛选及比较选择可随页面切换保留。[#32](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/32)
+
+### 采用结果、比较与证据
+
+- T121 新增计算链页、当前采用的结果及关键报告，读取 catalog 登记并核对日志哈希；相对能量可按 E / E+ZPE / G 换算，逐层核对 SP 与 Freq 的方法、组成、电荷、多重度及所需温压口径，缺项或不相容时留空。不从其他计算补值，采用不等于签字。[#34](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/34)
+- T122 将口径核对、分层能量、性质、几何和结构叠合集中到统一比较页，增加证据库、单对象来源关系及服务器卡片图例。文件与来源只读，差值和几何比较均标明前端现场计算、非正式结果。[#35](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/35)
+
+### 仓库与依赖
+
+- T116 对公开工单副本脱敏并增加全仓库扫描、私有词表 hook；#33 先合入 #30 的功能分支，统一归档扫描失败规则，随 #30 进入 main。当前文件清理不表示 Git 历史已清理。[#30](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/30)、[#33](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/33)
+- T113 升级 Vite 8.3.3、source-map-js 1.2.2、certifi 2026.10.19 和 setuptools 83.0.0，处理 9 条安全公告；依赖及锁文件更新，不改变计算功能。[#36](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/36)
+
+### 已知问题与验证边界
+
+- studies 根目录中的容器目录（如 `_archive/`）仍可能在 Study 列表显示“File not available”，不影响有效 study 的使用；后续按约定跳过以 `_` 或 `.` 开头的容器目录。
+- 证据库冷启动在已有测量中约 2.5 秒，实际耗时随本机与文件数量变化。
+- source-map-js 的临时 override 待 PostCSS 自然升级到修复版本后删除。
+- **只读边界不变，动作都经过 ag 执行。** 页面上的相对能量和比较是前端现场计算的结果，不是正式结果；工具状态不等于科学验收。
+- 全部离线测试、浏览器测试和构建结果见 T126 前端 PR；各项真实验证见对应 PR 评论，发版不等于科学验收。
+
 ## v4.4.0
 
 配合 ag 4.4.0 使用。本节按 `git log v4.3.0..main --first-parent` 核对全部 2 个 PR：T103 #25、T104 #26。T107 只修改版本与发布文档；两个仓库均须监督方审阅、负责人合并，再由负责人在各自 PR 的确切合并提交上创建 `v4.4.0` tag/release，不直接选择届时的 main。
