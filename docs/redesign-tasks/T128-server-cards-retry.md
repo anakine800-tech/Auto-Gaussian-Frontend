@@ -163,5 +163,6 @@
 - F6：合并顺序 T127 → T128；T127 PR 文档补丁核对及指定真实验证尚待依赖。
 - 范围批准（负责人，2026-10-25，会话原话）：“允许同步这两处测试断言”。因此额外只修改 `tests/test_results.py:103`、`tests/test_study_viewer.py:127` 的旧提示预期文字，不改变断言逻辑。
 - 合成快照：`tests/monitor-fixtures/t128-synthetic.json`；截图由 `web/tests/server-page.spec.ts` 生成在 `tests/monitor-fixtures/t128/`，含三个尺寸的首屏与确认框共六张。
-- 验证：Python 全量 165 项通过；TypeScript/Vite 构建通过；服务器页 26 项通过；浏览器全量 256 项中 255 项通过，仅 `web/tests/results.spec.ts` 的旧距今时间预期失败。该文件不在原范围，已请求负责人批准只同步六个 age 字符串；获批前不修改。
+- 验证：Python 全量 165 项通过；TypeScript/Vite 构建通过；服务器页 26 项通过；浏览器全量 256 项中 255 项通过，仅 `web/tests/results.spec.ts` 的旧距今时间预期失败。负责人已于 2026-10-25 批准：“允许同步这六个时间文字预期”。本次仅更新 `web/tests/results.spec.ts:194–199` 六个 age 字符串，不改变测试逻辑。
 - 提交前：全量公开扫描 260 文件零错误；暂存私有词表扫描 29 文件零错误；六张二进制截图另行人工核查；diff 检查通过。
+- 批准后的复验：`pnpm --dir web test results.spec.ts server-page.spec.ts` 37 项全部通过，覆盖原唯一失败；TypeScript/Vite 构建通过。按照开发手册仅复验受影响部分，后续全量由 CI 执行。

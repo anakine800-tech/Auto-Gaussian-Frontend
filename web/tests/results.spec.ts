@@ -191,12 +191,12 @@ test('monitor one-shot expiry, continuous boundary, elapsed clock and readable a
  const data=(await (await request.get('/api/monitor')).json()).clusters[0].snapshot;
  const now=Date.parse('2026-01-04T12:00:00Z');await page.clock.install({time:now});
  for(const c of [
-  {seconds:300,interval:null,stale:false,age:'0 天 0 小时 5 分'},
-  {seconds:900,interval:null,stale:true,age:'0 天 0 小时 15 分'},
-  {seconds:600,interval:null,stale:false,age:'0 天 0 小时 10 分'},
-  {seconds:359,interval:120,stale:false,age:'0 天 0 小时 5 分'},
-  {seconds:361,interval:120,stale:true,age:'0 天 0 小时 6 分'},
-  {seconds:190800,interval:null,stale:true,age:'2 天 5 小时 0 分'},
+  {seconds:300,interval:null,stale:false,age:'5 分 0 秒'},
+  {seconds:900,interval:null,stale:true,age:'15 分 0 秒'},
+  {seconds:600,interval:null,stale:false,age:'10 分 0 秒'},
+  {seconds:359,interval:120,stale:false,age:'5 分 59 秒'},
+  {seconds:361,interval:120,stale:true,age:'6 分 1 秒'},
+  {seconds:190800,interval:null,stale:true,age:'2 天 5 小时'},
   {seconds:25,interval:null,stale:false,age:'25 秒'},
  ]){
   await page.clock.setFixedTime(now);
