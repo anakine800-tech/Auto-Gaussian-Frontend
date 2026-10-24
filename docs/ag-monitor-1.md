@@ -49,10 +49,10 @@ warnings 每项
 
 前端显示规则（T115）
 - `#/jobs` 保持不变。每入口一张按钮卡片，下方用标签切换详情，支持左右键 / Home / End。
-- 仍每 30 秒读取本机 `/api/monitor`，不新增服务器连接或采样请求。
+- 通常每 30 秒读取本机 `/api/monitor`；T128 手动请求后的短暂加速见下文，前端不连接服务器。
 - `now - sampled_at > 3 × interval_seconds` 时标为“非最新 / 数据已过期”；单次采样超过 600 秒过期。
 - `ok=false` 的卡片占用条和本人占用为未知，显示上次成功时间；详情保留旧数据并整块标非最新。
-- 只有 `hardware.error` 时硬件条未知，本人核数照常显示；错误在详情置顶。
+- 核数与内存条分别判断对应数值；`hardware.error` 不单独使条失效，错误在详情置顶并计入警告。
 - 进度条：本人运行占用、硬件已分配减本人、硬件总量减已分配。任一输入缺失或差值矛盾，整条未知，不填零。
 - study/attempt 可安全解析时链接到 `#/s/<study>/a/<attempt>`；最近快照沿用本地 SnapshotProgress，不读取运行日志。
 - 快照格式不正确时显示对应错误，未知字段忽略，新字段缺失可读。
@@ -136,3 +136,54 @@ Slurm 不显示其他人明细，只显示两个分组各自的“其他用户�
   前端仅校验和保留来源，不按作业名猜关联、不从来源推导实时内存用量。
 
 校验器对这两个字段进行类型/枚举校验；字段缺失/null 不解释成零或成功。
+
+## T127 / T128：采样状态、局限说明与手动重试
+
+依据 T127 v1 第 3、7 节（2026-10-25）实现；T127 PR 的文档补丁与最终生产端
+仍需在合并前核对。旧快照省略以下新字段时继续接受；已有字段含义不变。
+
+| 位置 | 字段 | 类型与含义 |
+|---|---|---|
+| 顶层 | sampling | 可选对象，存在时包含以下七个字段 |
+| sampling | state | `normal` / `backoff` / `paused` |
+| sampling | consecutive_failures | 非负整数 |
+| sampling | current_interval_seconds | 30–600 的整数或 null，当前退避间隔；单次采样为 null |
+| sampling | next_sample_at | UTC ISO 时间或 null；暂停或单次采样为 null |
+| sampling | pause_reason | null / `auth` / `host_key`，非 null 仅用于 paused |
+| sampling | trigger | `scheduled` / `manual` / `manual_auth_fixed` |
+| sampling | retry_pending | 布尔值 |
+| cluster | scheduler | PBS 写 `pbs`，Slurm 写 `slurm` |
+| cluster.hardware | notes | 可选字符串列表，缺失按空列表显示 |
+
+`interval_seconds` 仍为基础间隔；连续失败至少三次且未暂停时进入 backoff。
+notes 表达局限，不计入警告；error 表达真实查询失败，计入警告并在详情置顶。
+核数条和内存条独立核对各自的总量、已分配、本人运行占用；缺失不补零。
+旧 PBS 缺 scheduler 时，从 hardware.source=pbsnodes 推断 PBS；sinfo 推断 SLURM；否则“—”。
+Torque 节点总内存来自 status.physmem，不含 swap；已有 PBS Pro 字段优先。
+已分配内存只有该节点全部作业申请值可确定时才累加，否则为 null 并给 notes，
+不得用 physmem − availmem 或按核数分摊。前端不重新推算这些值。
+
+操作模式下 `POST /api/monitor/retry` 请求体恰好是：
+
+```json
+{"cluster":"default","auth_fixed":false}
+```
+
+cluster 必须是启动时查询的入口；两个字段缺少、多余或类型错误均为 400。
+只读模式无此路由，POST 返回 405；令牌、同源和回环检查与现有操作共用。
+调用固定 argv `ag monitor --retry <入口> --json`；auth_fixed 为 true 时末尾加 `--auth-fixed`。
+暂停入口只有页面内二次确认后才传 true。重试不限频、不占用现有操作锁，合并由 ag 负责。
+15 秒超时或无效 JSON 均返回错误，不自动重试。
+
+ag JSON 原样返回以下字段，退出码 queued / already_queued / in_progress 为 0，refused 为 1：
+
+```text
+entry: 当前入口名
+result: queued | already_queued | in_progress | refused
+reason: null | monitor_not_running | auth_confirmation_required | unknown_entry
+requested_at: UTC ISO 时间 | null
+```
+
+前三种 result 的 reason 为 null；refused 必须带原因。前端校验字段、入口与退出码，
+不从人类输出推断成功。请求发出后只加速本机 `/api/monitor`，每 3 秒读取；对应入口
+sampled_at 改变或满 120 秒后恢复每 30 秒。其他 Study / Attempt 请求保持原有节奏。

@@ -43,9 +43,11 @@ export type Job=Association&{
  walltime_limit_seconds?:number|null;start_time?:string|null;qtime?:string|null;
  mem?:string|null;walltime_used?:string|null;walltime_limit?:string|null;
 };
-export type Hardware={cores_total:number|null;cores_allocated:number|null;cores_idle:number|null;cores_other:number|null;mem_total_gb:number|null;mem_allocated_gb:number|null;source:'pbsnodes'|'sinfo';error:string|null};
+export type Sampling={state:'normal'|'backoff'|'paused';consecutive_failures:number;current_interval_seconds:number|null;next_sample_at:string|null;pause_reason:null|'auth'|'host_key';trigger:'scheduled'|'manual'|'manual_auth_fixed';retry_pending:boolean};
+export type Hardware={cores_total:number|null;cores_allocated:number|null;cores_idle:number|null;cores_other:number|null;mem_total_gb:number|null;mem_allocated_gb:number|null;source?:'pbsnodes'|'sinfo';error:string|null;notes?:string[]};
 export type JobSummary={running_jobs:number|null;running_cores:number|null;queued_jobs:number|null;queued_cores:number|null;others_running_jobs:number|null;others_running_cores:number|null;others_queued_jobs:number|null;others_queued_cores:number|null};
 export type Monitor={
+ sampling?:Sampling;
  schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;sample_duration_ms?:number|null;ok:boolean;error:string|null;last_ok_at:string|null;
  own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;max_queued_cores?:number;scheduler_max_running_cores?:number;max_cores?:number;tiers?:Record<string,{cores:number;mem_gb:number}>;shared_with?:string[];mem_running_gb?:number|null;mem_queued_gb?:number|null;jobs:Job[]}|null;
  cluster:{scheduler?:string;name?:string;display_name?:string;display_order?:number|null;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;storage_checked_at?:string|null;storage_sampled_at?:string|null;storage_error?:string|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;
@@ -64,23 +66,24 @@ export const entryKey=(row:ClusterRow)=>JSON.stringify([row.name,row.source]);
 export const amount=(n:number|null|undefined)=>n==null?'未知':Number(n.toFixed(1)).toString();
 export const isRunning=(job:Job)=>['R','E','RUNNING','COMPLETING'].includes(job.state);
 export const isQueued=(job:Job)=>['Q','H','W','S','PENDING','SUSPENDED','CONFIGURING','REQUEUED','RESIZING'].includes(job.state);
+export function schedulerLabel(row:ClusterRow){const c=row.snapshot?.cluster;return c?.scheduler?.toUpperCase()||(c?.hardware?.source==='pbsnodes'?'PBS':c?.hardware?.source==='sinfo'?'SLURM':'—');}
 export function serverModels(rows:ClusterRow[],now:number){
  const groups=capacityGroups(rows,now);
  return [...rows].sort((a,b)=>{
   const x=a.snapshot?.cluster?.display_order,y=b.snapshot?.cluster?.display_order;
   if(x!=null||y!=null){if(x==null)return 1;if(y==null)return -1;if(x!==y)return x-y;}
-  return Number(a.snapshot?.cluster?.scheduler==='slurm')-Number(b.snapshot?.cluster?.scheduler==='slurm')||a.name.localeCompare(b.name)||a.source.localeCompare(b.source);
+  return Number(schedulerLabel(a)==='SLURM')-Number(schedulerLabel(b)==='SLURM')||a.name.localeCompare(b.name)||a.source.localeCompare(b.source);
  }).map(row=>{
   const state=sampleState(row,now),data=row.snapshot,cluster=data?.cluster,group=groups.find(g=>g.group.includes(row))!;
-  const own=group.own,hardware=cluster?.hardware;
-  const usable=data?.ok&&!row.error&&!row.ambiguous&&!hardware?.error&&cluster?.hardware_capacity_known!==false;
+  const own=group.own,hardware=cluster?.hardware,scheduler=schedulerLabel(row);
+  const usable=data?.ok&&!row.error&&!row.ambiguous&&cluster?.hardware_capacity_known!==false;
   const jobs:Job[]=state.hasData?(cluster?.jobs??(data?.own?.jobs??[]).map(job=>({...job,mine:true}))):[];
   // Slurm must never reveal other users even if a malformed producer includes them.
-  const visible=cluster?.scheduler==='slurm'?jobs.filter(j=>j.mine):jobs;
+  const visible=scheduler==='SLURM'?jobs.filter(j=>j.mine):jobs;
   const sort=(items:Job[],field:'start_time'|'qtime')=>[...items].sort((a,b)=>Number(!!b.mine)-Number(!!a.mine)||(Date.parse(a[field]??'')||Infinity)-(Date.parse(b[field]??'')||Infinity)||a.job_id.localeCompare(b.job_id));
-  const nodes=state.hasData?cluster?.nodes??[]:[],known=cluster?.scheduler!=='slurm'&&cluster?.hardware_capacity_known!==false&&nodes.length>0&&nodes.every(n=>n.cores_total!==null&&n.cores_used!==null);
+  const nodes=state.hasData?cluster?.nodes??[]:[],known=scheduler!=='SLURM'&&cluster?.hardware_capacity_known!==false&&nodes.length>0&&nodes.every(n=>n.cores_total!==null&&n.cores_used!==null);
   const free=nodes.filter(n=>n.state==='free');
-  return {key:entryKey(row),row,label:clusterLabel(row)+(row.ambiguous?' · '+row.source:''),...state,group,
+  return {key:entryKey(row),row,label:clusterLabel(row)+(row.ambiguous?' · '+row.source:''),...state,group,scheduler,sampling:data?.sampling??null,notes:hardware?.notes??[],
    warningCount:(data?.warnings.length??0)+(hardware?.error?1:0)+(cluster?.storage_error?1:0)+(cluster?.expiry_warning?1:0),
    cores:usable?segments(hardware?.cores_total,hardware?.cores_allocated,own?.cores_running):null,
    memory:usable?segments(hardware?.mem_total_gb,hardware?.mem_allocated_gb,own?.mem_running_gb):null,

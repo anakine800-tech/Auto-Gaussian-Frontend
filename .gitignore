@@ -21,3 +21,5 @@ build/
 outputs/
 
 sensitive-terms.txt
+
+.pnpm-store/

@@ -313,3 +313,104 @@ class ActionsTests(unittest.TestCase):
                     actions.execute(dict(action='status',study='butane-demo',attempt='prepared'))
             self.assertFalse(actions.lock.locked())
         self.assertEqual(self.calls(),[['--version'],['--version']])
+
+
+class MonitorRetryTests(unittest.TestCase):
+    setUp = ActionsTests.setUp
+    client_for = ActionsTests.client_for
+    post = ActionsTests.post
+    calls = ActionsTests.calls
+    control = ActionsTests.control
+    # Inherit only fixture helpers, not the existing action test suite.
+    def retry(self, payload=None, headers=None):
+        return self.client.post('/api/monitor/retry',
+            json=payload if payload is not None else dict(cluster='default', auth_fixed=False),
+            headers=headers if headers is not None else {'X-AG-Token':self.token})
+
+    def test_retry_fixed_argv_and_result_contract(self):
+        for result, reason in [('queued', None), ('already_queued', None), ('in_progress', None),
+                               ('refused', 'monitor_not_running'), ('refused', 'auth_confirmation_required'),
+                               ('refused', 'unknown_entry')]:
+            for auth_fixed in (False, True):
+                with self.subTest(result=result, reason=reason, auth_fixed=auth_fixed):
+                    self.control(retry_result=result, retry_reason=reason)
+                    response = self.retry(dict(cluster='batch', auth_fixed=auth_fixed))
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(response.json(), dict(entry='batch', result=result, reason=reason,
+                        requested_at=None if result=='refused' else '2026-10-25T03:00:00Z'))
+                    self.assertEqual(self.calls()[-1], ['monitor', '--retry', 'batch', '--json'] +
+                                     (['--auth-fixed'] if auth_fixed else []))
+
+    def test_retry_invalid_requests_and_access_do_not_run_ag(self):
+        before = self.calls(queries=True)
+        for body in ({}, [], {'cluster':'default'}, {'auth_fixed':False},
+                     {'cluster':'default', 'auth_fixed':False, 'extra':1},
+                     {'cluster':'missing', 'auth_fixed':False},
+                     {'cluster':['default'], 'auth_fixed':False},
+                     {'cluster':'--help', 'auth_fixed':False},
+                     {'cluster':'default', 'auth_fixed':1}, {'cluster':'default', 'auth_fixed':'false'}):
+            self.assertEqual(self.retry(body).status_code, 400)
+        for headers in ({}, {'X-AG-Token':'wrong'},
+                        {'X-AG-Token':self.token, 'Origin':'https://untrusted.invalid'},
+                        {'X-AG-Token':self.token, 'Host':'untrusted.invalid'},
+                        {'X-AG-Token':self.token, 'Sec-Fetch-Site':'cross-site'}):
+            self.assertEqual(self.retry(headers=headers).status_code, 403)
+        remote = TestClient(self.app, base_url='http://localhost', client=('untrusted.invalid',12345))
+        self.assertEqual(remote.post('/api/monitor/retry', json=dict(cluster='default',auth_fixed=False),
+                                    headers={'X-AG-Token':self.token}).status_code,403)
+        self.assertEqual(self.client.post('/api/monitor/retry', content='not json',
+                         headers={'X-AG-Token':self.token}).status_code,400)
+        readonly = self.client_for(create_app(self.studies))
+        self.assertEqual(readonly.post('/api/monitor/retry').status_code,405)
+        self.assertEqual(self.calls(queries=True), before)
+
+    def test_retry_invalid_output_timeout_no_automatic_retry(self):
+        good = dict(entry='default', result='queued', reason=None, requested_at='2026-10-25T03:00:00Z')
+        invalid = [[], {}, dict(good,entry='batch'), dict(good,result='success'),
+                   dict(good,reason='auth'), dict(good,reason='monitor_not_running'),
+                   dict(good,result='refused'), dict(good,requested_at=3),
+                   dict(good,requested_at='2026-10-25T03:00:00+08:00'), dict(good,extra=True)]
+        for data in invalid:
+            self.control(retry_response=data)
+            before = len(self.calls()); response = self.retry()
+            self.assertEqual(response.status_code,502,response.text)
+            self.assertIn('无效的重试 JSON',response.json()['detail'])
+            self.assertEqual(len(self.calls()),before+1)
+        self.control(retry_stdout='not json', retry_stderr='Synthetic ag failure', retry_code=2)
+        self.assertIn('Synthetic ag failure',self.retry().json()['detail'])
+        actions = Actions(Studies(self.studies), self.fake)
+        for error in (subprocess.TimeoutExpired('fake',15), OSError('synthetic')):
+            with patch('autog_frontend.actions.subprocess.run',side_effect=error) as run:
+                with self.assertRaises(StudyError) as caught:
+                    actions.retry_monitor(dict(cluster='default',auth_fixed=False))
+                self.assertEqual(caught.exception.status,504 if isinstance(error,subprocess.TimeoutExpired) else 502)
+                run.assert_called_once_with([str(self.fake),'monitor','--retry','default','--json'],
+                                           shell=False,capture_output=True,timeout=15,check=False)
+                self.assertFalse(actions.lock.locked())
+
+    def test_retry_and_fetch_do_not_block_each_other(self):
+        self.control(wait_for_release=True)
+        with ThreadPoolExecutor() as pool:
+            fetch = pool.submit(self.post,'fetch')
+            try:
+                until=time.monotonic()+3
+                while not (self.root/'started').exists() and time.monotonic()<until:time.sleep(.01)
+                self.assertTrue((self.root/'started').exists())
+                self.assertEqual(self.retry().json()['result'],'queued')
+                self.assertFalse(fetch.done())
+            finally:
+                (self.root/'release').touch()
+                self.assertEqual(fetch.result(timeout=5).status_code,200)
+        self.control(retry_wait_for_release=True)
+        with ThreadPoolExecutor() as pool:
+            (self.root/'retry-started').unlink()
+            retry = pool.submit(self.retry)
+            try:
+                until=time.monotonic()+3
+                while not (self.root/'retry-started').exists() and time.monotonic()<until:time.sleep(.01)
+                self.assertTrue((self.root/'retry-started').exists())
+                self.assertEqual(self.post('fetch').status_code,200)
+                self.assertFalse(retry.done())
+            finally:
+                (self.root/'retry-release').touch()
+                self.assertEqual(retry.result(timeout=5).status_code,200)

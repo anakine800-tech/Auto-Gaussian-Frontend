@@ -100,7 +100,7 @@ class ResultsTests(unittest.TestCase):
     def test_monitor_missing_oversized_and_symlinks(self):
         self.snapshot.unlink()
         response=self.client.get('/api/monitor');self.assertEqual(response.status_code,200)
-        self.assertEqual(response.json()['clusters'][0]['error'],'请在终端运行 ag monitor --watch 120')
+        self.assertEqual(response.json()['clusters'][0]['error'],'监控未运行或尚无快照：请启动常驻监控（ag monitor --watch 30）')
         with self.snapshot.open('wb') as f:f.truncate(2*1024*1024+1)
         self.assertEqual(self.client.get('/api/monitor').json()['clusters'][0]['error'],'File exceeds display size limit')
         self.snapshot.unlink();self.snapshot.symlink_to(self.study/'study.md')

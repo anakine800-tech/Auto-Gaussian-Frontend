@@ -2,6 +2,8 @@ import {test,expect} from '@playwright/test';
 import type {Page} from '@playwright/test';
 import type {ClusterRow,Job,Monitor} from '../src/jobs-data';
 import {serverModels,segments} from '../src/jobs-data';
+import {ageText} from '../src/server-cards';
+import {mkdirSync,writeFileSync} from 'node:fs';
 const now=Date.parse('2026-10-23T03:00:00Z'),iso=new Date(now).toISOString();
 function job(id:string,mine:boolean,state='R',cores=8):Job{return {
  job_id:'synthetic-'+id,user:mine?'userA':'userB',name:'Synthetic '+id,mine,state,cores,queue:'queue-a',
@@ -67,7 +69,7 @@ test('Slurm hides others identity and nodes; summary and unknown memory stay exp
  await page.getByLabel('只看本人').check();await expect(panel.getByText('其他用户：',{exact:false})).toHaveCount(0);
 });
 test('sampling failure, hardware failure and expiry have distinct resource semantics',async({page})=>{
- const data=rows();data[3].snapshot!.ok=false;data[3].snapshot!.error='Synthetic sample failure';data[1].snapshot!.cluster!.hardware!.error='Synthetic hardware failure';data[2].snapshot!.sampled_at=new Date(now-181000).toISOString();
+ const data=rows();data[3].snapshot!.ok=false;data[3].snapshot!.error='Synthetic sample failure';data[1].snapshot!.cluster!.hardware!.error='Synthetic hardware failure';data[1].snapshot!.cluster!.hardware!.cores_total=null;data[1].snapshot!.cluster!.hardware!.mem_total_gb=null;data[2].snapshot!.sampled_at=new Date(now-181000).toISOString();
  await setup(page,data);
  const failed=page.getByRole('button',{name:'选择服务器 pbs-a'}),hw=page.getByRole('button',{name:'选择服务器 计算服务器 B（pbs-b）'}),stale=page.getByRole('button',{name:'选择服务器 slurm-a'});
  await expect(failed).toContainText('采样失败');await expect(failed).toContainText('上次成功');await expect(failed.getByRole('img',{name:'核数：未知'})).toBeVisible();await expect(failed).toContainText('本人：运行 未知');
@@ -95,4 +97,116 @@ test('ordering, shared limits, inconsistent hardware and missing new fields stay
  for(const args of [[null,16,8],[32,null,8],[32,16,null],[32,4,8],[16,32,8],[0,0,0]] as const)expect(segments(...args)).toBeNull();
  const legacy=snapshot();delete legacy.cluster!.jobs;delete legacy.cluster!.hardware;delete legacy.cluster!.job_summary;delete legacy.own!.cores_running;
  const m=serverModels([{name:'legacy',source:'named',ambiguous:false,error:null,snapshot:legacy}],now)[0];expect(m.cores).toBeNull();expect(m.running).toHaveLength(1);
+});
+
+function retryRows():ClusterRow[]{
+ return ['default','batch','backoff','paused'].map((name,i)=>{
+  const s=snapshot(i===1);s.warnings=[];s.cluster!.display_order=i;
+  // Keep all test requests local; job snapshots are covered by the existing tests.
+  for(const j of [...s.own!.jobs,...s.cluster!.jobs!]){j.study=null;j.attempt=null;}
+  s.sampling={state:i===2?'backoff':i===3?'paused':'normal',consecutive_failures:i===2?4:i===3?1:0,current_interval_seconds:i===2?120:30,next_sample_at:i===3?null:new Date(now+120000).toISOString(),pause_reason:i===3?'auth':null,trigger:'scheduled',retry_pending:false};
+  if(i===1)s.cluster!.hardware!.notes=['合成说明：异构节点总内存未知'];
+  if(i>=2){s.ok=false;s.error='Synthetic sampling failure';}
+  return {name,source:'named',ambiguous:false,error:null,snapshot:s};
+ });
+}
+async function setupRetry(page:Page,data=retryRows(),actions=true){
+ await page.clock.install({time:now});await page.clock.pauseAt(now+1000);
+ await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:data}}));
+ await page.goto((actions?'http://127.0.0.1:18766':'')+'/#/servers');
+ await expect(page.locator('.server-card')).toHaveCount(data.length);
+ return data;
+}
+test('T128 scheduler inference, independent bars, notes and legacy data',()=>{
+ const row:ClusterRow={name:'default',source:'named',ambiguous:false,error:null,snapshot:snapshot()};
+ const model=()=>serverModels([row],now)[0],s=row.snapshot!;
+ expect(model().scheduler).toBe('PBS');delete s.cluster!.scheduler;expect(model().scheduler).toBe('PBS');
+ delete s.cluster!.hardware!.source;expect(model().scheduler).toBe('—');s.cluster!.hardware!.source='sinfo';expect(model().scheduler).toBe('SLURM');
+ expect(model().sampling).toBeNull();expect(model().notes).toEqual([]);
+ s.cluster!.hardware!.notes=['Synthetic memory limitation'];s.cluster!.hardware!.mem_total_gb=null;
+ expect(model().cores).not.toBeNull();expect(model().memory).toBeNull();expect(model().warningCount).toBe(1);
+ s.cluster!.hardware!.error='Synthetic AllocMem failure';expect(model().cores).not.toBeNull();expect(model().warningCount).toBe(2);
+ s.cluster!.hardware!.cores_total=null;expect(model().cores).toBeNull();expect(model().memory).toBeNull();
+ s.cluster!.hardware!.mem_total_gb=64;s.cluster!.hardware!.mem_allocated_gb=null;expect(model().memory).toBeNull();
+ s.cluster!.hardware!.mem_allocated_gb=24;expect(model().memory).not.toBeNull();
+ s.cluster!.hardware_capacity_known=false;expect(model().memory).toBeNull();
+ const inferred=rows();for(const r of inferred)delete r.snapshot!.cluster!.scheduler;
+ expect(serverModels(inferred,now).map(m=>m.row.name)).toEqual(['pbs-a','pbs-b','slurm-a','slurm-b']);
+ for(const [seconds,text] of [[48,'48 秒'],[65,'1 分 5 秒'],[10800,'3 小时 0 分'],[93600,'1 天 2 小时']] as const)expect(ageText(seconds)).toBe(text);
+});
+test('T128 states, notes and errors have separate presentation',async({page})=>{
+ const data=retryRows();delete data[0].snapshot!.cluster!.scheduler;
+ await setupRetry(page,data,false);
+ await expect(page.getByRole('button',{name:'选择服务器 default'})).toContainText('PBS');
+ const batch=page.getByRole('button',{name:'选择服务器 batch'});
+ await expect(batch.getByRole('img',{name:'核数：本人 8，他人 8，空闲 16，共 32'})).toBeVisible();
+ await expect(batch.getByRole('img',{name:'内存：未知'})).toBeVisible();await expect(batch.locator('.hardware-note')).toHaveText('合成说明：异构节点总内存未知');
+ await expect(batch).not.toContainText('条警告');
+ const backoff=page.getByRole('button',{name:'选择服务器 backoff'});await expect(backoff).toContainText('退避中 · 连续失败 4 次 · 下次');await backoff.click();
+ await expect(page.getByRole('tabpanel')).toContainText('退避中 · 连续失败 4 次 · 下次采样');
+ await page.getByRole('button',{name:'选择服务器 paused'}).click();await expect(page.getByRole('tabpanel')).toContainText('已暂停：SSH 认证失败');
+ await expect(page.getByRole('tabpanel')).toContainText('检查密钥、隧道或 known_hosts，修复后再重试');
+ await expect(page.getByRole('button',{name:'立即重新采样'})).toHaveCount(0);
+ data[3].snapshot!.sampling!.pause_reason='host_key';data[1].snapshot!.cluster!.hardware!.error='Synthetic AllocMem failure';await page.reload();
+ await page.getByRole('button',{name:'选择服务器 paused'}).click();await expect(page.getByRole('tabpanel')).toContainText('已暂停：主机指纹变化');
+ await batch.click();await expect(page.locator('.server-detail > :first-child')).toContainText('Synthetic AllocMem failure');await expect(batch).toContainText('1 条警告');
+});
+test('T128 retry queued uses token and exact fields; repeated clicks stay enabled',async({page})=>{
+ await setupRetry(page);const payloads:unknown[]=[];
+ await page.route('**/api/monitor/retry',async r=>{payloads.push(r.request().postDataJSON());expect(r.request().headers()['x-ag-token']).toBeTruthy();await r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}});});
+ const button=page.getByRole('button',{name:'立即重新采样'});await button.click();await expect(page.getByRole('tabpanel')).toContainText('已请求，等待采样');
+ await button.click();await expect.poll(()=>payloads.length).toBe(2);await expect(button).toBeEnabled();
+ expect(payloads).toEqual([{cluster:'default',auth_fixed:false},{cluster:'default',auth_fixed:false}]);
+});
+for(const reason of ['auth','host_key'] as const)test(`T128 paused ${reason} needs page confirmation`,async({page})=>{
+ const data=retryRows();data[0].snapshot!.sampling={...data[3].snapshot!.sampling!,pause_reason:reason};await setupRetry(page,data);
+ const payloads:unknown[]=[];await page.route('**/api/monitor/retry',async r=>{payloads.push(r.request().postDataJSON());await r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}});});
+ page.on('dialog',()=>{throw Error('Native confirmation is prohibited');});
+ await page.getByRole('button',{name:'立即重新采样'}).click();const dialog=page.getByRole('dialog',{name:'确认重新采样'});
+ await expect(dialog).toContainText(reason==='auth'?'SSH 认证失败':'主机指纹变化');await dialog.getByRole('button',{name:'取消',exact:true}).click();expect(payloads).toEqual([]);
+ await page.getByRole('button',{name:'立即重新采样'}).click();await dialog.getByRole('button',{name:'确认重试'}).click();
+ await expect.poll(()=>payloads.length).toBe(1);expect(payloads).toEqual([{cluster:'default',auth_fixed:true}]);await expect(dialog).not.toBeVisible();
+});
+for(const [result,reason,message] of [
+ ['already_queued',null,'已在等待，结果见下一份快照'],['in_progress',null,'正在采样，结果见下一份快照'],
+ ['refused','monitor_not_running','监控未运行，未登记请求'],['refused','auth_confirmation_required','需要先确认已修复认证问题'],
+] as const)test(`T128 retry feedback ${result} ${reason}`,async({page})=>{
+ await setupRetry(page);await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:'default',result,reason,requested_at:null}}));
+ await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.getByRole('tabpanel')).toContainText(message);
+});
+for(const [status,message] of [[502,'ag monitor 返回无效的重试 JSON；未自动重试'],[504,'ag monitor 重试请求超时（15 秒）；未自动重试']] as const)test(`T128 retry error ${status} is not retried`,async({page})=>{
+ await setupRetry(page);let writes=0;await page.route('**/api/monitor/retry',r=>{writes++;return r.fulfill({status,json:{detail:message}});});
+ await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.getByRole('tabpanel')).toContainText(message);
+ await page.clock.runFor(9000);expect(writes).toBe(1);await expect(page.getByRole('button',{name:'立即重新采样'})).toBeEnabled();
+});
+for(const changed of [true,false])test(`T128 fast monitor polling ends on ${changed?'new sample':'120 seconds'}`,async({page})=>{
+ const data=retryRows();let reads=0;const otherReads:string[]=[];
+ page.on('request',r=>{const path=new URL(r.url()).pathname;if(path==='/api/monitor')reads++;else if(path.startsWith('/api/')&&r.method()==='GET')otherReads.push(path);});
+ await setupRetry(page,data);await expect.poll(()=>reads).toBe(1);await expect(page.getByRole('table',{name:'待取回作业表'})).toBeVisible();
+ await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}}));
+ const oldReads=otherReads.length;await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.getByRole('tabpanel')).toContainText('已请求');
+ await page.clock.runFor(2999);expect(reads).toBe(1);await page.clock.runFor(1);await expect.poll(()=>reads).toBe(2);
+ expect(otherReads.length).toBe(oldReads);
+ if(changed){
+  data[1].snapshot!.sampled_at=new Date(now+1000).toISOString();await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(3);
+  // A different entry's sample cannot end this entry's fast polling.
+  data[0].snapshot!.sampled_at=new Date(now+2000).toISOString();await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(4);
+ }else{
+  for(let i=0;i<39;i++){await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(i+3);}
+ }
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒读取');
+ const before=reads;await page.clock.runFor(29999);expect(reads).toBe(before);await page.clock.runFor(1);await expect.poll(()=>reads).toBe(before+1);
+});
+for(const [width,height] of [[1440,860],[1280,720],[390,844]])test(`T128 review screenshots ${width}x${height}`,async({page})=>{
+ await page.setViewportSize({width,height});await setupRetry(page);await page.evaluate(()=>document.fonts.ready);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+ await expect(page.locator('.server-card button')).toHaveCount(0);
+ const dir='../tests/monitor-fixtures/t128';mkdirSync(dir,{recursive:true});
+ if(width===1440)writeFileSync('../tests/monitor-fixtures/t128-synthetic.json',JSON.stringify({clusters:retryRows()},null,2)+'\n');
+ await page.screenshot({path:`${dir}/servers-${width}x${height}.png`});
+ await page.getByRole('button',{name:'选择服务器 paused'}).click();await page.getByRole('button',{name:'立即重新采样'}).click();
+ const dialog=page.getByRole('dialog',{name:'确认重新采样'});await expect(dialog.getByRole('button',{name:'确认重试'})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+ await page.screenshot({path:`${dir}/confirmation-${width}x${height}.png`});
+ await dialog.getByRole('button',{name:'取消',exact:true}).click();await expect(dialog).not.toBeVisible();
 });

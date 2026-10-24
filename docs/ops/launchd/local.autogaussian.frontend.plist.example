@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>local.autogaussian.frontend</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>&lt;FRONTEND_PYTHON&gt;</string>
+		<string>-B</string>
+		<string>-m</string>
+		<string>autog_frontend</string>
+		<string>--studies-root</string>
+		<string>&lt;STUDIES_ROOT&gt;</string>
+		<string>--ui-directory</string>
+		<string>&lt;FRONTEND_CHECKOUT&gt;/web/dist</string>
+		<string>--enable-actions</string>
+		<string>--ag</string>
+		<string>&lt;AG_EXECUTABLE&gt;</string>
+		<string>--port</string>
+		<string>8773</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>&lt;LOG_DIR&gt;/frontend.stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>&lt;LOG_DIR&gt;/frontend.stdout.log</string>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+</dict>
+</plist>

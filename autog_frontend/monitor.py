@@ -74,6 +74,19 @@ def validate_monitor(data):
         timestamp(data['last_ok_at'], True)
         if 'sample_duration_ms' in data:
             integer(data['sample_duration_ms'], True)
+        if 'sampling' in data:
+            sampling = data['sampling']
+            require(isinstance(sampling, dict))
+            require(sampling['state'] in ('normal', 'backoff', 'paused'))
+            integer(sampling['consecutive_failures'])
+            current = sampling['current_interval_seconds']
+            require(current is None or type(current) is int and 30 <= current <= 600)
+            timestamp(sampling['next_sample_at'], True)
+            reason = sampling['pause_reason']
+            require(reason in (None, 'auth', 'host_key'))
+            require(reason is None or sampling['state'] == 'paused')
+            require(sampling['trigger'] in ('scheduled', 'manual', 'manual_auth_fixed'))
+            require(type(sampling['retry_pending']) is bool)
         own, cluster = data['own'], data['cluster']
         require(isinstance(own, dict) or not data['ok'] and own is None)
         require(isinstance(cluster, dict) or not data['ok'] and cluster is None)
@@ -147,6 +160,10 @@ def validate_monitor(data):
                         number(hardware[key], True)
                 if 'source' in hardware:
                     require(hardware['source'] in ('pbsnodes', 'sinfo'))
+                if 'notes' in hardware:
+                    require(isinstance(hardware['notes'], list))
+                    for note in hardware['notes']:
+                        string(note)
                 if 'error' in hardware:
                     string(hardware['error'], True)
             if 'storage_kib' in cluster:
