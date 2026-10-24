@@ -12,7 +12,7 @@ Requires Python 3.11–3.13, Node.js and pnpm matching `web/package.json`.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install setuptools==82.0.1
+.venv/bin/python -m pip install setuptools==83.0.0
 .venv/bin/python -m pip install -r requirements.lock.txt
 .venv/bin/python -m pip install --no-deps --no-build-isolation .
 pnpm --dir web install --frozen-lockfile
