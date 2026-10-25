@@ -9,6 +9,7 @@ import {ENERGY_NOTICE} from './progress-definitions';
 import {adoptionState,calculationType,catalogObjects,chainObjects,chainStatus,defaultBasis,electronicState,hasCatalog,keyReports,methodFromRoute,orderedMembers,record,relativeEnergies,representativeAttempt,roleLabels,routeOf,spinTreatment} from './catalog-data';
 import type {CatalogStudy,ChainObject,CompositionSource,EnergyBasis,EnergyRow} from './catalog-data';
 import './ui/chains.css';
+import {CatalogLedgerPanel} from './catalog-ledger';
 
 const reviewLabel=(a:AttemptSummary|undefined)=>!a?'Attempt 缺失':a.review_state==='present'?'有审阅记录':a.review_state==='unreadable'?'审阅不可读':a.state==='fetched'?'待审阅':'尚未取回';
 function needsHandling(o:ChainObject,attempts:AttemptSummary[]){
@@ -75,6 +76,7 @@ export function ChainsView({data}:{data:CatalogStudy}){
  {key:'facts',label:'关键事实（facts）',render:m=>{const a=find(m.attempt);return a?factsText(a):'—';}},
  {key:'review',label:'审阅情况',render:m=>reviewLabel(find(m.attempt))},
  ]}/></td></tr>}</Fragment>;})}</tbody></table></div>
+ {filtered.filter(({object:o})=>expanded.includes(o.id)&&o.ledger).map(({object:o})=><CatalogLedgerPanel key={o.id} study={data.id} object={o}/>)}
  {!filtered.length&&<EmptyState>没有符合筛选的对象。</EmptyState>}
  {data.graph.nodes.some(n=>n.missing)&&<p className="notice">缺失父节点：{data.graph.nodes.filter(n=>n.missing).map(n=>n.id).join('、')}；未将缺失节点作为分组桥梁。</p>}
  </Panel>;

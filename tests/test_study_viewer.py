@@ -25,6 +25,18 @@ class StudyViewerTests(unittest.TestCase):
     def snapshot(self):
         return {str(p.relative_to(self.studies)):(p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None) for p in self.studies.rglob('*')}
 
+    def test_container_directories_are_neither_studies_nor_issues(self):
+        for name in ('_archive', '.ag-monitor', '_container-with-study'):
+            path = self.studies / name
+            path.mkdir()
+            if name == '_container-with-study':
+                (path / 'study.md').write_text('# Container, not a study\n')
+        (self.studies / '_linked-container').symlink_to(self.study, target_is_directory=True)
+        (self.studies / 'broken-study').mkdir()
+        result = self.client.get('/api/studies').json()
+        self.assertEqual([s['id'] for s in result['studies']], ['butane-demo'])
+        self.assertEqual([issue['path'] for issue in result['issues']], ['broken-study'])
+
     def test_all_reads_are_immutable_and_have_no_process_or_package_dependency(self):
         before=self.snapshot()
         with patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):

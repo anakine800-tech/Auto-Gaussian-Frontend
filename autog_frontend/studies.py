@@ -23,7 +23,7 @@ import stat
 from threading import Lock
 from urllib.parse import unquote, urlsplit
 
-from .geometry import parse_xyz, xyz_frame
+from .geometry import SYMBOLS, parse_xyz, xyz_frame
 from .inputs import parse_input
 from .optimization import parse_optimization
 from .monitor import validate_monitor
@@ -184,6 +184,210 @@ def finite_float(value):
     return result
 
 
+def validate_catalog_v2(state):
+    """Validate the saved v2 view (ag-catalog-2 sections 3–5), without replay.
+
+    Reject malformed ledger fields before rendering: a false declaration or an
+    invalid assignment must not look like a verified channel. Do not derive
+    statuses/counts or recheck historical checks against today's evidence.
+    Unknown top-level/object fields remain ignored, as with v1.
+    """
+    def require(condition):
+        if not condition:
+            raise ValueError('Invalid catalog v2 field')
+
+    def mapping(value, fields):
+        require(isinstance(value, dict) and set(fields.split()) <= value.keys())
+        return value
+
+    def text(value, optional=False):
+        require(optional and value is None or isinstance(value, str) and (optional or bool(value.strip())))
+
+    def integer(value, minimum=None):
+        require(type(value) is int and (minimum is None or value >= minimum))
+
+    def identifier(value):
+        require(isinstance(value, str) and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}', value) is not None)
+
+    def digest(value):
+        require(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value) is not None)
+
+    def at(value):
+        text(value)
+        require('T' in value)
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        require(parsed.tzinfo is not None and parsed.utcoffset().total_seconds() == 0)
+
+    def quote(value):
+        text(value)
+        require(len(value) <= 2000)
+
+    def formula(value):
+        # Validate the producer's canonical Hill spelling, not chemical identity.
+        text(value)
+        tokens = re.findall(r'([A-Z][a-z]?)([0-9]*)', value)
+        require(bool(tokens) and ''.join(a + n for a, n in tokens) == value)
+        symbols = [a for a, _ in tokens]
+        require(len(set(symbols)) == len(symbols) and all(a in SYMBOLS for a in symbols))
+        require(all(not n or n.isascii() and n.isdigit() and int(n) > 1 and str(int(n)) == n for _, n in tokens))
+        order = (['C'] + (['H'] if 'H' in symbols else []) + sorted(set(symbols) - {'C', 'H'})
+                 if 'C' in symbols else sorted(symbols))
+        require(symbols == order)
+
+    def expectation(value, check):
+        mapping(value, 'state value')
+        require(value['state'] in ('unset', 'unknown', 'set'))
+        if value['state'] == 'set':
+            check(value['value'])
+        else:
+            require(value['value'] is None)
+
+    def json_object(value):
+        if value is not None:
+            require(isinstance(value, dict))
+            # The producer limits source JSON bytes; reformatting can expand
+            # those bytes, so do not impose a second serialization-size limit.
+            json.dumps(value, allow_nan=False)
+
+    def ids(value):
+        require(isinstance(value, list))
+        for item in value:
+            identifier(item)
+        require(len(set(value)) == len(value))
+        return set(value)
+
+    outcomes = ('diagnosed', 'accepted', 'other_channel', 'minimum', 'opt_failed', 'multiple_imag', 'other')
+    at(mapping(state, 'generated_at')['generated_at'])
+    object_ids = set()
+    for obj in state['objects']:
+        mapping(obj, 'id multiplicity expected channels candidates coverage member_mismatches')
+        identifier(obj['id'])
+        require(obj['id'] not in object_ids)
+        object_ids.add(obj['id'])
+        if obj['multiplicity'] is not None:
+            integer(obj['multiplicity'], 1)
+        expected = mapping(obj['expected'], 'formula charge')
+        expectation(expected['formula'], formula)
+        expectation(expected['charge'], integer)
+        require(isinstance(obj['channels'], list) and isinstance(obj['candidates'], list))
+        for channel in obj['channels']:
+            mapping(channel, 'id name definition product_branch discovered confirmed status declaration candidate_ids outcome_counts')
+        for candidate in obj['candidates']:
+            mapping(candidate, 'id file sha256 n_atoms formula origin parent transform target_channel literature note registered_at results latest_assignment')
+        channel_ids = ids([c['id'] for c in obj['channels']])
+        candidate_ids = ids([c['id'] for c in obj['candidates']])
+
+        def assignment(value):
+            mapping(value, 'status channels')
+            require(value['status'] in ('none', 'tentative', 'verified', 'undetermined'))
+            assigned = ids(value['channels'])
+            require(assigned <= channel_ids)
+            count = len(assigned)
+            require(count == 0 if value['status'] == 'none' else
+                    count == 1 if value['status'] in ('tentative', 'verified') else count != 1)
+
+        for channel in obj['channels']:
+            for field in ('name', 'definition'):
+                text(channel[field])
+            text(channel['product_branch'], optional=True)
+            require(type(channel['discovered']) is bool and type(channel['confirmed']) is bool)
+            require(channel['status'] in ('untried', 'attempted_not_found', 'tentative_found',
+                                         'verified', 'pending_confirmation', 'excluded_low_confidence'))
+            require(ids(channel['candidate_ids']) <= candidate_ids)
+            require(isinstance(channel['outcome_counts'], dict))
+            for outcome, count in channel['outcome_counts'].items():
+                require(outcome in outcomes)
+                integer(count, 0)
+            declaration = channel['declaration']
+            if declaration is not None:
+                mapping(declaration, 'status at quote reason')
+                require(declaration['status'] in ('verified', 'excluded-low-confidence'))
+                require(channel['status'] == declaration['status'].replace('-', '_'))
+                at(declaration['at'])
+                quote(declaration['quote'])
+                text(declaration['reason'], optional=declaration['status'] == 'verified')
+            else:
+                require(channel['status'] not in ('verified', 'excluded_low_confidence'))
+
+        for candidate in obj['candidates']:
+            digest(candidate['sha256'])
+            require(candidate['file'] == f"catalog/candidates/{candidate['sha256']}.xyz")
+            integer(candidate['n_atoms'], 1)
+            formula(candidate['formula'])
+            require(candidate['origin'] in ('scan', 'qst', 'template-transform', 'path-search', 'manual', 'literature'))
+            parent = mapping(candidate['parent'], 'attempt file')
+            if parent['attempt'] is not None:
+                identifier(parent['attempt'])
+            if parent['file'] is not None:
+                mapping(parent['file'], 'source sha256')
+                text(parent['file']['source'])
+                digest(parent['file']['sha256'])
+            json_object(candidate['transform'])
+            require(candidate['target_channel'] is None or
+                    isinstance(candidate['target_channel'], str) and candidate['target_channel'] in channel_ids)
+            literature = candidate['literature']
+            require(candidate['origin'] != 'literature' or literature is not None)
+            if literature is not None:
+                mapping(literature, 'doi si_location')
+                text(literature['doi'])
+                require(re.fullmatch(r'10\.[0-9]{4,9}/\S+', literature['doi']) is not None)
+                text(literature['si_location'], optional=True)
+            text(candidate['note'], optional=True)
+            at(candidate['registered_at'])
+            require(isinstance(candidate['results'], list))
+            last_seq = 0
+            for result in candidate['results']:
+                mapping(result, 'schema seq at op prev_sha256 object candidate outcome attempt diagnosis assignment quote note checks')
+                require(result['schema'] == 'ag-catalog/2' and result['op'] == 'candidate-result')
+                integer(result['seq'], last_seq + 1)
+                last_seq = result['seq']
+                at(result['at'])
+                if result['prev_sha256'] is not None:
+                    digest(result['prev_sha256'])
+                require(result['object'] == obj['id'] and result['candidate'] == candidate['id'])
+                require(result['outcome'] in outcomes)
+                if result['attempt'] is not None:
+                    identifier(result['attempt'])
+                json_object(result['diagnosis'])
+                assignment(result['assignment'])
+                text(result['note'], optional=result['outcome'] != 'other')
+                if result['quote'] is not None:
+                    quote(result['quote'])
+                checks = mapping(result['checks'], '')
+                if result['assignment']['status'] == 'verified':
+                    quote(result['quote'])
+                    identifier(result['attempt'])
+                    mapping(checks, 'fetched facts_readable n_imag member')
+                    require(all(checks[f] is True for f in ('fetched', 'facts_readable', 'member')))
+                    integer(checks['n_imag'], 1)
+                    require(checks['n_imag'] == 1)
+                else:
+                    require(checks == {})
+            latest = candidate['latest_assignment']
+            if latest is not None:
+                assignment(latest)
+            require(latest == (candidate['results'][-1]['assignment'] if candidate['results'] else None))
+
+        coverage = obj['coverage']
+        if coverage is not None:
+            mapping(coverage, 'statement scope budget at quote')
+            require(coverage['statement'] in ('stable', 'withdrawn'))
+            text(coverage['scope'])
+            text(coverage['budget'])
+            at(coverage['at'])
+            quote(coverage['quote'])
+        require(isinstance(obj['member_mismatches'], list))
+        for mismatch in obj['member_mismatches']:
+            mapping(mismatch, 'attempt field expected actual')
+            identifier(mismatch['attempt'])
+            require(mismatch['field'] in ('formula', 'charge', 'multiplicity'))
+            for field in ('expected', 'actual'):
+                if mismatch['field'] == 'formula':
+                    formula(mismatch[field])
+                else:
+                    integer(mismatch[field], 1 if mismatch['field'] == 'multiplicity' else None)
+
+
 class Studies:
     def __init__(self, root):
         self.root = Path(os.path.abspath(root))
@@ -275,7 +479,7 @@ class Studies:
     def list_studies(self):
         result, issues = [], []
         for name, error in self.names((), directories=True):
-            if name.startswith('.'):
+            if name.startswith(('.', '_')):
                 continue
             if error:
                 issues.append({'path': name, 'error': error})
@@ -311,8 +515,11 @@ class Studies:
             journal = self.read((study, 'catalog', 'journal.jsonl'), limit=16*1024*1024)
             state = json.loads(raw, parse_float=finite_float,
                                parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-            if not isinstance(state, dict) or state.get('schema') != 'ag-catalog-state/1':
+            if not isinstance(state, dict):
                 raise ValueError()
+            if state.get('schema') not in ('ag-catalog-state/1', 'ag-catalog-state/2'):
+                result['warning'] = '不支持的 catalog 版本，按没有登记处理'
+                return result
             if state.get('journal_sha256') != hashlib.sha256(journal).hexdigest():
                 raise ValueError()
             objects = state.get('objects')
@@ -332,6 +539,8 @@ class Studies:
             kinds = state.get('report_kinds', {})
             if not isinstance(kinds, dict) or any(not isinstance(k, str) or not isinstance(v, str) or v not in REPORT_KINDS for k, v in kinds.items()):
                 raise ValueError()
+            if state['schema'] == 'ag-catalog-state/2':
+                validate_catalog_v2(state)
             return {'state': state, 'journal_ok': True, 'warning': None}
         except StudyError:
             result['warning'] = '登记记录缺失或无法安全读取，按没有登记处理'

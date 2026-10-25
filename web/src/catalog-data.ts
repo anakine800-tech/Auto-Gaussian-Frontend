@@ -6,7 +6,15 @@ import type {CompareEntry,CompareSource,ComparedObject,EnergyMetric} from './qui
 
 export type EnergyBasis='E'|'E+ZPE'|'G';
 export type Adoption={attempt:string;report:string|null};
-export type ChainObject={id:string;name:string;state_label:string|null;multiplicity:number|null;registered:boolean;status:'adopted'|'candidate'|'retired';members:{attempt:string;role:string}[];adopted:Partial<Record<'opt'|'freq'|'sp',Adoption>>;values:Record<string,unknown>};
+export type Expectation<T>={state:'unset'|'unknown';value:null}|{state:'set';value:T};
+export type Assignment={status:'none'|'tentative'|'verified'|'undetermined';channels:string[]};
+export type Outcome='diagnosed'|'accepted'|'other_channel'|'minimum'|'opt_failed'|'multiple_imag'|'other';
+export type ChannelStatus='untried'|'attempted_not_found'|'tentative_found'|'verified'|'pending_confirmation'|'excluded_low_confidence';
+export type CatalogChannel={id:string;name:string;definition:string;product_branch:string|null;discovered:boolean;confirmed:boolean;status:ChannelStatus;declaration:null|{status:'verified'|'excluded-low-confidence';at:string;quote:string;reason:string|null};candidate_ids:string[];outcome_counts:Partial<Record<Outcome,number>>};
+export type CandidateResult={schema:'ag-catalog/2';seq:number;at:string;op:'candidate-result';prev_sha256:string|null;object:string;candidate:string;outcome:Outcome;attempt:string|null;diagnosis:Record<string,unknown>|null;assignment:Assignment;quote:string|null;note:string|null;checks:Record<string,unknown>};
+export type CatalogCandidate={id:string;file:string;sha256:string;n_atoms:number;formula:string;origin:'scan'|'qst'|'template-transform'|'path-search'|'manual'|'literature';parent:{attempt:string|null;file:{source:string;sha256:string}|null};transform:Record<string,unknown>|null;target_channel:string|null;literature:{doi:string;si_location:string|null}|null;note:string|null;registered_at:string;results:CandidateResult[];latest_assignment:Assignment|null};
+export type CatalogLedger={expected:{formula:Expectation<string>;charge:Expectation<number>};channels:CatalogChannel[];candidates:CatalogCandidate[];coverage:null|{statement:'stable'|'withdrawn';scope:string;budget:string;at:string;quote:string};member_mismatches:{attempt:string;field:'formula'|'charge'|'multiplicity';expected:string|number;actual:string|number}[]};
+export type ChainObject={id:string;name:string;state_label:string|null;multiplicity:number|null;registered:boolean;status:'adopted'|'candidate'|'retired';members:{attempt:string;role:string}[];adopted:Partial<Record<'opt'|'freq'|'sp',Adoption>>;values:Record<string,unknown>;ledger?:CatalogLedger};
 export type CatalogStudy=Study&{energy_basis?:EnergyBasis;catalog?:{state:unknown;journal_ok:boolean;warning:string|null}};
 export const record=(v:unknown):Record<string,unknown>=>object(v)?v:{};
 const string=(v:unknown):string|null=>typeof v==='string'&&v.trim()?v:null;
@@ -38,15 +46,18 @@ export function calculationType(a:AttemptSummary,role?:string){
 
 export function catalogObjects(data:CatalogStudy):ChainObject[]{
  const state=record(data.catalog?.state);
- if(data.catalog?.journal_ok!==true||state.schema!=='ag-catalog-state/1'||!Array.isArray(state.objects))return [];
+ if(!hasCatalog(data)||!Array.isArray(state.objects))return [];
  return state.objects.filter(object).flatMap(raw=>{
   if(!string(raw.id)||!string(raw.name)||!['adopted','candidate','retired'].includes(String(raw.status))||!Array.isArray(raw.members))return [];
   const adopted:ChainObject['adopted']={};
   for(const role of ['opt','freq','sp'] as const){const ref=record(record(raw.adopted)[role]);if(string(ref.attempt))adopted[role]={attempt:String(ref.attempt),report:string(ref.report)};}
-  return [{id:String(raw.id),name:String(raw.name),state_label:string(raw.state_label),multiplicity:finite(raw.multiplicity),registered:true,status:raw.status as ChainObject['status'],members:raw.members.filter(object).filter(m=>string(m.attempt)).map(m=>({attempt:String(m.attempt),role:string(m.role)??'other'})),adopted,values:record(raw.values)}];
+  // The existing read endpoint validates every v2 field; no status derivation
+  // or additional request belongs in this model. V1 objects retain their shape.
+  const ledger=state.schema==='ag-catalog-state/2'?{ledger:{expected:raw.expected,channels:raw.channels,candidates:raw.candidates,coverage:raw.coverage,member_mismatches:raw.member_mismatches} as CatalogLedger}:{};
+  return [{id:String(raw.id),name:String(raw.name),state_label:string(raw.state_label),multiplicity:finite(raw.multiplicity),registered:true,status:raw.status as ChainObject['status'],members:raw.members.filter(object).filter(m=>string(m.attempt)).map(m=>({attempt:String(m.attempt),role:string(m.role)??'other'})),adopted,values:record(raw.values),...ledger}];
  });
 }
-export const hasCatalog=(data:CatalogStudy)=>data.catalog?.journal_ok===true&&record(data.catalog.state).schema==='ag-catalog-state/1';
+export const hasCatalog=(data:CatalogStudy)=>data.catalog?.journal_ok===true&&['ag-catalog-state/1','ag-catalog-state/2'].includes(String(record(data.catalog.state).schema));
 
 // suggest groups only the unassigned induced subgraph. A registered (including
 // retired) parent never bridges two unregistered groups. No identity inference.

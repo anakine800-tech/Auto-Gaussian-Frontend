@@ -1,0 +1,26 @@
+.catalog-ledger { min-width: 0; max-width: 100%; margin-top: 20px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); overflow-wrap: anywhere; }
+.catalog-ledger > summary { font-size: var(--fs-lg); font-weight: 600; cursor: pointer; }
+.catalog-ledger h3 { margin: 20px 0 10px; }
+.catalog-ledger h4 { margin: 0 0 12px; }
+.ledger-notice { color: var(--muted); }
+.ledger-expectations { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.ledger-expectations > div { padding: 12px; background: var(--surface-soft); border-radius: var(--radius); }
+.ledger-expectations dt, .ledger-facts dt { color: var(--muted); }
+.ledger-expectations dd { margin: 6px 0 0; font-weight: 600; }
+.ledger-facts { display: grid; grid-template-columns: minmax(90px,auto) minmax(0,1fr); gap: 8px 16px; }
+.ledger-facts dd { margin: 0; white-space: pre-wrap; }
+.ledger-scroll { max-width: 100%; min-width: 0; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.ledger-scroll table { width: 100%; min-width: 780px; border-collapse: collapse; }
+.ledger-scroll th, .ledger-scroll td { padding: 12px; vertical-align: top; text-align: left; border-bottom: 1px solid var(--line); min-width: 100px; max-width: 310px; white-space: normal; font-weight: normal; }
+.ledger-scroll thead th { background: var(--surface-soft); font-weight: 600; }
+.ledger-scroll small { display: block; color: var(--muted); margin-top: 4px; }
+.ledger-scroll .StatusBadge { white-space: normal; }
+.catalog-ledger blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--line); white-space: pre-wrap; }
+.catalog-ledger time { font-size: var(--fs-xs); color: var(--muted); }
+.ledger-group { border-top: 1px solid var(--line); padding: 12px 0; }
+.ledger-group > summary { cursor: pointer; font-weight: 600; }
+.ledger-candidate { padding: 16px; margin-top: 12px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.ledger-json { margin: 10px 0; }
+.ledger-json pre { max-width: 100%; overflow: auto; font-size: var(--fs-xs); }
+.ledger-latest, .ledger-coverage { font-weight: 600; }
+@media(max-width:600px) { .catalog-ledger { padding: 12px; } .ledger-expectations { grid-template-columns: minmax(0,1fr); } .ledger-candidate { padding: 10px; } .ledger-facts { grid-template-columns: minmax(0,1fr); gap: 4px; } .ledger-facts dd { margin-bottom: 8px; } }
