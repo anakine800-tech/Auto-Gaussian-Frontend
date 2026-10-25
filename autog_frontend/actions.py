@@ -85,6 +85,48 @@ class Actions:
                 UnicodeError, json.JSONDecodeError, RecursionError) as exc:
             raise ValueError('Cannot query ag clusters and verify viewer study root') from exc
 
+    def retry_monitor(self, payload):
+        # ag coalesces monitor requests; a long fetch must not block this local
+        # registration, and registration must not take the calculation lock.
+        if (not isinstance(payload, dict) or set(payload) != {'cluster', 'auth_fixed'}
+                or not isinstance(payload['cluster'], str)
+                or payload['cluster'] not in self.clusters
+                or type(payload['auth_fixed']) is not bool):
+            raise StudyError('Expected a configured cluster and boolean auth_fixed only', 400)
+        cluster = payload['cluster']
+        argv = [self.executable, 'monitor', '--retry', cluster, '--json']
+        if payload['auth_fixed']:
+            argv.append('--auth-fixed')
+        try:
+            process = subprocess.run(argv, shell=False, capture_output=True, timeout=15, check=False)
+        except subprocess.TimeoutExpired:
+            raise StudyError('ag monitor 重试请求超时（15 秒）；未自动重试，结果请查看下一份快照', 504) from None
+        except OSError:
+            raise StudyError('无法运行 ag monitor 重试请求；未自动重试', 502) from None
+        try:
+            data = json.loads(process.stdout)
+            if (not isinstance(data, dict)
+                    or set(data) != {'entry', 'result', 'reason', 'requested_at'}
+                    or data['entry'] != cluster
+                    or data['result'] not in ('queued', 'already_queued', 'in_progress', 'refused')
+                    or data['reason'] not in (None, 'monitor_not_running', 'auth_confirmation_required', 'unknown_entry')):
+                raise ValueError()
+            refused = data['result'] == 'refused'
+            if process.returncode != (1 if refused else 0) or refused != (data['reason'] is not None):
+                raise ValueError()
+            requested = data['requested_at']
+            if requested is not None:
+                if (not isinstance(requested, str) or 'T' not in requested
+                        or datetime.fromisoformat(requested.replace('Z', '+00:00')).utcoffset()
+                        != timezone.utc.utcoffset(None)):
+                    raise ValueError()
+            return data
+        except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
+            output = process.stderr.decode('utf-8', errors='replace').strip()
+            if not output:
+                output = process.stdout.decode('utf-8', errors='replace').strip()
+            raise StudyError('ag monitor 返回无效的重试 JSON；未自动重试' + (f'：{output}' if output else ''), 502) from None
+
     def context(self, study, attempt):
         component(study); component(attempt)
         if study.startswith('-') or attempt.startswith('-'):

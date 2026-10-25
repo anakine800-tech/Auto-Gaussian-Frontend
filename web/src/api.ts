@@ -20,3 +20,10 @@ export function coreHours(m:Record<string,unknown>):string{
  const [h,min,sec]=m.walltime.split(':').map(Number);
  return `${Number((m.cores*(h+min/60+sec/3600)).toFixed(3))} 核时（核数 × walltime）`;
 }
+
+export async function retryMonitor(cluster:string,auth_fixed:boolean,token:string):Promise<{entry:string;result:'queued'|'already_queued'|'in_progress'|'refused';reason:null|'monitor_not_running'|'auth_confirmation_required'|'unknown_entry';requested_at:string|null}>{
+ const response=await fetch('/api/monitor/retry',{method:'POST',headers:{'Content-Type':'application/json','X-AG-Token':token},body:JSON.stringify({cluster,auth_fixed})});
+ const body=await response.json();
+ if(!response.ok)throw Error(body.detail??`重试请求失败 (${response.status})`);
+ return body;
+}

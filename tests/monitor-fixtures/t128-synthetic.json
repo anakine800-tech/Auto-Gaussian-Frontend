@@ -1,0 +1,858 @@
+{
+  "clusters": [
+    {
+      "name": "default",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-23T03:00:00.000Z",
+        "last_ok_at": "2026-10-23T03:00:00.000Z",
+        "interval_seconds": 30,
+        "ok": true,
+        "error": null,
+        "sample_duration_ms": 200,
+        "own": {
+          "cores_in_use": 16,
+          "core_cap": 16,
+          "max_cores": 16,
+          "cores_running": 8,
+          "cores_queued": 8,
+          "committed_cap": 64,
+          "max_queued_cores": 32,
+          "mem_running_gb": 12,
+          "mem_queued_gb": 12,
+          "tiers": {
+            "small": {
+              "cores": 8,
+              "mem_gb": 12
+            }
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ]
+        },
+        "cluster": {
+          "scheduler": "pbs",
+          "display_order": 0,
+          "cores_total": 32,
+          "cores_used": 16,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 32,
+            "cores_allocated": 16,
+            "cores_idle": 16,
+            "cores_other": 0,
+            "mem_total_gb": 64,
+            "mem_allocated_gb": 24,
+            "source": "pbsnodes",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 2,
+            "running_cores": 16,
+            "queued_jobs": 3,
+            "queued_cores": 16,
+            "others_running_jobs": 1,
+            "others_running_cores": 8,
+            "others_queued_jobs": 2,
+            "others_queued_cores": 8
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-other",
+              "user": "userB",
+              "name": "Synthetic other",
+              "mine": false,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-queue-new",
+              "user": "userB",
+              "name": "Synthetic queue-new",
+              "mine": false,
+              "state": "Q",
+              "cores": 4,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-queue-old",
+              "user": "userB",
+              "name": "Synthetic queue-old",
+              "mine": false,
+              "state": "Q",
+              "cores": 4,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-22T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ],
+          "jobs_omitted": 12,
+          "nodes": [
+            {
+              "name": "node-a",
+              "state": "free",
+              "cores_total": 16,
+              "cores_used": 0,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 0,
+              "jobs": 0
+            },
+            {
+              "name": "node-b",
+              "state": "busy",
+              "cores_total": 16,
+              "cores_used": 16,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 24,
+              "jobs": 2
+            }
+          ],
+          "queues": [
+            {
+              "name": "queue-a",
+              "running": 2,
+              "queued": 3
+            }
+          ],
+          "storage_kib": 2097152,
+          "storage_checked_at": "2026-10-23T03:00:00.000Z",
+          "storage_sampled_at": "2026-10-23T03:00:00.000Z",
+          "storage_error": null
+        },
+        "warnings": [],
+        "sampling": {
+          "state": "normal",
+          "consecutive_failures": 0,
+          "current_interval_seconds": 30,
+          "next_sample_at": "2026-10-23T03:02:00.000Z",
+          "pause_reason": null,
+          "trigger": "scheduled",
+          "retry_pending": false
+        }
+      }
+    },
+    {
+      "name": "batch",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-23T03:00:00.000Z",
+        "last_ok_at": "2026-10-23T03:00:00.000Z",
+        "interval_seconds": 60,
+        "ok": true,
+        "error": null,
+        "sample_duration_ms": 200,
+        "own": {
+          "cores_in_use": 16,
+          "core_cap": 16,
+          "max_cores": 16,
+          "cores_running": 8,
+          "cores_queued": 8,
+          "committed_cap": 64,
+          "max_queued_cores": 32,
+          "mem_running_gb": 12,
+          "mem_queued_gb": 12,
+          "tiers": {
+            "small": {
+              "cores": 8,
+              "mem_gb": 12
+            }
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ]
+        },
+        "cluster": {
+          "scheduler": "slurm",
+          "display_order": 1,
+          "cores_total": 32,
+          "cores_used": 16,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 32,
+            "cores_allocated": 16,
+            "cores_idle": 16,
+            "cores_other": 0,
+            "mem_total_gb": null,
+            "mem_allocated_gb": null,
+            "source": "sinfo",
+            "error": null,
+            "notes": [
+              "合成说明：异构节点总内存未知"
+            ]
+          },
+          "job_summary": {
+            "running_jobs": 2,
+            "running_cores": 16,
+            "queued_jobs": 3,
+            "queued_cores": 16,
+            "others_running_jobs": 1,
+            "others_running_cores": 8,
+            "others_queued_jobs": 2,
+            "others_queued_cores": 8
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ],
+          "jobs_omitted": 12,
+          "nodes": [],
+          "queues": [
+            {
+              "name": "queue-a",
+              "running": 2,
+              "queued": 3
+            }
+          ],
+          "storage_kib": 2097152,
+          "storage_checked_at": "2026-10-23T03:00:00.000Z",
+          "storage_sampled_at": "2026-10-23T03:00:00.000Z",
+          "storage_error": null
+        },
+        "warnings": [],
+        "sampling": {
+          "state": "normal",
+          "consecutive_failures": 0,
+          "current_interval_seconds": 30,
+          "next_sample_at": "2026-10-23T03:02:00.000Z",
+          "pause_reason": null,
+          "trigger": "scheduled",
+          "retry_pending": false
+        }
+      }
+    },
+    {
+      "name": "backoff",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-23T03:00:00.000Z",
+        "last_ok_at": "2026-10-23T03:00:00.000Z",
+        "interval_seconds": 30,
+        "ok": false,
+        "error": "Synthetic sampling failure",
+        "sample_duration_ms": 200,
+        "own": {
+          "cores_in_use": 16,
+          "core_cap": 16,
+          "max_cores": 16,
+          "cores_running": 8,
+          "cores_queued": 8,
+          "committed_cap": 64,
+          "max_queued_cores": 32,
+          "mem_running_gb": 12,
+          "mem_queued_gb": 12,
+          "tiers": {
+            "small": {
+              "cores": 8,
+              "mem_gb": 12
+            }
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ]
+        },
+        "cluster": {
+          "scheduler": "pbs",
+          "display_order": 2,
+          "cores_total": 32,
+          "cores_used": 16,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 32,
+            "cores_allocated": 16,
+            "cores_idle": 16,
+            "cores_other": 0,
+            "mem_total_gb": 64,
+            "mem_allocated_gb": 24,
+            "source": "pbsnodes",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 2,
+            "running_cores": 16,
+            "queued_jobs": 3,
+            "queued_cores": 16,
+            "others_running_jobs": 1,
+            "others_running_cores": 8,
+            "others_queued_jobs": 2,
+            "others_queued_cores": 8
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-other",
+              "user": "userB",
+              "name": "Synthetic other",
+              "mine": false,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-queue-new",
+              "user": "userB",
+              "name": "Synthetic queue-new",
+              "mine": false,
+              "state": "Q",
+              "cores": 4,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-queue-old",
+              "user": "userB",
+              "name": "Synthetic queue-old",
+              "mine": false,
+              "state": "Q",
+              "cores": 4,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-22T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ],
+          "jobs_omitted": 12,
+          "nodes": [
+            {
+              "name": "node-a",
+              "state": "free",
+              "cores_total": 16,
+              "cores_used": 0,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 0,
+              "jobs": 0
+            },
+            {
+              "name": "node-b",
+              "state": "busy",
+              "cores_total": 16,
+              "cores_used": 16,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 24,
+              "jobs": 2
+            }
+          ],
+          "queues": [
+            {
+              "name": "queue-a",
+              "running": 2,
+              "queued": 3
+            }
+          ],
+          "storage_kib": 2097152,
+          "storage_checked_at": "2026-10-23T03:00:00.000Z",
+          "storage_sampled_at": "2026-10-23T03:00:00.000Z",
+          "storage_error": null
+        },
+        "warnings": [],
+        "sampling": {
+          "state": "backoff",
+          "consecutive_failures": 4,
+          "current_interval_seconds": 120,
+          "next_sample_at": "2026-10-23T03:02:00.000Z",
+          "pause_reason": null,
+          "trigger": "scheduled",
+          "retry_pending": false
+        }
+      }
+    },
+    {
+      "name": "paused",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-23T03:00:00.000Z",
+        "last_ok_at": "2026-10-23T03:00:00.000Z",
+        "interval_seconds": 30,
+        "ok": false,
+        "error": "Synthetic sampling failure",
+        "sample_duration_ms": 200,
+        "own": {
+          "cores_in_use": 16,
+          "core_cap": 16,
+          "max_cores": 16,
+          "cores_running": 8,
+          "cores_queued": 8,
+          "committed_cap": 64,
+          "max_queued_cores": 32,
+          "mem_running_gb": 12,
+          "mem_queued_gb": 12,
+          "tiers": {
+            "small": {
+              "cores": 8,
+              "mem_gb": 12
+            }
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ]
+        },
+        "cluster": {
+          "scheduler": "pbs",
+          "display_order": 3,
+          "cores_total": 32,
+          "cores_used": 16,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 32,
+            "cores_allocated": 16,
+            "cores_idle": 16,
+            "cores_other": 0,
+            "mem_total_gb": 64,
+            "mem_allocated_gb": 24,
+            "source": "pbsnodes",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 2,
+            "running_cores": 16,
+            "queued_jobs": 3,
+            "queued_cores": 16,
+            "others_running_jobs": 1,
+            "others_running_cores": 8,
+            "others_queued_jobs": 2,
+            "others_queued_cores": 8
+          },
+          "jobs": [
+            {
+              "job_id": "synthetic-other",
+              "user": "userB",
+              "name": "Synthetic other",
+              "mine": false,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own",
+              "user": "userA",
+              "name": "Synthetic own",
+              "mine": true,
+              "state": "R",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "allocated",
+              "mem_gb": 12,
+              "elapsed_seconds": 3420,
+              "elapsed_source": "start_time",
+              "walltime_limit_seconds": 3600,
+              "start_time": "2026-10-23T02:03:00Z",
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-queue-new",
+              "user": "userB",
+              "name": "Synthetic queue-new",
+              "mine": false,
+              "state": "Q",
+              "cores": 4,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-queue-old",
+              "user": "userB",
+              "name": "Synthetic queue-old",
+              "mine": false,
+              "state": "Q",
+              "cores": 4,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-22T01:00:00Z",
+              "study": null,
+              "attempt": null
+            },
+            {
+              "job_id": "synthetic-own-queue",
+              "user": "userA",
+              "name": "Synthetic own-queue",
+              "mine": true,
+              "state": "Q",
+              "cores": 8,
+              "queue": "queue-a",
+              "cores_kind": "requested",
+              "mem_gb": 12,
+              "elapsed_seconds": null,
+              "elapsed_source": null,
+              "walltime_limit_seconds": 3600,
+              "start_time": null,
+              "qtime": "2026-10-23T01:00:00Z",
+              "study": null,
+              "attempt": null
+            }
+          ],
+          "jobs_omitted": 12,
+          "nodes": [
+            {
+              "name": "node-a",
+              "state": "free",
+              "cores_total": 16,
+              "cores_used": 0,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 0,
+              "jobs": 0
+            },
+            {
+              "name": "node-b",
+              "state": "busy",
+              "cores_total": 16,
+              "cores_used": 16,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 24,
+              "jobs": 2
+            }
+          ],
+          "queues": [
+            {
+              "name": "queue-a",
+              "running": 2,
+              "queued": 3
+            }
+          ],
+          "storage_kib": 2097152,
+          "storage_checked_at": "2026-10-23T03:00:00.000Z",
+          "storage_sampled_at": "2026-10-23T03:00:00.000Z",
+          "storage_error": null
+        },
+        "warnings": [],
+        "sampling": {
+          "state": "paused",
+          "consecutive_failures": 1,
+          "current_interval_seconds": 30,
+          "next_sample_at": null,
+          "pause_reason": "auth",
+          "trigger": "scheduled",
+          "retry_pending": false
+        }
+      }
+    }
+  ]
+}

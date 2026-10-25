@@ -105,3 +105,37 @@ class ServerMonitorTests(unittest.TestCase):
         data = monitor_snapshot()
         data['own']['jobs'][0]['start_time'] = 'Thu Jan 1 00:00:00 2026'
         self.assertIs(validate_monitor(data), data)
+
+    def test_t128_sampling_and_notes(self):
+        sample = dict(state='normal', consecutive_failures=0, current_interval_seconds=30,
+                      next_sample_at='2026-10-25T03:00:00Z', pause_reason=None,
+                      trigger='scheduled', retry_pending=False)
+        for state, reason in [('normal', None), ('backoff', None), ('paused', 'auth'), ('paused', 'host_key')]:
+            for trigger in ('scheduled', 'manual', 'manual_auth_fixed'):
+                data = enriched_snapshot()
+                data['sampling'] = dict(sample, state=state, pause_reason=reason, trigger=trigger)
+                data['cluster']['hardware']['notes'] = ['合成内存局限说明']
+                self.assertIs(validate_monitor(data), data)
+        for interval in (None, 30, 600):
+            data['sampling'].update(current_interval_seconds=interval, next_sample_at=None)
+            self.assertIs(validate_monitor(data), data)
+        invalid = [('state', 'retry'), ('consecutive_failures', -1), ('consecutive_failures', True),
+                   ('consecutive_failures', 1.5), ('current_interval_seconds', 29),
+                   ('current_interval_seconds', 601), ('current_interval_seconds', True),
+                   ('current_interval_seconds', 30.5), ('next_sample_at', '2026-10-25'),
+                   ('next_sample_at', '2026-10-25T03:00:00+08:00'), ('next_sample_at', 1),
+                   ('pause_reason', 'other'), ('pause_reason', 'auth'),
+                   ('trigger', None), ('trigger', 'other'), ('retry_pending', 1)]
+        for key, value in invalid:
+            with self.subTest(key=key, value=value):
+                data = enriched_snapshot(); data['sampling'] = dict(sample, **{key:value})
+                with self.assertRaisesRegex(ValueError, '快照格式不正确'): validate_monitor(data)
+        for bad in (None, [], 'normal'):
+            data = enriched_snapshot(); data['sampling'] = bad
+            with self.assertRaisesRegex(ValueError, '快照格式不正确'): validate_monitor(data)
+        for bad in (None, 'note', [1], [None], {}):
+            data = enriched_snapshot(); data['cluster']['hardware']['notes'] = bad
+            with self.assertRaisesRegex(ValueError, '快照格式不正确'): validate_monitor(data)
+        for key in sample:
+            data = enriched_snapshot(); data['sampling'] = dict(sample); del data['sampling'][key]
+            with self.assertRaisesRegex(ValueError, '快照格式不正确'): validate_monitor(data)

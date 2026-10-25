@@ -25,6 +25,20 @@ def main():
                 Path(args[args.index('--verify-studies-root')+1]).resolve() == (home/'studies').resolve())
         print(json.dumps(data))
         return 0
+    if args[0:2] == ['monitor', '--retry']:
+        (home/'retry-started').touch()
+        while control.get('retry_wait_for_release') and not (home/'retry-release').exists():
+            time.sleep(.01)
+        if 'retry_stdout' in control:
+            print(control['retry_stdout'], end='')
+            print(control.get('retry_stderr', ''), end='', file=sys.stderr)
+            return control.get('retry_code', 0)
+        result = control.get('retry_result', 'queued')
+        response = control.get('retry_response', dict(
+            entry=args[2], result=result, reason=control.get('retry_reason'),
+            requested_at=None if result == 'refused' else '2026-10-25T03:00:00Z'))
+        print(json.dumps(response))
+        return control.get('retry_code', 1 if result == 'refused' else 0)
     (home/'started').touch()
     print(control.get('early_stdout', ''), end='', flush=True)
     print(control.get('early_stderr', ''), end='', file=sys.stderr, flush=True)

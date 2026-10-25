@@ -832,7 +832,7 @@ class Studies:
             raw = self.read(parts, 2*1024*1024)
         except StudyError as exc:
             if exc.status == 404:
-                raise StudyError('请在终端运行 ag monitor --watch 120', 404) from None
+                raise StudyError('监控未运行或尚无快照：请启动常驻监控（ag monitor --watch 30）', 404) from None
             raise
         try:
             data = json.loads(raw.decode('utf-8'), parse_float=finite_float,

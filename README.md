@@ -2,7 +2,8 @@
 
 **配合 ag 4.5.0 使用。** This is the v4.5.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v450).
 
-升级后重新构建前端，两个常驻服务各重启一次；操作版令牌会更换，已打开页面须刷新。
+标准部署为每台电脑一个操作模式前端（8773）+ 一个监控服务；重启操作版后令牌会更换，已打开页面须刷新。
+T128 只提供代码和样例；现有 8774 / 8765 服务的停用及 v4.5.1 部署由 T129 完成。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
 构建依赖 setuptools 83.0.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
@@ -49,7 +50,7 @@ source installation above serves the explicit Vite build.
 ```sh
 .venv/bin/python -B -m autog_frontend \
   --studies-root '<STUDIES_ROOT>' --ui-directory "$PWD/web/dist" \
-  --enable-actions --ag '<AG_WORKTREE>/.venv/bin/ag'
+  --enable-actions --ag '<AG_EXECUTABLE>' --port 8773
 ```
 
 尖括号为占位符，替换成本机值后执行；每个 worktree 使用自己的 `.venv`。
@@ -61,13 +62,21 @@ source installation above serves the explicit Vite build.
 
 服务器监控的唯一数据来源是 **ag monitor 快照**，不是浏览器直接查询服务器：
 
-- 旧单集群配置：在独立终端运行 `ag monitor --watch 120`，生成
+- 旧单集群配置：在独立终端运行 `ag monitor --watch 30`，生成
   `<STUDIES_ROOT>/.ag-monitor/latest.json`，前端每 30 秒读取该固定文件。
 - ag 4.0.0 多集群配置：快照位于
   `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`。
 - 前端不会启动采样器；缺失、过期和采样失败均需按界面提示解释，不能视为服务器空闲。
 
-## 只读模式在计算机上启动
+## 标准部署与可选只读模式
+
+两台电脑都采用一个操作模式前端（8773）+ 一个独立监控服务（`ag monitor --watch 30`）。
+前端 LaunchAgent 样例见 [local.autogaussian.frontend.plist.example](docs/ops/launchd/local.autogaussian.frontend.plist.example)。
+将 Python、前端检出、study 根目录、ag 可执行文件和日志目录的占位符替换成本机值，
+先在临时副本上运行 `plutil -lint`；本任务不加载服务，也不修改现有服务。
+不带 `--enable-actions` 的只读模式继续保留，按需在空闲临时端口使用：
+
+### 可选只读启动
 
 1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.5.0 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
@@ -76,7 +85,7 @@ source installation above serves the explicit Vite build.
 ```sh
 cd '<FRONTEND_DIRECTORY>'
 .venv/bin/python -B -m autog_frontend \
-  --studies-root '<STUDIES_ROOT>' --ui-directory '<FRONTEND_DIRECTORY>/web/dist'
+  --studies-root '<STUDIES_ROOT>' --ui-directory '<FRONTEND_DIRECTORY>/web/dist' --port '<AVAILABLE_PORT>'
 ```
 
 从 Study 概览或“分析”打开构象集合、选择候选并查看三维结构，再通过来源 Attempt 链接打开
@@ -359,13 +368,22 @@ using 627.5094740631 kcal/mol per Hartree. This display-only conversion neither
 changes facts nor supplies scientific acceptance. Parsing is adapted solely from
 `83184af:autog_frontend/calculation_analysis.py`; there is no legacy package import.
 
-服务器页（`#/jobs`，旧 `#server` 链接仍可用）每 30 秒读取本机监控快照。
+服务器页（`#/servers`，旧 `#/jobs`、`#server` 链接仍可用）每 30 秒读取本机监控快照。
 每入口一张摘要卡片，显示采样状态、警告数、核数与内存分段、作业数和本人总额度。
 点击卡片或标签切换详情，左右方向键也可切换；运行与排队分别列出，本人置顶，
 “只看本人”按服务器记在浏览器中。PBS 显示全员作业，Slurm 只显示本人明细和其他用户汇总。
 最近快照进度与 Attempt 链接保留；“刚结束待取回”位于页面底部。
 
-硬件未知时用斜纹；采样失败时卡片占用未知，详情保留值标非最新。硬件单独失败不影响本人数字。
+核数、内存各自按对应数值判断，未知时用斜纹；采样失败时卡片占用未知，详情保留值标非最新。
+`hardware.error` 计入警告且在详情置顶，不单独使已有数值失效；`hardware.notes` 为灰色说明，不计警告。
+调度器优先取 `cluster.scheduler`，缺失时由 `pbsnodes` / `sinfo` 推断 PBS / SLURM，否则显示“—”。
+卡片与详情显示退避次数、下次采样时间和认证 / 主机指纹暂停原因；旧快照无 `sampling` 时照旧显示。
+
+操作模式的详情区提供“立即重新采样”。暂停入口先在页面内确认认证或主机指纹问题已修复，
+再交给本机 `ag monitor --retry <入口> --json --auth-fixed`；其他状态不带 `--auth-fixed`。
+按钮不限频，重复请求由 ag 合并；监控未运行时显示“监控未运行，未登记请求”。
+请求后只把 `/api/monitor` 加速为每 3 秒读取，目标入口 `sampled_at` 改变或满 120 秒后恢复 30 秒。
+其他本地记录不加速读取；无效 JSON、超时和其他错误明确显示，不自动重发重试请求。
 连续采样允许 30–600 秒，超过三倍间隔才过期；单次采样超过十分钟过期。
 “节点与队列”和“限额、档位与存储”默认收起，单节点默认展开节点区。
 共享入口用同一份最新成功占用，不累加；总上限取组内最小值。
@@ -455,9 +473,11 @@ frontend. Old database/profile/task-queue/import/monitor startup flags and APIs
 have been removed. Obsolete native/pre-v31/navigation registration documents and
 the publication source map have been deleted. This README is the current guide.
 
-## Optional local ag actions (T7d)
+## Local ag actions（操作模式）
 
-Start with `--enable-actions`, optionally `--ag <executable>` (otherwise PATH).
+Standard deployment uses `--enable-actions --port 8773`, optionally `--ag <executable>` (otherwise PATH).
+Omitting `--enable-actions` retains the optional read-only mode.
+`POST /api/monitor/retry` accepts exactly `{"cluster": string, "auth_fixed": boolean}` and requires the same token, loopback and same-origin checks. It calls only the configured local ag with a 15-second timeout, independently of the existing calculation action lock.
 The executable is fixed at startup; HTTP cannot select it or supply file paths.
 The page header reads **可操作（经 ag）** when enabled and **只读** otherwise.
 Startup runs `ag --version` and the T19 `ag clusters` query described below;
