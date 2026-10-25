@@ -137,31 +137,64 @@ Slurm 不显示其他人明细，只显示两个分组各自的“其他用户�
 
 校验器对这两个字段进行类型/枚举校验；字段缺失/null 不解释成零或成功。
 
-## T127 / T128：采样状态、局限说明与手动重试
+补丁来源：[后端 T127 PR #329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
+描述中附带的 `docs/ag-monitor-1.md` 补丁；后端合并提交
+`ead920d7178434856281e3c66074e12bf1f6af65`。以下 T127 段落逐字合入，
+T128 的本机 API 和显示约定单列其后。
 
-依据 T127 v1 第 3、7 节（2026-10-25）实现；T127 PR 的文档补丁与最终生产端
-仍需在合并前核对。旧快照省略以下新字段时继续接受；已有字段含义不变。
+## T127：监控容错与手动重试（T128 消费字段）
 
-| 位置 | 字段 | 类型与含义 |
+`ag-monitor/1` 仅增加字段，旧前端可继续忽略未知字段。`interval_seconds` 仍为基础采样间隔。
+
+| 位置 | 字段 | 类型与语义 |
 |---|---|---|
-| 顶层 | sampling | 可选对象，存在时包含以下七个字段 |
-| sampling | state | `normal` / `backoff` / `paused` |
-| sampling | consecutive_failures | 非负整数 |
-| sampling | current_interval_seconds | 30–600 的整数或 null，当前退避间隔；单次采样为 null |
-| sampling | next_sample_at | UTC ISO 时间或 null；暂停或单次采样为 null |
-| sampling | pause_reason | null / `auth` / `host_key`，非 null 仅用于 paused |
-| sampling | trigger | `scheduled` / `manual` / `manual_auth_fixed` |
-| sampling | retry_pending | 布尔值 |
-| cluster | scheduler | PBS 写 `pbs`，Slurm 写 `slurm` |
-| cluster.hardware | notes | 可选字符串列表，缺失按空列表显示 |
+| sampling | state | normal / backoff / paused；连续失败 1–2 次仍为 normal |
+| sampling | consecutive_failures | 非负整数；自动成功或手动成功清零，普通手动失败不增加 |
+| sampling | current_interval_seconds | 30–600 整数或 null；当前实际间隔，一次性为 null |
+| sampling | next_sample_at | UTC ISO 或 null；暂停、一次性采样为 null |
+| sampling | pause_reason | null / auth / host_key；只在 paused 时非 null |
+| sampling | trigger | scheduled / manual / manual_auth_fixed |
+| sampling | retry_pending | bool；发布时是否还有待处理请求 |
+| cluster | scheduler | PBS 明确写 pbs；Slurm 仍写 slurm |
+| cluster.hardware | notes | 字符串数组，缺省/旧缓存按空列表；局限说明，不作查询错误 |
 
-`interval_seconds` 仍为基础间隔；连续失败至少三次且未暂停时进入 backoff。
+退避：连续失败 k ≥ 3 后间隔为 min(600, 基础间隔 × 2^(k−2)) 秒；成功恢复基础间隔。
+认证/主机指纹失败仅暂停该入口。配置变化或监控重启可重新采样；手动恢复须确认修复且成功一次。
+硬件、存储的局部失败不计入入口退避。hardware.error 只记录真正查询失败。
+Torque 节点总内存取 status.physmem（PBS Pro 字段优先）；已分配内存仅在节点作业精确匹配、
+全部申请值可解析且无跨节点作业时求和。未知值为 null 并附 notes；空节点为 0.0。
+不使用 physmem − availmem，不按核数分摊。异构 Slurm 内存/两次作业查询不一致的说明在 notes，
+不应因此清空已知核数或多计一条查询失败警告。
+
+前端手动刷新只调用本机命令，不发 SSH：
+
+```text
+ag monitor --retry <入口> [--auth-fixed] --json
+```
+
+暂停原因为 auth/host_key 时，前端二次确认“已修复”后才传 --auth-fixed。
+该命令与 --watch 互斥；旧单集群入口名为 default。stdout 恰好一个 JSON 对象：
+
+```json
+{"entry":"<入口>","result":"queued","reason":null,"requested_at":"<ISO UTC>"}
+```
+
+- result = queued / already_queued / in_progress：退出码 0，分别表示已登记/已合并待处理请求/正在采样。
+- result = refused：退出码 1；reason = monitor_not_running / auth_confirmation_required / unknown_entry。
+- requested_at 为 UTC ISO 或 null；拒绝时为 null。配置读取失败等沿用 CLI 原有错误对象。
+- 不限点击频率；同入口只执行一次采样。手动成功清零并恢复基础间隔；普通手动失败保持原失败数和自动时间。
+- 监控 PID 不存在或心跳超过 90 秒即拒绝，不遗留新请求。旧请求在监控启动时丢弃。
+- `.ag-monitor/` 根下新增 watch.json / watch.lock 文件，不是入口；不新增控制子目录。
+
+默认监控 stdout 为 ag-monitor-line/1 一行摘要，--json 才输出完整快照；前端仍读取 latest.json。
+
+## T128：前端显示与本机重试接口
+
+旧快照可省略 sampling；对象存在时七个字段均须通过校验。
 notes 表达局限，不计入警告；error 表达真实查询失败，计入警告并在详情置顶。
 核数条和内存条独立核对各自的总量、已分配、本人运行占用；缺失不补零。
 旧 PBS 缺 scheduler 时，从 hardware.source=pbsnodes 推断 PBS；sinfo 推断 SLURM；否则“—”。
-Torque 节点总内存来自 status.physmem，不含 swap；已有 PBS Pro 字段优先。
-已分配内存只有该节点全部作业申请值可确定时才累加，否则为 null 并给 notes，
-不得用 physmem − availmem 或按核数分摊。前端不重新推算这些值。
+前端不重新推算硬件值。
 
 操作模式下 `POST /api/monitor/retry` 请求体恰好是：
 

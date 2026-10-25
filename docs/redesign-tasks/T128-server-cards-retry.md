@@ -160,9 +160,14 @@
 - 基线：前端 main `6267b08`（v4.5.0）；实现仅依赖 T127 v1 第 3、7 节及合成快照、假 ag。
 - F1–F4：独立资源条、notes 与警告分离、调度器推断、采样状态、页面确认、独立重试接口及仅 monitor 的短暂加速轮询。
 - F5：8773 LaunchAgent 占位样例与 README 部署说明；临时替换副本通过 plutil -lint，没有加载或修改常驻服务。
-- F6：合并顺序 T127 → T128；T127 PR 文档补丁核对及指定真实验证尚待依赖。
+- F6：后端 T127 #329 已合并为 `ead920d`；本地 fetch/rebase 到前端最新 main `6267b08`，无冲突、未重写旧提交。`docs/ag-monitor-1.md` 已逐字合入 #329 PR 描述附带的 46 行补丁，并单列前端约定。
 - 范围批准（负责人，2026-10-25，会话原话）：“允许同步这两处测试断言”。因此额外只修改 `tests/test_results.py:103`、`tests/test_study_viewer.py:127` 的旧提示预期文字，不改变断言逻辑。
 - 合成快照：`tests/monitor-fixtures/t128-synthetic.json`；截图由 `web/tests/server-page.spec.ts` 生成在 `tests/monitor-fixtures/t128/`，含三个尺寸的首屏与确认框共六张。
 - 验证：Python 全量 165 项通过；TypeScript/Vite 构建通过；服务器页 26 项通过；浏览器全量 256 项中 255 项通过，仅 `web/tests/results.spec.ts` 的旧距今时间预期失败。负责人已于 2026-10-25 批准：“允许同步这六个时间文字预期”。本次仅更新 `web/tests/results.spec.ts:194–199` 六个 age 字符串，不改变测试逻辑。
 - 提交前：全量公开扫描 260 文件零错误；暂存私有词表扫描 29 文件零错误；六张二进制截图另行人工核查；diff 检查通过。
-- 批准后的复验：`pnpm --dir web test results.spec.ts server-page.spec.ts` 37 项全部通过，覆盖原唯一失败；TypeScript/Vite 构建通过。按照开发手册仅复验受影响部分，后续全量由 CI 执行。
+- 批准后的复验：原受影响用例 37 项通过；本轮继续验证 Python 全量 165 项、浏览器全量 256 项及 TypeScript/Vite 构建全部通过。
+- 旧 push CI 的 120 秒轮询用例有响应处理与合成时钟推进的竞态；测试改为等待本轮响应显示后再推进时钟，两个边界用例各重复五次，共 10 项通过。产品轮询实现未改。
+- 真实页面只读核对（临时端口 18773）：四入口标签 PBS/PBS/SLURM/SLURM 正确，scnet 两入口核数可显示。现有 v4.5.0 快照没有 sampling/notes，PBS 内存未知，Slurm 仍把局限记为 hardware.error，因此各保留一条警告。T127 新快照的 notes 不计警告和 PBS 内存口径目前由合成测试覆盖，实际新快照待 T129 部署后验证。
+- 拒绝路径预检发现 #329 会留下空 watch.lock；负责人批准“保持零新增文件，允许另开后端修复 PR”。补修单独位于后端 `codex/t127-retry-refusal-no-files`，T128 不变更后端文件。
+
+- 修复后的真实拒绝验证（18773，仅点击一次）：HTTP 200，ag 结果 `refused / monitor_not_running`、requested_at=null；页面显示“监控未运行，未登记请求”。缓存新增/删除路径均为零，没有 watch.lock、watch.json 或 retry-request.json；原配置、LaunchAgent 文件、常驻监控及既有前端进程不变。临时实例已停止，未保存或上传真实截图。

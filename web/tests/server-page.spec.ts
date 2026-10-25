@@ -185,17 +185,24 @@ for(const changed of [true,false])test(`T128 fast monitor polling ends on ${chan
  await setupRetry(page,data);await expect.poll(()=>reads).toBe(1);await expect(page.getByRole('table',{name:'待取回作业表'})).toBeVisible();
  await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}}));
  const oldReads=otherReads.length;await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.getByRole('tabpanel')).toContainText('已请求');
- await page.clock.runFor(2999);expect(reads).toBe(1);await page.clock.runFor(1);await expect.poll(()=>reads).toBe(2);
+ const advanceMonitor=async(ms:number,count:number)=>{
+  // Wait for this response to render before advancing the clock again: the
+  // next timeout is scheduled after fetch completes, not when it starts.
+  data[1].snapshot!.cluster!.job_summary!.running_jobs=count;
+  await page.clock.runFor(ms);await expect.poll(()=>reads).toBe(count);
+  await expect(page.getByRole('button',{name:'选择服务器 batch'}).locator('.server-job-count')).toContainText(`运行 ${count} 个作业`);
+ };
+ await page.clock.runFor(2999);expect(reads).toBe(1);await advanceMonitor(1,2);
  expect(otherReads.length).toBe(oldReads);
  if(changed){
-  data[1].snapshot!.sampled_at=new Date(now+1000).toISOString();await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(3);
+  data[1].snapshot!.sampled_at=new Date(now+1000).toISOString();await advanceMonitor(3000,3);
   // A different entry's sample cannot end this entry's fast polling.
-  data[0].snapshot!.sampled_at=new Date(now+2000).toISOString();await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(4);
+  data[0].snapshot!.sampled_at=new Date(now+2000).toISOString();await advanceMonitor(3000,4);
  }else{
-  for(let i=0;i<39;i++){await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(i+3);}
+  for(let i=0;i<39;i++)await advanceMonitor(3000,i+3);
  }
  await expect(page.locator('.jobs-heading')).toContainText('每 30 秒读取');
- const before=reads;await page.clock.runFor(29999);expect(reads).toBe(before);await page.clock.runFor(1);await expect.poll(()=>reads).toBe(before+1);
+ const before=reads;await page.clock.runFor(29999);expect(reads).toBe(before);await advanceMonitor(1,before+1);
 });
 for(const [width,height] of [[1440,860],[1280,720],[390,844]])test(`T128 review screenshots ${width}x${height}`,async({page})=>{
  await page.setViewportSize({width,height});await setupRetry(page);await page.evaluate(()=>document.fonts.ready);
