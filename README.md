@@ -1,9 +1,9 @@
-# Auto-Gaussian Study Viewer v4.5.1
+# Auto-Gaussian Study Viewer v4.6.0
 
-**配合 ag 4.5.1 使用。** This is the v4.5.1 release candidate; see [CHANGELOG.md](CHANGELOG.md#v451).
+**配合 ag 4.6.0 使用。** This is the v4.6.0 release candidate; see [CHANGELOG.md](CHANGELOG.md#v460).
 
 标准部署为每台电脑一个操作模式前端（8773）+ 一个监控服务；重启操作版后令牌会更换，已打开页面须刷新。
-T129 只准备版本号和文档；两个 v4.5.1 tag 建好后，部署由独立运维会话执行。
+T140 只准备版本号和文档；两个 v4.6.0 tag 建好后，部署由独立运维会话执行。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
 构建依赖 setuptools 83.0.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
@@ -70,7 +70,7 @@ source installation above serves the explicit Vite build.
 
 ## 标准部署与可选只读模式
 
-更新、备份、服务替换与回退及 30 分钟观察见[后端运维文档](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md)；先开发机通过，再部署研究用计算机。
+更新、备份、服务替换与回退、首轮核对及按部署消息指定的观察见[后端运维文档](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md)；先开发机通过，再部署研究用计算机。
 
 两台电脑都采用一个操作模式前端（8773）+ 一个独立监控服务（`ag monitor --watch 30`）。
 前端 LaunchAgent 样例见 [local.autogaussian.frontend.plist.example](docs/ops/launchd/local.autogaussian.frontend.plist.example)。
@@ -80,7 +80,7 @@ source installation above serves the explicit Vite build.
 
 ### 可选只读启动
 
-1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.5.1 使用。
+1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.6.0 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -656,10 +656,10 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.5.1 includes T128 (#38): independent CPU/memory display, hardware notes,
-scheduler inference, backoff/pause status and manual resampling through ag.
-Pair it with backend ag 4.5.1; ag 4.5.0 has no `--retry` and its response is
-treated as invalid output. Both T129 PRs change only versions and documentation.
+V4.6.0 includes T132 (#40): read-only catalog v2 channels, candidates, owner
+statements and stability declarations, plus filtering of container directories.
+Pair it with backend ag 4.6.0; frontend 4.5.x treats v2 catalogs as unregistered.
+Both T140 PRs change only versions and documentation.
 Read-only defaults, path/size checks and ag-mediated actions stay unchanged.
 The existing UI passes no approval/policy option, so its submit and cancel
 actions still use the Mac dialog.
@@ -668,24 +668,33 @@ actions still use the Mac dialog.
 工具状态、采用记录、`termination` 和 `n_imag` 均不等于科学验收。
 
 Supervisory review and owner merge are required for both PRs. The owner creates
-`v4.5.1` tags on each PR's exact merge commit after verifying the release commit,
-and uses each repository's v4.5.1 CHANGELOG section for release notes. Deployment
-follows OPERATIONS.md after both tags exist: update the development machine and
-pass its 30-minute observation before updating the research computer. Rebuild
+`v4.6.0` tags on each PR's exact merge commit after verifying the release commit,
+and uses each repository's v4.6.0 CHANGELOG section for release notes. Deployment
+follows OPERATIONS.md after both tags exist: pass the development machine's first
+checks, pause research sessions that day, then deploy the research computer.
+This release requires first checks without an additional observation period;
+future observation duration is specified in each deployment message. Rebuild
 the UI, restart the service and refresh open action pages for the new token.
+Before real studies write v2 events, both machines must be deployed and a temporary
+non-research study must pass candidate registration, `ag g0 --record` and frontend
+ledger display checks on the research computer. Preserve that study in a container
+directory beginning with `_`. An existing study's first `--upgrade-catalog` requires
+owner approval; upgraded catalogs cannot be downgraded or opened/written with 4.5.x.
 Release preparation is not deployment; deployment results are recorded separately.
 
 ### 已知问题
 
 - 串行采样经转发一轮可能 100–150 秒；手动重试先等当前入口完成，再耗时采目标入口。睡眠停采、醒来自动恢复，初期可能因网络未就绪失败或退避。
 - 醒来后下次采样时间可能显示过去时间；核数/内存都未知时 notes 重复；重试被拒仍短暂快速轮询；暂停确认文案有多余空格，均留待后续修正。
-- `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0，本次按工单保留；Python 包元数据和网页包版本为 4.5.1。
-- studies 根目录中的容器目录（例如 `_archive/`）可能在 Study 列表显示“File not available”，不影响有效 study 使用；后续按约定跳过以 `_` 或 `.` 开头的目录。
+- `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0，本次按工单保留；Python 包元数据和网页包版本为 4.6.0。
+- catalog v2 升级后不能降级，也不能删行降级；G0、扫描和登记状态都是诊断与记录，不代表科学验收。
+- Slurm“其他”状态核数被计入空闲，后续独立修正。
 - 证据库冷启动在已有测量中约 2.5 秒，实际耗时随本机与文件数量变化。
 - source-map-js 的临时 override 待 PostCSS 自然升级到修复版本后删除。
 
 ## 版本历史
 
+- **v4.6.0**：T132 catalog v2 通道与候选只读面板、负责人声明及容器目录过滤；配合 ag 4.6.0，catalog 升级不可降级。[发布说明](CHANGELOG.md#v460)
 - **v4.5.1**：T128 资源独立显示、调度器推断、退避/暂停与手动重新采样；单服务运维步骤，配合 ag 4.5.1。[发布说明](CHANGELOG.md#v451)
 - **v4.5.0**：T110 切帧与结构对比、T115 服务器卡片、T118 报告阅读、T120 导航与进展、T121 计算链与采用结果、T122 比较与证据库、T116 公开扫描及 T113 依赖安全更新；配合 ag 4.5.0。[发布说明](CHANGELOG.md#v450)
 - **v4.4.0**：T103 监控总上限、共享入口说明与快速比较 R/U 前缀修复；T104 IRC 的 TS 与两端点三维并排审阅；配合 ag 4.4.0。[发布说明](CHANGELOG.md#v440)
