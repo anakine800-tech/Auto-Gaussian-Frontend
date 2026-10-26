@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import type {Page} from '@playwright/test';
-import {readFileSync,mkdirSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {nodeAllocation,orderedResourceTiers,resourceWalltimeLabel,resourceWalltimeSeconds,serverModels} from '../src/jobs-data';
 import type {ClusterRow} from '../src/jobs-data';
 
@@ -28,7 +28,7 @@ test('resource time limits retain exact hours and reject invalid values',()=>{
  expect(orderedResourceTiers({mini:1,metadata:0})).toEqual([['mini',1]]);
 });
 
-for(const count of [4,5,6])test(`resource detail displays ${count} configured tiers in fixed order and exact optional limits`,async({page})=>{
+for(const count of [4,5,6])test(`resource detail displays ${count} configured tiers in fixed order and exact optional limits`,async({page},testInfo)=>{
  const names=['mini','simple','general','complex','max','ultra'].slice(0,count),data=rows().slice(0,2),own=data[0].snapshot!.own!;
  own.tiers=Object.fromEntries([...names].reverse().map((name,i)=>[name,{cores:i+1,mem_gb:(i+1)*4}]));
  own.max_queued_cores=18;own.shared_with=[data[1].name];data[1].snapshot!.own!.max_queued_cores=12;data[1].snapshot!.own!.shared_with=[data[0].name];
@@ -39,8 +39,7 @@ for(const count of [4,5,6])test(`resource detail displays ${count} configured ti
  await expect(panel).toContainText('本人排队上限 12 核');
  await expect(panel).toContainText(count===4?'单作业时限上限：未配置（调度器仍可能限制）':count===5?'单作业时限上限：36 小时 30 分 15 秒（36:30:15）':'单作业时限上限：1234 小时');
  await expect(panel).not.toContainText('无限制');
- const dir='../tests/monitor-fixtures/t143';mkdirSync(dir,{recursive:true});
- await panel.locator('details').filter({has:page.locator('summary').filter({hasText:'限额、档位与存储'})}).screenshot({path:`${dir}/resource-tiers-${count}.png`});
+ await panel.locator('details').filter({has:page.locator('summary').filter({hasText:'限额、档位与存储'})}).screenshot({path:testInfo.outputPath(`resource-tiers-${count}.png`)});
 });
 
 test('node proportions require complete, finite and consistent operands',()=>{
@@ -105,7 +104,7 @@ for(const state of ['failed','expired','ambiguous','read-error','never-succeeded
  }
 });
 
-for(const count of [4,5])for(const [width,height] of [[1440,900],[834,1112],[390,844]])test(`${count} cards and node table responsive and keyboard accessible ${width}`,async({page})=>{
+for(const count of [4,5])for(const [width,height] of [[1440,900],[834,1112],[390,844]])test(`${count} cards and node table responsive and keyboard accessible ${width}`,async({page},testInfo)=>{
  await page.setViewportSize({width,height});await setup(page,rows().slice(0,count));
  const cards=page.locator('.server-card'),boxes=await cards.evaluateAll(es=>es.map(e=>{const b=e.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width};}));
  expect(boxes.every(b=>b.width>200)).toBeTruthy();
@@ -125,9 +124,8 @@ for(const count of [4,5])for(const [width,height] of [[1440,900],[834,1112],[390
  const bounds=await region.evaluate(e=>({regionBottom:e.getBoundingClientRect().bottom,lastRowBottom:e.querySelector('tbody tr:last-child')!.getBoundingClientRect().bottom,height:e.clientHeight,scrollHeight:e.scrollHeight}));
  expect(bounds.lastRowBottom).toBeLessThanOrEqual(bounds.regionBottom);expect(bounds.scrollHeight).toBeLessThanOrEqual(bounds.height+1);
  await page.evaluate(()=>document.fonts.ready);await region.evaluate(e=>e.scrollLeft=0);
- const dir='../tests/monitor-fixtures/t143';mkdirSync(dir,{recursive:true});
- await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:`${dir}/cards-${count}-${width}.png`});
- await region.screenshot({path:`${dir}/nodes-${count}-${width}.png`});
+ await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:testInfo.outputPath(`cards-${count}-${width}.png`)});
+ await region.screenshot({path:testInfo.outputPath(`nodes-${count}-${width}.png`)});
 });
 
 test('five cards use one row on a wide desktop without changing labels',async({page})=>{
