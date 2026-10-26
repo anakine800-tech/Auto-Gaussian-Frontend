@@ -285,6 +285,69 @@ class ActionsTests(unittest.TestCase):
         self.control(clusters_response=cfg)
         self.assertEqual(self.post().status_code,200)
 
+    def test_optional_resource_tiers_and_walltime_keep_order_and_exact_argv(self):
+        expected = ['mini', 'simple', 'general', 'complex', 'max', 'ultra']
+        for count in (4, 5, 6):
+            with self.subTest(count=count):
+                cfg = settings(self.studies)
+                cfg['clusters'][0]['resources'].update(
+                    tiers={name: dict(cores=index + 1, mem_gb=(index + 1) * 4)
+                           for index, name in reversed(list(enumerate(expected[:count])))},
+                    max_walltime='1234:00:00')
+                self.control(clusters_response=cfg, stdout=json.dumps(dict(
+                    study_id='butane-demo', attempt_id=f'butane-demo-001-tiers-{count}')))
+                actions = Actions(Studies(self.studies), self.fake)
+                self.assertEqual(list(actions.clusters['default']['tiers']), expected[:count])
+                self.assertEqual(actions.clusters['default']['max_walltime'], '1234:00:00')
+                tier = expected[count - 1]
+                result = actions.execute(dict(action='prepare', study='butane-demo', attempt='prepared',
+                    cluster='default', input=gjf(), tier=tier, walltime='1234:00:00',
+                    label=f'tiers-{count}', relation='derived_from', method_basis='Synthetic'))
+                self.assertEqual(result['exit_code'], 0)
+                argv = self.calls()[-1]
+                self.assertEqual(argv[argv.index('--tier') + 1], tier)
+                self.assertEqual(argv[argv.index('--walltime') + 1], '1234:00:00')
+                self.assertTrue(Path(argv[argv.index('--input') + 1]).read_text().startswith(
+                    f'%nprocshared={count}\n%mem={count * 4 * 800}MB\n'))
+
+    def test_walltime_invalid_or_above_limit_and_missing_tier_have_no_draft_or_execution(self):
+        cfg = settings(self.studies); cfg['clusters'][0]['resources']['max_walltime'] = '24:00:00'
+        self.control(clusters_response=cfg)
+        actions = Actions(Studies(self.studies), self.fake)
+        before = len(self.calls())
+        for tier, value in [('general', bad) for bad in ('00:00:00', '1:00:00', '12345:00:00',
+                                                       '24:00:01', '24:60:00')] + [('max', '01:00:00')]:
+            with self.subTest(tier=tier, walltime=value):
+                with self.assertRaises(StudyError):
+                    actions.execute(dict(action='prepare', study='butane-demo', attempt='prepared',
+                        cluster='default', input=gjf(), tier=tier, walltime=value, label='rejected',
+                        relation='derived_from', method_basis='Synthetic'))
+                self.assertFalse((self.study/'drafts').exists())
+                self.assertEqual(len(self.calls()), before)
+
+    def test_resource_metadata_rejects_invalid_optional_values_and_detects_limit_change(self):
+        for value in (None, True, False, 0, 3600, '00:00:00', '1:00:00', '12345:00:00',
+                      '24:60:00', '24:00:60', '24:00:00\n', '２４:00:00'):
+            with self.subTest(walltime=value):
+                cfg = settings(self.studies); cfg['clusters'][0]['resources']['max_walltime'] = value
+                self.control(clusters_response=cfg)
+                with self.assertRaises(ValueError): Actions(Studies(self.studies), self.fake)
+        for value in ({'cores':True,'mem_gb':20}, {'cores':2,'mem_gb':0},
+                      {'cores':2,'mem_gb':1.5}, None):
+            cfg = settings(self.studies); cfg['clusters'][0]['resources']['tiers']['max'] = value
+            self.control(clusters_response=cfg)
+            with self.assertRaises(ValueError): Actions(Studies(self.studies), self.fake)
+        cfg = settings(self.studies); del cfg['clusters'][0]['resources']['tiers']['mini']
+        self.control(clusters_response=cfg)
+        with self.assertRaises(ValueError): Actions(Studies(self.studies), self.fake)
+        cfg = settings(self.studies); cfg['clusters'][0]['resources']['tiers']['metadata'] = {'note':'Synthetic metadata'}
+        self.control(clusters_response=cfg)
+        self.assertNotIn('metadata', Actions(Studies(self.studies), self.fake).clusters['default']['tiers'])
+        cfg = settings(self.studies); cfg['clusters'][0]['resources']['max_walltime'] = '24:00:00'
+        self.control(clusters_response=cfg)
+        self.assertEqual(self.prepare().status_code, 409)
+        self.assertFalse((self.study/'drafts').exists())
+
     def test_residue_cancellation_is_scoped_to_attempt_cluster(self):
         default=self.studies/'.ag-monitor/latest.json'
         data=json.loads(default.read_text());data['warnings']=[]

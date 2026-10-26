@@ -19,6 +19,17 @@ from .studies import StudyError, component
 
 MAX_BODY = 1024 * 1024
 TIMEOUT = 420
+RESOURCE_TIERS = ('mini', 'simple', 'general', 'complex', 'max', 'ultra')
+
+
+def walltime_seconds(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]', value):
+        raise ValueError('Invalid ag walltime')
+    hours, minutes, seconds = map(int, value.split(':'))
+    total = hours * 3600 + minutes * 60 + seconds
+    if total <= 0:
+        raise ValueError('Invalid ag walltime')
+    return total
 
 
 def resource_input(text, tier):
@@ -69,8 +80,14 @@ class Actions:
                         or name in clusters or row['scheduler'] not in ('pbs', 'slurm')):
                     raise ValueError('Invalid ag cluster identity')
                 tiers = {}
-                for tier in ('mini', 'simple', 'general', 'complex'):
-                    value = row['resources']['tiers'][tier]
+                resources = row['resources']
+                configured = resources['tiers']
+                if not isinstance(configured, dict) or not set(RESOURCE_TIERS[:4]) <= set(configured):
+                    raise ValueError('Invalid ag resource tiers')
+                for tier in RESOURCE_TIERS:
+                    if tier not in configured:
+                        continue
+                    value = configured[tier]
                     cores, memory = value['cores'], value['mem_gb']
                     if type(cores) is not int or cores < 1 or type(memory) is not int or memory < 1:
                         raise ValueError('Invalid ag resource tier')
@@ -80,6 +97,9 @@ class Actions:
                     raise ValueError('Invalid ag program availability')
                 clusters[name] = dict(scheduler=row['scheduler'], tiers=tiers,
                                       programs_enabled={key: enabled[key] for key in ('gaussian', 'xtb', 'crest')})
+                if 'max_walltime' in resources:
+                    walltime_seconds(resources['max_walltime'])
+                    clusters[name]['max_walltime'] = resources['max_walltime']
             return clusters
         except (OSError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError,
                 UnicodeError, json.JSONDecodeError, RecursionError) as exc:
@@ -204,8 +224,14 @@ class Actions:
                 if cluster is None or not cluster['programs_enabled']['gaussian']:
                     raise StudyError('Selected cluster is unavailable or Gaussian is disabled', 400)
                 tier = cluster['tiers'].get(payload['tier'])
-                if not tier or not re.fullmatch(r'\d{1,3}:[0-5]\d:[0-5]\d', payload['walltime']) or not payload['method_basis'].strip():
+                try:
+                    duration = walltime_seconds(payload['walltime'])
+                except ValueError:
+                    raise StudyError('Invalid tier, walltime or method basis', 400) from None
+                if not tier or not payload['method_basis'].strip():
                     raise StudyError('Invalid tier, walltime or method basis', 400)
+                if 'max_walltime' in cluster and duration > walltime_seconds(cluster['max_walltime']):
+                    raise StudyError('walltime exceeds configured cluster maximum; ag remains the final resource guard', 400)
                 draft = self.draft(study, label, resource_input(payload['input'], tier))
                 argv = [self.executable, 'prepare', '--json', '--study', str(self.store.root / study),
                         '--template', 'gaussian', '--input', str(draft), '--cluster', payload['cluster'], '--tier', payload['tier'],

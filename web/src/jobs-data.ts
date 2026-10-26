@@ -7,11 +7,26 @@ export function clusterLabel(row:Pick<ClusterRow,'name'|'snapshot'>){
  return name?`${name}（${row.name}）`:row.name;
 }
 export type LocalAttempt={study:string;attempt:AttemptSummary};
+export const resourceTierNames=['mini','simple','general','complex','max','ultra'] as const;
+export function orderedResourceTiers<T>(tiers:Record<string,T>|undefined){
+ return resourceTierNames.flatMap(name=>tiers?.[name]===undefined?[]:[[name,tiers[name]] as [string,T]]);
+}
+export function resourceWalltimeSeconds(value:unknown):number|null{
+ if(typeof value!=='string'||value.trim()!==value||!/^[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]$/.test(value))return null;
+ const [hours,minutes,seconds]=value.split(':').map(Number),total=hours*3600+minutes*60+seconds;
+ return total>0?total:null;
+}
+export function resourceWalltimeLabel(value:string|undefined){
+ if(value===undefined)return '未配置（调度器仍可能限制）';
+ if(resourceWalltimeSeconds(value)===null)return '未知（时限格式无效）';
+ const [hours,minutes,seconds]=value.split(':').map(Number);
+ return `${hours} 小时`+(minutes||seconds?` ${minutes} 分 ${seconds} 秒（${value}）`:'');
+}
 export const safeIdentity=(s:string|null):s is string=>!!s&&!['.','..'].includes(s)&&!/[\/\\\0]/.test(s);
 export function sampleState(row:ClusterRow,now:number){
  const data=row.snapshot;
  const stale=!!data&&now-Date.parse(data.sampled_at)>(data.interval_seconds===null?600:3*data.interval_seconds)*1000;
- return {stale,old:!data||!data.ok||stale||row.ambiguous,hasData:!!data&&(data.ok||data.last_ok_at!==null)};
+ return {stale,old:!data||!data.ok||!!row.error||stale||row.ambiguous,hasData:!!data&&(data.ok||data.last_ok_at!==null)};
 }
 export function duration(value:unknown):number|null{
  if(typeof value!=='string')return null;
@@ -49,7 +64,7 @@ export type JobSummary={running_jobs:number|null;running_cores:number|null;queue
 export type Monitor={
  sampling?:Sampling;
  schema:'ag-monitor/1';sampled_at:string;interval_seconds:number|null;sample_duration_ms?:number|null;ok:boolean;error:string|null;last_ok_at:string|null;
- own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;max_queued_cores?:number;scheduler_max_running_cores?:number;max_cores?:number;tiers?:Record<string,{cores:number;mem_gb:number}>;shared_with?:string[];mem_running_gb?:number|null;mem_queued_gb?:number|null;jobs:Job[]}|null;
+ own:{cores_in_use:number;core_cap:number;cores_running?:number;cores_queued?:number;committed_cap?:number;max_queued_cores?:number;scheduler_max_running_cores?:number;max_cores?:number;max_walltime?:string;tiers?:Record<string,{cores:number;mem_gb:number}>;shared_with?:string[];mem_running_gb?:number|null;mem_queued_gb?:number|null;jobs:Job[]}|null;
  cluster:{scheduler?:string;name?:string;display_name?:string;display_order?:number|null;hardware_capacity_known?:boolean;budget?:{core_hours:number;used:number;reserved:number}|null;expires?:string|null;storage_kib?:number|null;storage_checked_at?:string|null;storage_sampled_at?:string|null;storage_error?:string|null;expiry_warning?:string|null;cores_total:number|null;cores_used:number|null;
   nodes:{name:string;state:string;cores_total:number|null;cores_used:number|null;mem_total_gb?:number|null;mem_assigned_gb?:number|null;jobs?:number|null}[];
   queues:{name:string;running:number;queued:number}[];jobs?:Job[];jobs_omitted?:number|null;job_summary?:JobSummary|null;hardware?:Hardware|null;
@@ -57,6 +72,15 @@ export type Monitor={
  warnings:(Association&{kind:string;job_id:string|null;detail:string})[];
 };
 export type Segments={total:number;mine:number;others:number;idle:number}|null;
+// PBS state and scheduler allocation are independent. Missing/inconsistent
+// values cannot establish free capacity or a proportion (including 0/0).
+export function nodeAllocation(total:number|null|undefined,assigned:number|null|undefined){
+ const number=(value:number|null|undefined)=>typeof value==='number'&&Number.isFinite(value)&&value>=0?value:null;
+ const capacity=number(total),used=number(assigned);
+ const inconsistent=capacity!==null&&used!==null&&used>capacity;
+ const known=capacity!==null&&capacity>0&&used!==null&&!inconsistent;
+ return {total:capacity,assigned:used,remaining:known?capacity-used:null,percent:known?100*used/capacity:null,inconsistent};
+}
 // A partial or inconsistent sample cannot establish an occupancy proportion.
 export function segments(total:number|null|undefined,allocated:number|null|undefined,mine:number|null|undefined):Segments{
  if(total==null||allocated==null||mine==null||total<=0||mine<0||allocated<mine||allocated>total)return null;
@@ -81,7 +105,7 @@ export function serverModels(rows:ClusterRow[],now:number){
   // Slurm must never reveal other users even if a malformed producer includes them.
   const visible=scheduler==='SLURM'?jobs.filter(j=>j.mine):jobs;
   const sort=(items:Job[],field:'start_time'|'qtime')=>[...items].sort((a,b)=>Number(!!b.mine)-Number(!!a.mine)||(Date.parse(a[field]??'')||Infinity)-(Date.parse(b[field]??'')||Infinity)||a.job_id.localeCompare(b.job_id));
-  const nodes=state.hasData?cluster?.nodes??[]:[],known=scheduler!=='SLURM'&&cluster?.hardware_capacity_known!==false&&nodes.length>0&&nodes.every(n=>n.cores_total!==null&&n.cores_used!==null);
+  const nodes=state.hasData?cluster?.nodes??[]:[],known=scheduler!=='SLURM'&&cluster?.hardware_capacity_known!==false&&nodes.length>0&&nodes.every(n=>nodeAllocation(n.cores_total,n.cores_used).remaining!==null);
   const free=nodes.filter(n=>n.state==='free');
   return {key:entryKey(row),row,label:clusterLabel(row)+(row.ambiguous?' · '+row.source:''),...state,group,scheduler,sampling:data?.sampling??null,notes:hardware?.notes??[],
    warningCount:(data?.warnings.length??0)+(hardware?.error?1:0)+(cluster?.storage_error?1:0)+(cluster?.expiry_warning?1:0),

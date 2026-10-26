@@ -1,0 +1,416 @@
+{
+  "clusters": [
+    {
+      "name": "pbs-alpha",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-20T03:00:00Z",
+        "last_ok_at": "2026-10-20T03:00:00Z",
+        "interval_seconds": 60,
+        "ok": true,
+        "error": null,
+        "warnings": [],
+        "sample_duration_ms": 250,
+        "own": {
+          "cores_in_use": 4,
+          "cores_running": 4,
+          "cores_queued": 0,
+          "core_cap": 24,
+          "max_cores": 24,
+          "committed_cap": 48,
+          "mem_running_gb": 8,
+          "mem_queued_gb": 0,
+          "jobs": []
+        },
+        "cluster": {
+          "scheduler": "pbs",
+          "display_order": 0,
+          "cores_total": null,
+          "cores_used": null,
+          "hardware_capacity_known": false,
+          "hardware": {
+            "cores_total": null,
+            "cores_allocated": null,
+            "cores_idle": null,
+            "cores_other": 0,
+            "mem_total_gb": null,
+            "mem_allocated_gb": null,
+            "source": "pbsnodes",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 3,
+            "running_cores": 12,
+            "queued_jobs": 0,
+            "queued_cores": 0,
+            "others_running_jobs": 2,
+            "others_running_cores": 8,
+            "others_queued_jobs": 0,
+            "others_queued_cores": 0
+          },
+          "nodes": [
+            {
+              "name": "synthetic-node-a",
+              "state": "free",
+              "cores_total": 16,
+              "cores_used": 6,
+              "mem_total_gb": 64,
+              "mem_assigned_gb": 12,
+              "jobs": 2
+            },
+            {
+              "name": "synthetic-node-b",
+              "state": "free",
+              "cores_total": 8,
+              "cores_used": 0,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 0,
+              "jobs": 0
+            },
+            {
+              "name": "synthetic-node-c",
+              "state": "job-exclusive",
+              "cores_total": 32,
+              "cores_used": 32,
+              "mem_total_gb": 128,
+              "mem_assigned_gb": 96,
+              "jobs": 4
+            },
+            {
+              "name": "synthetic-node-d",
+              "state": "down",
+              "cores_total": 16,
+              "cores_used": 0,
+              "mem_total_gb": 64,
+              "mem_assigned_gb": 0,
+              "jobs": 0
+            },
+            {
+              "name": "synthetic-node-e",
+              "state": "offline",
+              "cores_total": 16,
+              "cores_used": 4,
+              "mem_total_gb": 64,
+              "mem_assigned_gb": null,
+              "jobs": 1
+            },
+            {
+              "name": "synthetic-node-f",
+              "state": "free",
+              "cores_total": null,
+              "cores_used": null,
+              "mem_total_gb": null,
+              "mem_assigned_gb": null,
+              "jobs": null
+            },
+            {
+              "name": "synthetic-node-g",
+              "state": "free",
+              "cores_total": 8,
+              "cores_used": null,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 8,
+              "jobs": null
+            },
+            {
+              "name": "synthetic-node-h",
+              "state": "busy",
+              "cores_total": 8,
+              "cores_used": 10,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 40,
+              "jobs": 2
+            },
+            {
+              "name": "synthetic-node-i",
+              "state": "free",
+              "cores_total": 0,
+              "cores_used": 0,
+              "mem_total_gb": 0,
+              "mem_assigned_gb": 0,
+              "jobs": 0
+            }
+          ],
+          "queues": [
+            {
+              "name": "synthetic-queue",
+              "running": 3,
+              "queued": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pbs-beta",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-20T03:00:00Z",
+        "last_ok_at": "2026-10-20T03:00:00Z",
+        "interval_seconds": 60,
+        "ok": true,
+        "error": null,
+        "warnings": [],
+        "sample_duration_ms": 250,
+        "own": {
+          "cores_in_use": 4,
+          "cores_running": 4,
+          "cores_queued": 0,
+          "core_cap": 24,
+          "max_cores": 24,
+          "committed_cap": 48,
+          "mem_running_gb": 8,
+          "mem_queued_gb": 0,
+          "jobs": []
+        },
+        "cluster": {
+          "scheduler": "pbs",
+          "display_order": 1,
+          "cores_total": 40,
+          "cores_used": 12,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 40,
+            "cores_allocated": 12,
+            "cores_idle": 28,
+            "cores_other": 0,
+            "mem_total_gb": 160,
+            "mem_allocated_gb": 24,
+            "source": "pbsnodes",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 3,
+            "running_cores": 12,
+            "queued_jobs": 0,
+            "queued_cores": 0,
+            "others_running_jobs": 2,
+            "others_running_cores": 8,
+            "others_queued_jobs": 0,
+            "others_queued_cores": 0
+          },
+          "nodes": [
+            {
+              "name": "synthetic-single",
+              "state": "free",
+              "cores_total": 8,
+              "cores_used": 2,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 4,
+              "jobs": 1
+            }
+          ],
+          "queues": [
+            {
+              "name": "synthetic-queue",
+              "running": 3,
+              "queued": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pbs-gamma",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-20T03:00:00Z",
+        "last_ok_at": "2026-10-20T03:00:00Z",
+        "interval_seconds": 60,
+        "ok": true,
+        "error": null,
+        "warnings": [],
+        "sample_duration_ms": 250,
+        "own": {
+          "cores_in_use": 4,
+          "cores_running": 4,
+          "cores_queued": 0,
+          "core_cap": 24,
+          "max_cores": 24,
+          "committed_cap": 48,
+          "mem_running_gb": 8,
+          "mem_queued_gb": 0,
+          "jobs": []
+        },
+        "cluster": {
+          "scheduler": "pbs",
+          "display_order": 2,
+          "cores_total": 40,
+          "cores_used": 12,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 40,
+            "cores_allocated": 12,
+            "cores_idle": 28,
+            "cores_other": 0,
+            "mem_total_gb": 160,
+            "mem_allocated_gb": 24,
+            "source": "pbsnodes",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 3,
+            "running_cores": 12,
+            "queued_jobs": 0,
+            "queued_cores": 0,
+            "others_running_jobs": 2,
+            "others_running_cores": 8,
+            "others_queued_jobs": 0,
+            "others_queued_cores": 0
+          },
+          "nodes": [
+            {
+              "name": "synthetic-single",
+              "state": "free",
+              "cores_total": 8,
+              "cores_used": 2,
+              "mem_total_gb": 32,
+              "mem_assigned_gb": 4,
+              "jobs": 1
+            }
+          ],
+          "queues": [
+            {
+              "name": "synthetic-queue",
+              "running": 3,
+              "queued": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "batch-alpha",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-20T03:00:00Z",
+        "last_ok_at": "2026-10-20T03:00:00Z",
+        "interval_seconds": 60,
+        "ok": true,
+        "error": null,
+        "warnings": [],
+        "sample_duration_ms": 250,
+        "own": {
+          "cores_in_use": 4,
+          "cores_running": 4,
+          "cores_queued": 0,
+          "core_cap": 24,
+          "max_cores": 24,
+          "committed_cap": 48,
+          "mem_running_gb": 8,
+          "mem_queued_gb": 0,
+          "jobs": []
+        },
+        "cluster": {
+          "scheduler": "slurm",
+          "display_order": 3,
+          "cores_total": 40,
+          "cores_used": 12,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 40,
+            "cores_allocated": 12,
+            "cores_idle": 28,
+            "cores_other": 0,
+            "mem_total_gb": 160,
+            "mem_allocated_gb": 24,
+            "source": "sinfo",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 3,
+            "running_cores": 12,
+            "queued_jobs": 0,
+            "queued_cores": 0,
+            "others_running_jobs": 2,
+            "others_running_cores": 8,
+            "others_queued_jobs": 0,
+            "others_queued_cores": 0
+          },
+          "nodes": [],
+          "queues": [
+            {
+              "name": "synthetic-queue",
+              "running": 3,
+              "queued": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "batch-beta",
+      "source": "named",
+      "ambiguous": false,
+      "error": null,
+      "snapshot": {
+        "schema": "ag-monitor/1",
+        "sampled_at": "2026-10-20T03:00:00Z",
+        "last_ok_at": "2026-10-20T03:00:00Z",
+        "interval_seconds": 60,
+        "ok": true,
+        "error": null,
+        "warnings": [],
+        "sample_duration_ms": 250,
+        "own": {
+          "cores_in_use": 4,
+          "cores_running": 4,
+          "cores_queued": 0,
+          "core_cap": 24,
+          "max_cores": 24,
+          "committed_cap": 48,
+          "mem_running_gb": 8,
+          "mem_queued_gb": 0,
+          "jobs": []
+        },
+        "cluster": {
+          "scheduler": "slurm",
+          "display_order": 4,
+          "cores_total": 40,
+          "cores_used": 12,
+          "hardware_capacity_known": true,
+          "hardware": {
+            "cores_total": 40,
+            "cores_allocated": 12,
+            "cores_idle": 28,
+            "cores_other": 0,
+            "mem_total_gb": 160,
+            "mem_allocated_gb": 24,
+            "source": "sinfo",
+            "error": null
+          },
+          "job_summary": {
+            "running_jobs": 3,
+            "running_cores": 12,
+            "queued_jobs": 0,
+            "queued_cores": 0,
+            "others_running_jobs": 2,
+            "others_running_cores": 8,
+            "others_queued_jobs": 0,
+            "others_queued_cores": 0
+          },
+          "nodes": [],
+          "queues": [
+            {
+              "name": "synthetic-queue",
+              "running": 3,
+              "queued": 0
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

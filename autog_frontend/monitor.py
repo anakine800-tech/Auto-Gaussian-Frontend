@@ -5,6 +5,7 @@ format error, rather than crash the page or mislabel old values as current.
 """
 from datetime import datetime, timedelta
 import math
+import re
 
 
 def validate_monitor(data):
@@ -101,6 +102,11 @@ def validate_monitor(data):
                     integer(own[key])
                     if key != 'max_queued_cores':
                         require(own[key] > 0)
+            if 'max_walltime' in own:
+                value = own['max_walltime']
+                string(value)
+                require(re.fullmatch(r'[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]', value) is not None)
+                require(any(int(part) for part in value.split(':')))
             if 'tiers' in own:
                 require(isinstance(own['tiers'], dict))
                 for name, tier in own['tiers'].items():

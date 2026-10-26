@@ -66,6 +66,9 @@ T7e / T19 / T101 / T106 / T112 兼容字段
 - `own.max_queued_cores`（非负整数）：排队上限。
 - `own.scheduler_max_running_cores`（正整数）：调度器运行限额，标明“由调度器执行，ag 未核实”。
 - `own.tiers`：`{名称: {cores: 正整数, mem_gb: 有限正数}}`，缺省不猜档位。
+- T143：档位按 `mini/simple/general/complex/max/ultra` 顺序呈现，只显示实际项；后两档可选，旧四档无占位。
+- `own.max_walltime`（T143 可选）：正 `HH:MM:SS` 字符串，小时 2–4 位、分秒 00–59。缺省省略，不接受 null、布尔、数字或零时长；不改变 `ag-monitor/1` 版本。失败快照由生产端刷新当前配置上限，配置移除时清除旧字段。前端显示小时，非整小时保留分钟、秒与原值；缺省不解释成调度器无限制。
+- `ag clusters --json` 的 `clusters[].resources` 提供相同的实际 `tiers` 与可选 `max_walltime`。操作模式校验元数据后保留该时限，按固定六名顺序提供档位；仅新增兼容字段，不新增操作或查询，最终 prepare/submit 资源限制仍由 ag 执行。
 - `cluster.budget`：`{core_hours, used, reserved}`，非负有限数，单位核时；null 不显示，不等于平台余额。
 - `cluster.expires` / `expiry_warning`：可选字符串或 null。
 - `cluster.storage_kib`：非负整数或 null，除以 1024² 显示 GB。

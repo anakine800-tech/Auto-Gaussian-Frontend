@@ -1,6 +1,33 @@
 import {test,expect} from '@playwright/test';
 test.use({baseURL:'http://127.0.0.1:18766',viewport:{width:1440,height:1200}});
 
+test('optional resource tiers keep fixed order and four digit walltime reaches the existing prepare action',async({page})=>{
+ const posts:Record<string,string>[]=[];
+ await page.route('**/api/actions/butane-demo/prepared',async route=>{
+  const response=await route.fetch(),data=await response.json(),c=data.clusters.default;
+  c.tiers={ultra:{cores:12,mem_mb:38400},max:{cores:10,mem_mb:32000},...c.tiers};c.max_walltime='1234:00:00';
+  await route.fulfill({json:data});
+ });
+ await page.route('**/api/actions',route=>{posts.push(route.request().postDataJSON());return route.fulfill({json:{stdout:'Synthetic validation only',stderr:'',exit_code:1,timed_out:false}});});
+ await page.goto('/#/butane-demo/prepared');await page.getByRole('button',{name:'基于此新建',exact:true}).click();
+ const tier=page.getByLabel('档位',{exact:true});
+ expect(await tier.locator('option').evaluateAll(es=>es.map(e=>(e as HTMLOptionElement).value))).toEqual(['mini','simple','general','complex','max','ultra']);
+ await tier.selectOption('ultra');await expect(page.getByLabel('输入全文')).toHaveValue(/^%nprocshared=12\n%mem=38400MB/);
+ await expect(page.getByText('单作业时限上限：1234 小时',{exact:false})).toBeVisible();
+ await page.getByLabel('walltime',{exact:true}).fill('1234:00:01');await expect(page.getByRole('button',{name:'保存并新建',exact:true})).toBeDisabled();
+ await expect(page.getByRole('alert')).toContainText('walltime 超过');
+ for(const value of ['00:00:00','1:00:00','12345:00:00']){await page.getByLabel('walltime',{exact:true}).fill(value);await expect(page.getByRole('button',{name:'保存并新建',exact:true})).toBeDisabled();}
+ expect(posts).toHaveLength(0);
+ await page.getByLabel('walltime',{exact:true}).fill('1234:00:00');await page.getByLabel('方法依据',{exact:true}).fill('Synthetic only');
+ await page.getByRole('button',{name:'保存并新建',exact:true}).click();await expect(page.getByTestId('ag-stdout')).toContainText('Synthetic validation only');
+ expect(posts).toHaveLength(1);expect(posts[0]).toMatchObject({action:'prepare',tier:'ultra',walltime:'1234:00:00'});
+ // The existing result refresh remounts the action controls; reopen normally.
+ await page.getByRole('button',{name:'基于此新建',exact:true}).click();await tier.selectOption('ultra');
+ await page.getByLabel('集群',{exact:true}).selectOption('batch');
+ expect(await tier.locator('option').evaluateAll(es=>es.map(e=>(e as HTMLOptionElement).value))).toEqual(['mini','simple','general','complex']);
+ await expect(tier).toHaveValue('simple');await expect(page.getByText('单作业时限上限：未配置（调度器仍可能限制）',{exact:false})).toBeVisible();
+});
+
 test('wait limit displays partial output and running notice without inventing an exit code',async({page})=>{
  let posts=0;
  await page.route('**/api/actions',route=>{

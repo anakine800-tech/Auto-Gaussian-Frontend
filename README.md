@@ -415,6 +415,19 @@ changes facts nor supplies scientific acceptance. Parsing is adapted solely from
 单作业上限和资源档位只在详情折叠区显示，不能代替总上限。
 缺失新字段的旧快照仍可读，新内容显示未知；完整字段见 [ag-monitor/1](docs/ag-monitor-1.md)。
 
+PBS 节点明细复用该快照中的节点状态、分配 slots、内存和作业数，不发起额外查询。
+`free` 是调度器状态，不能解释成未分配；表中独立显示已分配/总 slots、剩余 slots
+及分配比例。slots 不是实时 CPU 利用率，剩余值也不保证新作业立即运行。
+内存仅使用已分配/总内存字段，不从物理可用内存或核数估计。
+缺值、零分母和自相矛盾的数值不生成比例；分配超过总量时保留原数并注明异常。
+失败或过期节点记录标为非实时。节点表支持键盘聚焦和自身横向滚动。
+卡片按入口数组生成；四卡保留宽屏四列，五卡在普通桌面排列为居中的三加二，
+超宽屏五列，窄屏沿用双列或单列。合成验收见 [T143](docs/redesign-tasks/T143-pbs-node-details.md)。
+档位表与新建 Attempt 表单按 `mini/simple/general/complex/max/ultra` 顺序显示实际配置档位，
+可选的后两档未配置时不占位。本人排队上限沿用共享账号入口中的最小值。
+可选单作业时限按小时显示，非整小时保留分钟、秒和原值；未配置不表示调度器无限制。
+操作表单支持 2–4 位小时，禁止零时长，并在有入口上限时反馈超限；最终校验和提交审批仍由 ag 执行。
+
 The sole new direct dependency is pinned `react-markdown@10.1.0`, with its
 transitive tree locked in `web/pnpm-lock.yaml`. It provides Markdown parsing
 without HTML injection; `skipHtml`, fragment-only URLs and disabled images keep

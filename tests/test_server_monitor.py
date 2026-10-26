@@ -28,6 +28,26 @@ def enriched_snapshot():
 
 
 class ServerMonitorTests(unittest.TestCase):
+    def test_t143_optional_tiers_and_walltime_are_additive_and_strict(self):
+        for names in (('mini', 'simple', 'general', 'complex'),
+                      ('mini', 'simple', 'general', 'complex', 'max'),
+                      ('mini', 'simple', 'general', 'complex', 'max', 'ultra')):
+            data = enriched_snapshot()
+            data['own']['tiers'] = {name: dict(cores=i + 1, mem_gb=(i + 1) * 4)
+                                    for i, name in enumerate(names)}
+            self.assertIs(validate_monitor(data), data)
+            self.assertNotIn('max_walltime', data['own'])
+            for value in ('00:00:01', '24:00:00', '36:30:15', '1234:00:00', '9999:59:59'):
+                data['own']['max_walltime'] = value
+                self.assertIs(validate_monitor(data), data)
+        for value in (None, True, False, 0, 3600, 1.5, '', '00:00:00', '0000:00:00',
+                      '1:00:00', '12345:00:00', '24:60:00', '24:00:60', '-24:00:00',
+                      '24:00:00\n', ' 24:00:00', '２４:00:00'):
+            with self.subTest(value=value):
+                data = enriched_snapshot(); data['own']['max_walltime'] = value
+                with self.assertRaisesRegex(ValueError, '快照格式不正确'):
+                    validate_monitor(data)
+
     def test_new_legacy_missing_null_and_unknown_fields(self):
         for data in (monitor_snapshot(), enriched_snapshot()):
             self.assertIs(validate_monitor(data), data)
