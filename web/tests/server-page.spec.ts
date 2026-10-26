@@ -15,7 +15,7 @@ function job(id:string,mine:boolean,state='R',cores=8):Job{return {
 function snapshot(slurm=false):Monitor{
  const jobs=[job('other',false),job('own',true),job('queue-new',false,'Q',4),{...job('queue-old',false,'Q',4),qtime:'2026-10-22T01:00:00Z'},job('own-queue',true,'Q',8)];
  return {schema:'ag-monitor/1',sampled_at:iso,last_ok_at:iso,interval_seconds:slurm?60:30,ok:true,error:null,sample_duration_ms:200,
- own:{cores_in_use:16,core_cap:16,max_cores:16,cores_running:8,cores_queued:8,committed_cap:64,max_queued_cores:32,mem_running_gb:12,mem_queued_gb:12,tiers:{small:{cores:8,mem_gb:12}},jobs:jobs.filter(j=>j.mine)},
+ own:{cores_in_use:16,core_cap:16,max_cores:16,cores_running:8,cores_queued:8,committed_cap:64,max_queued_cores:32,mem_running_gb:12,mem_queued_gb:12,tiers:{simple:{cores:8,mem_gb:12}},jobs:jobs.filter(j=>j.mine)},
  cluster:{scheduler:slurm?'slurm':'pbs',display_order:null,cores_total:32,cores_used:16,hardware_capacity_known:true,
   hardware:{cores_total:32,cores_allocated:16,cores_idle:16,cores_other:0,mem_total_gb:slurm?null:64,mem_allocated_gb:slurm?null:24,source:slurm?'sinfo':'pbsnodes',error:null},
   job_summary:{running_jobs:2,running_cores:16,queued_jobs:3,queued_cores:16,others_running_jobs:1,others_running_cores:8,others_queued_jobs:2,others_queued_cores:8},jobs:slurm?jobs.filter(j=>j.mine):jobs,jobs_omitted:12,
@@ -79,8 +79,8 @@ test('sampling failure, hardware failure and expiry have distinct resource seman
 test('limits, tiers and storage appear in disclosure; single node opens by default',async({page})=>{
  const data=rows();data[3].snapshot!.cluster!.nodes=data[3].snapshot!.cluster!.nodes.slice(0,1);data[3].snapshot!.cluster!.storage_error='Synthetic storage failure';await setup(page,data);
  const panel=page.getByRole('tabpanel');await expect(panel.getByRole('region',{name:'警告',exact:true})).toContainText('2 条警告');await expect(panel.getByRole('region',{name:'警告',exact:true})).toContainText('Synthetic storage failure');await expect(panel.getByRole('table',{name:'节点表'})).toBeVisible();await expect(panel.getByRole('table',{name:'档位表'})).not.toBeVisible();
- await panel.locator('summary').filter({hasText:'限额、档位与存储'}).click();await expect(panel.getByRole('table',{name:'档位表'})).toContainText('small');await expect(panel).toContainText('单作业上限 16 核');await expect(panel).toContainText('存储占用：2 GB');await expect(panel).toContainText('查询时间：');await expect(panel).toContainText('Synthetic storage failure');
- await expect(page.locator('.server-cards')).not.toContainText('单作业上限');await expect(page.locator('.server-cards')).not.toContainText('small');
+ await panel.locator('summary').filter({hasText:'限额、档位与存储'}).click();await expect(panel.getByRole('table',{name:'档位表'})).toContainText('simple');await expect(panel).toContainText('单作业上限 16 核');await expect(panel).toContainText('存储占用：2 GB');await expect(panel).toContainText('查询时间：');await expect(panel).toContainText('Synthetic storage failure');
+ await expect(page.locator('.server-cards')).not.toContainText('单作业上限');await expect(page.locator('.server-cards')).not.toContainText('simple');
 });
 test('30 second interval expires only after 90 seconds; no new endpoints',async({page})=>{
  const data=rows(),reads:string[]=[];let polls=0;page.on('request',r=>{const path=new URL(r.url()).pathname;if(path.startsWith('/api/'))reads.push(path);if(path==='/api/monitor')polls++;});

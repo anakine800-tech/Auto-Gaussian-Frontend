@@ -1,5 +1,5 @@
 import {useRef,useState} from 'react';
-import {amount,safeIdentity} from './jobs-data';
+import {amount,nodeAllocation,orderedResourceTiers,resourceWalltimeLabel,safeIdentity} from './jobs-data';
 import type {Job,ServerModel} from './jobs-data';
 import {routeHash} from './routing';
 import {SnapshotProgress,WalltimeProgress} from './job-progress';
@@ -7,6 +7,14 @@ import {localTime,pauseReason} from './server-cards';
 import {actionToken} from './actions';
 import {retryMonitor} from './api';
 import {Collapsible,DataTable,Drawer,ErrorNotice,readPreference,savePreference,StatusBadge} from './ui';
+function NodeAllocation({name,label,total,assigned,unit=''}:{name:string;label:string;total:number|null|undefined;assigned:number|null|undefined;unit?:string}){
+ const value=nodeAllocation(total,assigned);
+ return <span className="node-allocation"><span>{amount(value.assigned)} / {amount(value.total)}{unit?' '+unit:''}</span>
+  {value.percent===null?<small className={value.inconsistent?'snapshot-notice':'muted'}>{value.inconsistent?'分配超过总量；比例未知':'分配比例未知'}</small>:<>
+   <progress aria-label={`${name} ${label}分配比例`} value={value.percent} max={100}/><small>{amount(value.percent)}% 已分配</small>
+  </>}
+ </span>;
+}
 export function ServerDetail({model:m,revision,onRetry}:{model:ServerModel;revision:number;onRetry:()=>void}){
  const d=m.row.snapshot,c=d?.cluster,own=d?.own,summary=m.hasData?c?.job_summary:null;
  const preference='server-mine:'+m.row.name;
@@ -62,21 +70,28 @@ export function ServerDetail({model:m,revision,onRetry}:{model:ServerModel;revis
   {!c?.jobs&&<p className="muted">旧快照：全员作业、内存和硬件分段未知；以下保留已采集的本人作业。</p>}
   {jobTable('运行中',m.running,true)}{jobTable('排队中',m.queued,false)}
   {(c?.jobs_omitted??0)>0&&<p className="snapshot-notice">其余 {c!.jobs_omitted} 条未列出</p>}
-  <Collapsible page="server" block={'nodes:'+m.key} title={slurm?'节点与队列 · 分区 CPU 汇总':`节点与队列 · 空闲节点 ${amount(m.freeNodes)} / 共 ${amount(m.totalNodes)} · 空闲 ${amount(m.freeCores)} 核`} defaultOpen={!slurm&&m.totalNodes===1}>
+  <Collapsible page="server" block={'nodes:'+m.key} title={slurm?'节点与队列 · 分区 CPU 汇总':`节点与队列 · free 且未分配 ${amount(m.freeNodes)} / ${amount(m.totalNodes)} 节点 · free 节点剩余 ${amount(m.freeCores)} slots`} defaultOpen={!slurm&&m.totalNodes===1}>
    {slurm?<p>分区 CPU：已分配 {amount(c?.hardware?.cores_allocated)} / 空闲 {amount(c?.hardware?.cores_idle)} / 其他 {amount(c?.hardware?.cores_other)} / 总数 {amount(c?.hardware?.cores_total)}</p>:<>
+   <p className="node-explanation">slots 是调度器分配量，不是实时 CPU 利用率。free 是节点状态，仍可能已有分配；剩余 slots 不保证作业可立即运行。内存只显示快照中的已分配值。</p>
+   {m.old&&<p className="server-stale" role="status">节点数据非实时：{m.hasData?'以下为保留的采样记录。':'尚无成功采样记录。'}</p>}
+   <div className="pbs-node-table" tabIndex={0} role="region" aria-label="PBS 节点明细，可横向滚动">
    <DataTable label="节点表" rows={m.hasData?c?.nodes??[]:[]} rowKey={n=>n.name} columns={[
-    {key:'name',label:'节点',render:n=>n.name},{key:'state',label:'状态',render:n=>n.state},
-    {key:'cores',label:'核数（已用 / 总）',render:n=><>{amount(n.cores_used)} / {amount(n.cores_total)}{n.cores_used!==null&&n.cores_total!==null&&n.cores_total>0&&<progress aria-label={n.name+' 核数使用'} value={n.cores_used} max={n.cores_total}/>}</>},
-    {key:'memory',label:'内存（已分配 / 总）',render:n=>`${amount(n.mem_assigned_gb)} / ${amount(n.mem_total_gb)} GB`},
-    {key:'jobs',label:'作业数',render:n=>amount(n.jobs)},
+    {key:'name',label:'节点',render:n=>n.name},{key:'state',label:'PBS 状态',render:n=><StatusBadge>{n.state||'未知'}</StatusBadge>},
+    {key:'cores',label:'slots（已分配 / 总）',render:n=><NodeAllocation name={n.name} label="slots" total={n.cores_total} assigned={n.cores_used}/>},
+    {key:'remaining',label:'剩余 slots',className:'numeric',render:n=>amount(nodeAllocation(n.cores_total,n.cores_used).remaining)},
+    {key:'jobs',label:'作业数',className:'numeric',render:n=>amount(n.jobs)},
+    {key:'memory',label:'内存（已分配 / 总）',render:n=><NodeAllocation name={n.name} label="内存" total={n.mem_total_gb} assigned={n.mem_assigned_gb} unit="GB"/>},
    ]}/>
+   </div>
    <DataTable label="队列表" rows={m.hasData?c?.queues??[]:[]} rowKey={q=>q.name} columns={[{key:'name',label:'队列',render:q=>q.name},{key:'running',label:'运行',render:q=>q.running},{key:'queued',label:'排队',render:q=>q.queued}]}/></>}
   </Collapsible>
   <Collapsible page="server" block={'limits:'+m.key} title="限额、档位与存储">
-   <div className="server-limits"><p>单作业上限 {amount(own?.max_cores??own?.core_cap)} 核</p><p>总上限 {amount(m.group.cap)} 核</p><p>排队上限 {amount(m.group.queuedCap)} 核</p></div>
+   <div className="server-limits"><p>单作业上限 {amount(own?.max_cores??own?.core_cap)} 核</p><p>总上限 {amount(m.group.cap)} 核</p><p>本人排队上限 {amount(m.group.queuedCap)} 核</p></div>
+   {m.group.group.length>1&&<p className="muted">共享账号入口的总上限与本人排队上限取各入口配置的最小值。</p>}
+   <p>单作业时限上限：{own?resourceWalltimeLabel(own.max_walltime):'未知（后端未提供）'}</p>
    {own?.scheduler_max_running_cores!==undefined&&<p>运行限额 {own.scheduler_max_running_cores} 核 · 由调度器执行，ag 未核实</p>}
-   <DataTable label="档位表" rows={Object.entries(own?.tiers??{})} rowKey={r=>r[0]} columns={[{key:'name',label:'档位',render:r=>r[0]},{key:'cores',label:'核数',render:r=>r[1].cores},{key:'memory',label:'内存（GB）',render:r=>r[1].mem_gb}]}/>
-   {!Object.keys(own?.tiers??{}).length&&<p>档位未知（后端未提供）</p>}
+   <DataTable label="档位表" rows={orderedResourceTiers(own?.tiers)} rowKey={r=>r[0]} columns={[{key:'name',label:'档位',render:r=>r[0]},{key:'cores',label:'核数',render:r=>r[1].cores},{key:'memory',label:'内存（GB）',render:r=>r[1].mem_gb}]}/>
+   {!orderedResourceTiers(own?.tiers).length&&<p>档位未知（后端未提供）</p>}
    <p>存储占用：{c?.storage_kib==null?'未知':amount(c.storage_kib/1024/1024)+' GB'} · 查询时间：{c?.storage_checked_at?localTime(c.storage_checked_at):'未知'} · 数据时间：{c?.storage_sampled_at?localTime(c.storage_sampled_at):'未知'}</p>
    {c?.storage_error&&<ErrorNotice>存储查询失败：{c.storage_error}；上方为保留值（非最新）。</ErrorNotice>}
    {c?.budget!=null&&<article aria-label="核时预算"><p>预算 {c.budget.core_hours} · 已用 {c.budget.used} · 预留 {c.budget.reserved} 核时</p><p className="muted">本地台账，不代表平台余额。</p></article>}

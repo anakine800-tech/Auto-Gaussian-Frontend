@@ -3,10 +3,11 @@ import {coreHours,display,get,object} from './api';
 import type {Attempt} from './api';
 import {ActionBar,Drawer} from './ui';
 import {routeHash} from './routing';
+import {orderedResourceTiers,resourceWalltimeLabel,resourceWalltimeSeconds} from './jobs-data';
 
 export const actionToken=document.querySelector<HTMLMetaElement>('meta[name="ag-token"]')?.content;
 type Tier={cores:number;mem_mb:number};
-type Cluster={scheduler:string;tiers:Record<string,Tier>;programs_enabled:{gaussian:boolean;xtb:boolean;crest:boolean}};
+type Cluster={scheduler:string;tiers:Record<string,Tier>;max_walltime?:string;programs_enabled:{gaussian:boolean;xtb:boolean;crest:boolean}};
 type Context={state:string;can_cancel:boolean;source:string|null;clusters:Record<string,Cluster>;manifest:Record<string,unknown>};
 export type ActionResult={stdout:string;stderr:string;exit_code:number|null;timed_out:boolean;notice?:string;new_attempt?:string};
 function resources(input:string,tier:Tier){
@@ -42,7 +43,9 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  }
  const m=context?.manifest??{},science=object(m.science)?m.science:{},geometry=object(data.input_geometry.data)?data.input_geometry.data:{};
  const tiers=context?.clusters[cluster]?.tiers??{},parentCluster=typeof m.cluster==='string'?m.cluster:'default';
- const canPrepare=!!tiers[tier]&&context?.clusters[cluster]?.programs_enabled.gaussian;
+ const limit=context?.clusters[cluster]?.max_walltime,duration=resourceWalltimeSeconds(walltime),maximum=limit===undefined?null:resourceWalltimeSeconds(limit);
+ const walltimeError=duration===null?'请输入正的 HH:MM:SS，小时为 2–4 位。':limit!==undefined&&maximum===null?'入口时限格式无效，请核对配置。':maximum!==null&&duration>maximum?'walltime 超过此入口的单作业时限上限。':'';
+ const canPrepare=!!tiers[tier]&&context?.clusters[cluster]?.programs_enabled.gaussian&&!walltimeError;
  function selectCluster(name:string){
   const choices=context?.clusters[name]?.tiers??{},t=choices[tier]?tier:'simple';
   setCluster(name);setTier(t);if(choices[t])setInput(resources(input,choices[t]));
@@ -56,13 +59,15 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  <Drawer open={confirm} onClose={()=>setConfirm(false)} title="提交确认">{confirm&&<section aria-label="提交摘要"><h3>提交摘要</h3><a href={routeHash([study,data.id])} onClick={()=>{setConfirm(false);document.getElementById('attempt-structure')?.scrollIntoView();}}>查看结构预览</a>
  <dl>{[['集群',m.cluster??'default'],['估算核时',coreHours(m)],['电荷',geometry.charge??science.charge],['多重度',geometry.multiplicity??science.multiplicity],['完整 route',geometry.route??science.route],['档位',m.tier],['walltime',m.walltime],['bundle 哈希前 12 位',typeof m.bundle_sha256==='string'?m.bundle_sha256.slice(0,12):null],['方法依据',science.method_basis],['立体化学警告',science.stereochemistry_warning]].map(([name,value])=><div key={String(name)}><dt>{String(name)}</dt><dd>{display(value)}</dd></div>)}</dl>
  <button disabled={busy} onClick={()=>void run('submit')}>确认摘要并提交</button><button onClick={()=>setConfirm(false)}>返回</button></section>}</Drawer>
- <Drawer open={editing} onClose={()=>setEditing(false)} title="新建 Attempt">{editing&&<form aria-label="新建 Attempt" onSubmit={e=>{e.preventDefault();void run('prepare');}}><fieldset disabled={busy}><legend>从 {data.id} 新建 Gaussian Attempt</legend>
+ <Drawer open={editing} onClose={()=>setEditing(false)} title="新建 Attempt">{editing&&<form aria-label="新建 Attempt" onSubmit={e=>{e.preventDefault();if(canPrepare)void run('prepare');}}><fieldset disabled={busy}><legend>从 {data.id} 新建 Gaussian Attempt</legend>
  <label>集群 <select required aria-label="集群" value={cluster} onChange={e=>selectCluster(e.target.value)}><option value="" disabled>请选择集群</option>{Object.entries(context.clusters).map(([name,value])=><option key={name} value={name}>{name} · {value.scheduler}{value.programs_enabled.gaussian?'':' · Gaussian 未启用'}</option>)}</select></label>
  {!context.clusters[parentCluster]&&<p role="alert">父 Attempt 集群 {parentCluster} 未配置，请明确选择目标集群。</p>}
  {cluster&&cluster!==parentCluster&&<p role="alert">同一能量曲线内的物种应在同一集群计算</p>}
  {cluster&&!context.clusters[cluster]?.programs_enabled.gaussian&&<p role="alert">此集群未启用 Gaussian。</p>}
- <label>档位 <select aria-label="档位" value={tier} onChange={e=>{setTier(e.target.value);setInput(resources(input,tiers[e.target.value]));}}>{Object.entries(tiers).map(([name,value])=><option key={name} value={name}>{name} · {value.cores} 核 · {value.mem_mb} MB</option>)}</select></label>
- <label>walltime <input required aria-label="walltime" value={walltime} pattern="[0-9]{1,3}:[0-5][0-9]:[0-5][0-9]" onChange={e=>setWalltime(e.target.value)}/></label>
+ <label>档位 <select aria-label="档位" value={tier} onChange={e=>{setTier(e.target.value);setInput(resources(input,tiers[e.target.value]));}}>{orderedResourceTiers(tiers).map(([name,value])=><option key={name} value={name}>{name} · {value.cores} 核 · {value.mem_mb} MB</option>)}</select></label>
+ <label>walltime <input required aria-label="walltime" aria-describedby="attempt-walltime-limit" aria-invalid={!!walltimeError} value={walltime} pattern="[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]" onChange={e=>setWalltime(e.target.value)}/></label>
+ <p id="attempt-walltime-limit">单作业时限上限：{resourceWalltimeLabel(limit)}；提交时仍由 ag 核对资源限制。</p>
+ {walltimeError&&<p role="alert">{walltimeError}</p>}
  <label>标签 <input required aria-label="标签" value={label} pattern="[a-z0-9][a-z0-9-]{0,79}" onChange={e=>setLabel(e.target.value)}/></label>
  <label>与父 Attempt 的关系 <input required aria-label="与父 Attempt 的关系" value={relation} pattern="[a-z0-9][a-z0-9_\\-]{0,79}" onChange={e=>setRelation(e.target.value)}/></label>
  <label>方法依据 <input required aria-label="方法依据" value={basis} onChange={e=>setBasis(e.target.value)}/></label>
