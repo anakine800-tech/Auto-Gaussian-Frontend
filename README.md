@@ -1,9 +1,9 @@
-# Auto-Gaussian Study Viewer v4.6.1
+# Auto-Gaussian Study Viewer v4.6.2
 
-**配合 ag 4.6.1 使用。** This is the v4.6.1 release candidate; see [CHANGELOG.md](CHANGELOG.md#v461).
+**配合 ag 4.6.2 使用。** This is the v4.6.2 release candidate; see [CHANGELOG.md](CHANGELOG.md#v462).
 
 标准部署为每台电脑一个操作模式前端（8773）+ 一个监控服务；重启操作版后令牌会更换，已打开页面须刷新。
-T144 只准备版本号和文档；两个 v4.6.1 tag 建好并获部署批准后，部署由独立运维会话执行。
+T146 只准备版本号和文档；发布 PR 经监督方审阅后按负责人明确授权发布，两个 v4.6.2 tag 核验完成后才进入获准的部署。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
 构建依赖 setuptools 83.0.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
@@ -669,12 +669,16 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.6.1 includes T143 (#42): PBS node allocation details, responsive four/five-card
-layouts, all configured resource tiers and optional per-job walltime limits.
+V4.6.2 includes T145 (#44): explicit PBS node selection for opted-in Gaussian
+entries, original priority groups and overall order, half/quarter matching tiers,
+availability/restriction reasons, expiry checks and an immutable target summary.
+The selector never preselects a node; the backend independently checks live
+admission and actual placement. Existing four/five-card layouts, node allocation
+details, Gaussian-only/resource fields and Slurm views remain compatible.
 Node state and allocated slots are separate; unknown or stale values are labelled,
 and slots do not measure CPU utilization. Existing snapshots supply the data;
-no extra remote query is added. Pair this release with backend ag 4.6.1 (T141/T142).
-Both T144 PRs change only versions, the backend version assertion and documentation.
+no per-node remote query is added. Pair this release with backend ag 4.6.2 (#345).
+Both T146 PRs change only versions, the backend version assertion and documentation.
 Read-only defaults, path/size checks and ag-mediated actions stay unchanged.
 The existing UI passes no approval/policy option, so its submit and cancel
 actions still use the Mac dialog.
@@ -682,16 +686,21 @@ actions still use the Mac dialog.
 页面上的相对能量和比较均为前端现场计算的非正式结果，正式数值以报告和登记为准；
 工具状态、采用记录、`termination` 和 `n_imag` 均不等于科学验收。
 
-Supervisory review and owner merge are required for both release PRs. The owner
-creates `v4.6.1` tags on each PR's exact merge commit after verification, using each
-repository's v4.6.1 CHANGELOG section for release notes. Deployment requires separate
-approval and follows OPERATIONS.md after both tags exist. Complete all required
+Supervisory review is required for both release PRs. Merge and publication follow
+explicit owner authorization; `v4.6.2` tags point to each release PR's exact merge
+commit, using that repository's v4.6.2 CHANGELOG section. Deployment requires
+authorization and follows OPERATIONS.md after both tags are verified. Complete all required
 development-machine checks, including existing-entry regression and the observation
 period specified in the private deployment message, before configuring the research
 computer. Its approved maintenance window must have no research writes, and its
 checks are independent. Rebuild the UI, restart the single service and refresh open
 action pages for the new token. Rollback includes the paired backend and compatible
-configuration; new resource fields must not silently lose enforcement on old code.
+configuration; new policy/resource fields must not silently lose enforcement on old code.
+Do not rewrite node-bound Attempts into an old format during rollback. If old code
+cannot safely handle new records, stop affected operations and report partial recovery.
+Special CPU mapping and cross-client races require separate site acceptance;
+the current nodefile guard checks but does not archive the original nodefile.
+Real synthetic compute requires its own approval and placement/output/receipt evidence.
 This patch adds no study/catalog migration; the existing v2 conditions below remain.
 Before real studies write v2 events, both machines must be deployed and a temporary
 non-research study must pass candidate registration, `ag g0 --record` and frontend
@@ -704,7 +713,7 @@ Release preparation is not deployment; deployment results are recorded separatel
 
 - 串行采样经转发一轮可能 100–150 秒；手动重试先等当前入口完成，再耗时采目标入口。睡眠停采、醒来自动恢复，初期可能因网络未就绪失败或退避。
 - 醒来后下次采样时间可能显示过去时间；核数/内存都未知时 notes 重复；重试被拒仍短暂快速轮询；暂停确认文案有多余空格，均留待后续修正。
-- `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0，本次按工单保留；Python 包元数据和网页包版本为 4.6.1。
+- `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0，本次按工单保留；Python 包元数据和网页包版本为 4.6.2。
 - catalog v2 升级后不能降级，也不能删行降级；G0、扫描和登记状态都是诊断与记录，不代表科学验收。
 - Slurm“其他”状态核数被计入空闲，后续独立修正。
 - 证据库冷启动在已有测量中约 2.5 秒，实际耗时随本机与文件数量变化。
@@ -712,6 +721,7 @@ Release preparation is not deployment; deployment results are recorded separatel
 
 ## 版本历史
 
+- **v4.6.2**：T145 显式 PBS 节点选择、原优先级分组与顺序、半数/四分之一及资源摘要；旧入口不显示不适用控件，配合 ag 4.6.2。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T143 PBS 节点分配明细、四/五卡响应式布局、可选四/六档与单作业时限显示；配合 ag 4.6.1，复用快照并明确未知及非实时状态。[发布说明](CHANGELOG.md#v461)
 - **v4.6.0**：T132 catalog v2 通道与候选只读面板、负责人声明及容器目录过滤；配合 ag 4.6.0，catalog 升级不可降级。[发布说明](CHANGELOG.md#v460)
 - **v4.5.1**：T128 资源独立显示、调度器推断、退避/暂停与手动重新采样；单服务运维步骤，配合 ag 4.5.1。[发布说明](CHANGELOG.md#v451)
