@@ -3,7 +3,7 @@ import {amount,nodeAllocation,orderedResourceTiers,resourceWalltimeLabel,safeIde
 import type {Job,ServerModel} from './jobs-data';
 import {routeHash} from './routing';
 import {SnapshotProgress,WalltimeProgress} from './job-progress';
-import {localTime,pauseReason} from './server-cards';
+import {localTime,nextSampleText,pauseReason} from './server-cards';
 import {actionToken} from './actions';
 import {retryMonitor} from './api';
 import {Collapsible,DataTable,Drawer,ErrorNotice,readPreference,savePreference,StatusBadge} from './ui';
@@ -15,7 +15,7 @@ function NodeAllocation({name,label,total,assigned,unit=''}:{name:string;label:s
   </>}
  </span>;
 }
-export function ServerDetail({model:m,revision,onRetry}:{model:ServerModel;revision:number;onRetry:()=>void}){
+export function ServerDetail({model:m,revision,now,onRetry}:{model:ServerModel;revision:number;now:number;onRetry:()=>void}){
  const d=m.row.snapshot,c=d?.cluster,own=d?.own,summary=m.hasData?c?.job_summary:null;
  const preference='server-mine:'+m.row.name;
  const [onlyMine,setOnlyMine]=useState(()=>readPreference(preference,'false')==='true');
@@ -23,9 +23,10 @@ export function ServerDetail({model:m,revision,onRetry}:{model:ServerModel;revis
  const [confirm,setConfirm]=useState(false),[retryMessage,setRetryMessage]=useState(''),requestNumber=useRef(0);
  async function retry(authFixed:boolean){
   if(!actionToken)return;
-  setConfirm(false);const request=++requestNumber.current;setRetryMessage('正在请求…');onRetry();
+  setConfirm(false);const request=++requestNumber.current;setRetryMessage('正在请求…');
   try{
    const result=await retryMonitor(m.row.name,authFixed,actionToken);
+   if(['queued','already_queued','in_progress'].includes(result.result))onRetry();
    const message=result.result==='queued'?'已请求，等待采样':result.result==='already_queued'?'已在等待，结果见下一份快照':result.result==='in_progress'?'正在采样，结果见下一份快照':result.reason==='monitor_not_running'?'监控未运行，未登记请求':result.reason==='auth_confirmation_required'?'需要先确认已修复认证问题':`ag：${result.result}（${result.reason??'未提供原因'}）`;
    if(request===requestNumber.current)setRetryMessage(message);
   }catch(e){if(request===requestNumber.current)setRetryMessage(e instanceof Error?e.message:'重试请求失败');}
@@ -51,12 +52,12 @@ export function ServerDetail({model:m,revision,onRetry}:{model:ServerModel;revis
  return <section className={'server-detail'+(m.old?' server-noncurrent':'')} aria-label={`集群 ${m.label} 详细信息`}>
   {c?.hardware?.error&&<ErrorNotice>硬件采样失败：{c.hardware.error}</ErrorNotice>}
   {m.sampling&&<div className={'sampling-detail sampling-'+m.sampling.state}>
-   <p>{m.sampling.state==='paused'?`已暂停：${pauseReason(m.sampling.pause_reason)}`:m.sampling.state==='backoff'?'退避中':'正常'} · 连续失败 {m.sampling.consecutive_failures} 次 · 下次采样：{m.sampling.next_sample_at?localTime(m.sampling.next_sample_at):'—'}</p>
+   <p>{m.sampling.state==='paused'?`已暂停：${pauseReason(m.sampling.pause_reason)}`:m.sampling.state==='backoff'?'退避中':'正常'} · 连续失败 {m.sampling.consecutive_failures} 次 · 下次采样：{nextSampleText(m.sampling.next_sample_at,now,localTime)}</p>
    {m.sampling.state==='paused'&&<p>检查密钥、隧道或 known_hosts，修复后再重试</p>}
   </div>}
   {actionToken&&<div className="server-retry"><button onClick={()=>m.sampling?.state==='paused'?setConfirm(true):void retry(false)}>立即重新采样</button><span role="status">{retryMessage}</span></div>}
   <Drawer open={confirm} title="确认重新采样" onClose={()=>setConfirm(false)}>
-   <p>上次因 {pauseReason(m.sampling?.pause_reason??null)} 而暂停。请确认已经修复，再试一次；失败会继续暂停。</p>
+   <p>上次因{pauseReason(m.sampling?.pause_reason??null)}而暂停。请确认问题已修复后重新采样；失败后将继续暂停。</p>
    <div className="server-retry-confirm"><button onClick={()=>setConfirm(false)}>取消</button><button onClick={()=>void retry(true)}>确认重试</button></div>
   </Drawer>
   {m.old&&<p className="server-stale" role="status">非最新{m.stale?' · 数据已过期':''}。{m.row.ambiguous?'来源未确认；':!d?.ok?'采样失败；':''}{m.hasData?'以下为保留的采样记录，不能视为当前状态。':'暂无成功采样数据，不能据此判断服务器空闲。'}</p>}
