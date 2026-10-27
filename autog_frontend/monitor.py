@@ -8,6 +8,67 @@ import math
 import re
 
 
+def retry_timestamp(value):
+    if not isinstance(value, str) or 'T' not in value:
+        raise ValueError('请求状态时间格式不正确')
+    stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if stamp.utcoffset() != timedelta(0):
+        raise ValueError('请求状态时间必须为 UTC')
+    return stamp
+
+
+def validate_retry_status(data, entry):
+    """Control results are independent of ag-monitor/1 sampling evidence."""
+    keys = ('version', 'entry', 'request_id', 'requested_at', 'state', 'reason',
+            'finished_at', 'sampled_at', 'ok')
+    try:
+        if (not isinstance(data, dict) or not all(key in data for key in keys)
+                or type(data['version']) is not int or data['version'] != 1
+                or data['entry'] != entry or not isinstance(data['request_id'], str)
+                or re.fullmatch(r'[0-9a-f]{32}', data['request_id']) is None):
+            raise ValueError()
+        retry_timestamp(data['requested_at'])
+        state = data['state']
+        if state in ('queued', 'running'):
+            valid = all(data[key] is None for key in ('reason', 'finished_at', 'sampled_at', 'ok'))
+        elif state == 'finished':
+            retry_timestamp(data['finished_at'])
+            retry_timestamp(data['sampled_at'])
+            valid = data['reason'] is None and type(data['ok']) is bool
+        elif state == 'discarded':
+            retry_timestamp(data['finished_at'])
+            valid = (data['reason'] in ('auth_confirmation_required', 'entry_removed',
+                                       'config_changed', 'monitor_restarted')
+                     and data['sampled_at'] is None and data['ok'] is None)
+        else:
+            valid = False
+        if not valid:
+            raise ValueError()
+        return {key: data[key] for key in keys}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise ValueError('请求状态格式、版本或入口不正确') from None
+
+
+def validate_retry_watch(data):
+    # A marker advertises capability only; ag still checks process/lock/liveness.
+    if not isinstance(data, dict):
+        raise ValueError('请求追踪能力标记损坏')
+    if 'retry_tracking_version' not in data:
+        return None
+    if type(data['retry_tracking_version']) is not int or data['retry_tracking_version'] != 1:
+        raise ValueError('请求追踪版本不受支持')
+    if not isinstance(data.get('entries'), dict):
+        raise ValueError('请求追踪能力标记损坏')
+    retry_timestamp(data.get('heartbeat_at'))
+    for name, row in data['entries'].items():
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name)
+                or not isinstance(row, dict) or row.get('source') not in ('legacy', 'named')
+                or row['source'] == 'legacy' and name != 'default'
+                or row.get('pause_reason') not in (None, 'auth', 'host_key')):
+            raise ValueError('请求追踪来源不正确')
+    return data
+
+
 def validate_monitor(data):
     def require(condition):
         if not condition:

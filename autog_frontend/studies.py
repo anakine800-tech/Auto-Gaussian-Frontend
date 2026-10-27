@@ -26,7 +26,7 @@ from urllib.parse import unquote, urlsplit
 from .geometry import SYMBOLS, parse_xyz, xyz_frame
 from .inputs import parse_input
 from .optimization import parse_optimization
-from .monitor import validate_monitor
+from .monitor import validate_monitor, validate_retry_status, validate_retry_watch, retry_timestamp
 from .log_search import search_log, MAX_LOG_BYTES
 from .vibrations import parse_log_modes
 from .study_summary import parse_sections, energy_basis
@@ -1050,17 +1050,47 @@ class Studies:
         except (UnicodeError, ValueError, RecursionError):
             raise StudyError('快照格式不正确') from None
 
+    def monitor_control(self, parts):
+        try:
+            raw = self.read(parts, 2*1024*1024)
+        except StudyError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        try:
+            data = json.loads(raw.decode('utf-8'), parse_float=finite_float,
+                              parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+            if not isinstance(data, dict):
+                raise ValueError()
+            return data
+        except (UnicodeError, ValueError, RecursionError):
+            raise StudyError('请求控制记录格式不正确') from None
+
     def monitors(self, configured=()):
+        watch, watch_error = None, None
+        try:
+            value = self.monitor_control(('.ag-monitor', 'watch.json'))
+            if value is not None:
+                watch = validate_retry_watch(value)
+            if watch is not None:
+                age = (datetime.now(timezone.utc) - retry_timestamp(watch['heartbeat_at'])).total_seconds()
+                if not 0 <= age <= 90:
+                    watch_error = '监控心跳已陈旧，请求结果尚未确认'
+        except (StudyError, ValueError, TypeError, OverflowError):
+            watch_error = '请求追踪能力标记不可用'
         names = set(configured)
         names.update(name for name, _ in self.names(('.ag-monitor',), directories=True)
                      if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name))
-        legacy = any(name == 'latest.json' for name, _ in self.names(('.ag-monitor',)))
+        marker_entries = watch['entries'] if watch else {}
+        names.update(marker_entries)
+        legacy = (any(name in ('latest.json', 'retry-status.json') for name, _ in self.names(('.ag-monitor',)))
+                  or marker_entries.get('default', {}).get('source') == 'legacy')
         if legacy or not names:
             names.add('default')
         rows = []
         named_dirs = {n for n, _ in self.names(('.ag-monitor',), directories=True)}
         for name in sorted(names):
-            named = name in named_dirs
+            named = name in named_dirs or marker_entries.get(name, {}).get('source') == 'named'
             sources = ['named'] if named or name != 'default' or not legacy else []
             if name == 'default' and legacy:
                 sources.append('legacy')
@@ -1075,6 +1105,24 @@ class Studies:
                         raise StudyError('快照集群名称与目录不一致')
                 except StudyError as exc:
                     row['error'] = str(exc)
+                marker_source = marker_entries.get(name, {}).get('source')
+                row.update(retry_tracking_supported=bool(watch and not watch_error
+                           and len(sources) == 1 and marker_source == source),
+                           retry_status=None, retry_status_error=watch_error)
+                try:
+                    parts = ('.ag-monitor', name) if source == 'named' else ('.ag-monitor',)
+                    status = self.monitor_control((*parts, 'retry-status.json'))
+                    if status is not None:
+                        row['retry_status'] = validate_retry_status(status, name)
+                        if watch is None:
+                            row['retry_status_error'] = '请求追踪能力标记不可用'
+                    # Removed entries have no current marker, but their terminal
+                    # result remains bound to this exact safe cache layout.
+                    if len(sources) > 1 or marker_source is not None and marker_source != source:
+                        row['retry_status_error'] = '请求来源不唯一或与监控标记不一致'
+                except (StudyError, ValueError, TypeError, OverflowError):
+                    row['retry_tracking_supported'] = False
+                    row['retry_status_error'] = '请求状态不可用；监控快照仍独立显示'
                 rows.append(row)
         return dict(clusters=rows)
 

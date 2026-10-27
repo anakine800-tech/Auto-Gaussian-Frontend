@@ -154,7 +154,7 @@ test('T128 states, notes and errors have separate presentation',async({page})=>{
 test('T128 retry queued uses token and exact fields; repeated clicks stay enabled',async({page})=>{
  await setupRetry(page);const payloads:unknown[]=[];
  await page.route('**/api/monitor/retry',async r=>{payloads.push(r.request().postDataJSON());expect(r.request().headers()['x-ag-token']).toBeTruthy();await r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}});});
- const button=page.getByRole('button',{name:'立即重新采样'});await button.click();await expect(page.getByRole('tabpanel')).toContainText('已请求，等待采样');
+ const button=page.getByRole('button',{name:'立即重新采样'});await button.click();await expect(page.getByRole('tabpanel')).toContainText('已登记，等待采样');
  await button.click();await expect.poll(()=>payloads.length).toBe(2);await expect(button).toBeEnabled();
  expect(payloads).toEqual([{cluster:'default',auth_fixed:false},{cluster:'default',auth_fixed:false}]);
 });
@@ -168,7 +168,7 @@ for(const reason of ['auth','host_key'] as const)test(`T128 paused ${reason} nee
  await expect.poll(()=>payloads.length).toBe(1);expect(payloads).toEqual([{cluster:'default',auth_fixed:true}]);await expect(dialog).not.toBeVisible();
 });
 for(const [result,reason,message] of [
- ['already_queued',null,'已在等待，结果见下一份快照'],['in_progress',null,'正在采样，结果见下一份快照'],
+ ['already_queued',null,'沿用既有请求，等待采样'],['in_progress',null,'已合并当前采样，等待结果'],
  ['refused','monitor_not_running','监控未运行，未登记请求'],['refused','auth_confirmation_required','需要先确认已修复认证问题'],
 ] as const)test(`T128 retry feedback ${result} ${reason}`,async({page})=>{
  await setupRetry(page);await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:'default',result,reason,requested_at:null}}));
@@ -184,7 +184,7 @@ for(const changed of [true,false])test(`T128 fast monitor polling ends on ${chan
  page.on('request',r=>{const path=new URL(r.url()).pathname;if(path==='/api/monitor')reads++;else if(path.startsWith('/api/')&&r.method()==='GET')otherReads.push(path);});
  await setupRetry(page,data);await expect.poll(()=>reads).toBe(1);await expect(page.getByRole('table',{name:'待取回作业表'})).toBeVisible();
  await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}}));
- const oldReads=otherReads.length;await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.getByRole('tabpanel')).toContainText('已请求');
+ const oldReads=otherReads.length;await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.getByRole('tabpanel')).toContainText('已登记');
  const advanceMonitor=async(ms:number,count:number)=>{
   // Wait for this response to render before advancing the clock again: the
   // next timeout is scheduled after fetch completes, not when it starts.
@@ -289,4 +289,142 @@ for(const reason of ['auth','host_key'] as const)test(`T147 ${reason} confirmati
  const data=retryRows();data[0].snapshot!.sampling={...data[3].snapshot!.sampling!,pause_reason:reason};await setupRetry(page,data);
  await page.getByRole('button',{name:'立即重新采样'}).click();
  await expect(page.getByRole('dialog').locator('p')).toHaveText(`上次因${reason==='auth'?'SSH 认证失败':'主机指纹变化'}而暂停。请确认问题已修复后重新采样；失败后将继续暂停。`);
+});
+
+const trackedId='a'.repeat(32),otherId='b'.repeat(32);
+function retryStatus(entry='default',id=trackedId,state:'queued'|'running'|'finished'|'discarded'='queued'):NonNullable<ClusterRow['retry_status']>{
+ return {version:1,entry,request_id:id,requested_at:iso,state,reason:null,finished_at:state==='finished'?iso:null,sampled_at:state==='finished'?iso:null,ok:state==='finished'?true:null};
+}
+async function trackedSetup(page:Page,data=retryRows()){
+ data[0].retry_tracking_supported=true;data[0].retry_status=retryStatus();
+ await setupRetry(page,data);
+ await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:r.request().postDataJSON().cluster,result:'queued',reason:null,requested_at:iso,request_id:trackedId}}));
+ await page.getByRole('button',{name:'立即重新采样'}).click();
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('已登记，等待采样');
+ return data;
+}
+async function localPoll(page:Page,ms=3000){
+ const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/monitor');
+ await page.clock.runFor(ms);await response;
+ // Wait for React to commit the response before advancing the fake clock.
+ await page.waitForTimeout(10);
+}
+for(const ok of [true,false])test(`T151 queued running finished ${ok} uses control result not snapshot`,async({page})=>{
+ const data=await trackedSetup(page),old=data[0].snapshot!.sampled_at;
+ data[0].retry_status=retryStatus('default',trackedId,'running');await localPoll(page);
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('正在执行本次采样');
+ data[0].snapshot!.sampled_at=new Date(now+8000).toISOString();await localPoll(page);
+ await expect(page.locator('.jobs-heading')).toContainText('每 3 秒');
+ data[0].snapshot!.sampled_at=old;data[0].retry_status={...retryStatus('default',trackedId,'finished'),ok};
+ await localPoll(page);await expect(page.locator('.server-retry [role=status]')).toHaveText(ok?'本次采样完成':'本次采样失败，请查看采样错误');
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+});
+for(const [reason,message] of [
+ ['auth_confirmation_required','需先确认认证问题已修复'],['entry_removed','入口已移除'],
+ ['config_changed','配置已变化，旧请求未执行'],['monitor_restarted','监控已重启，本次请求结果尚未确认'],
+] as const)test(`T151 discarded ${reason} ends on next read without a new sample`,async({page})=>{
+ const data=await trackedSetup(page),before=data[0].snapshot!.sampled_at;
+ data[0].retry_status={...retryStatus('default',trackedId,'discarded'),reason,finished_at:iso};
+ if(reason==='entry_removed'){data[0].snapshot=null;data[0].error='尚无快照';data[0].retry_tracking_supported=false;}
+ await localPoll(page);await expect(page.locator('.server-retry [role=status]')).toHaveText(message);
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+ if(data[0].snapshot)expect(data[0].snapshot.sampled_at).toBe(before);
+ await expect(page.getByRole('tabpanel')).not.toContainText(trackedId);
+});
+test('T151 running then monitor restart ends fast polling with unconfirmed result and no registration',async({page})=>{
+ let reads=0,writes=0;
+ page.on('request',r=>{const path=new URL(r.url()).pathname;if(path==='/api/monitor')reads++;if(path==='/api/monitor/retry')writes++;});
+ const data=await trackedSetup(page),before=structuredClone(data[0].snapshot);
+ data[0].retry_status=retryStatus('default',trackedId,'running');await localPoll(page);
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('正在执行本次采样');
+ await expect(page.locator('.jobs-heading')).toContainText('每 3 秒');
+ data[0].retry_status={...retryStatus('default',trackedId,'discarded'),reason:'monitor_restarted',finished_at:new Date(now+6000).toISOString()};
+ await localPoll(page);
+ const message=page.locator('.server-retry [role=status]');
+ await expect(message).toHaveText('监控已重启，本次请求结果尚未确认');
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+ expect(reads).toBe(3);expect(writes).toBe(1);expect(data[0].snapshot).toEqual(before);
+ // The terminal result stops fast reads immediately, without waiting 120 s.
+ // The next ordinary read must preserve uncertainty and never register again.
+ await page.clock.runFor(29999);expect(reads).toBe(3);expect(writes).toBe(1);
+ await localPoll(page,1);expect(reads).toBe(4);expect(writes).toBe(1);
+ await expect(message).toHaveText('监控已重启，本次请求结果尚未确认');
+ expect(data[0].snapshot).toEqual(before);
+});
+test('T151 entries and sources are independent and card messages survive switching',async({page})=>{
+ const data=await trackedSetup(page);
+ await page.getByRole('button',{name:'选择服务器 batch'}).click();
+ await page.getByRole('button',{name:'立即重新采样'}).click();
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('已登记，等待采样');
+ data[1].retry_status=retryStatus('batch',trackedId,'finished');
+ data[0].source='legacy';data[0].retry_status=retryStatus('default',trackedId,'finished');
+ await localPoll(page);await expect(page.locator('.server-retry [role=status]')).toHaveText('本次采样完成');
+ await expect(page.locator('.jobs-heading')).toContainText('每 3 秒');
+ data[0].source='named';data[0].retry_status=retryStatus();
+ await localPoll(page);await page.getByRole('button',{name:'选择服务器 default'}).click();
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('已登记，等待采样');
+ data[0].retry_status=retryStatus('default',trackedId,'finished');await localPoll(page);
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+});
+test('T151 replaced id in the same second is unconfirmed',async({page})=>{
+ const data=await trackedSetup(page);
+ data[0].retry_status=retryStatus('default',otherId,'finished');await localPoll(page);
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('本次请求结果无法确认');
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+});
+for(const unavailable of ['missing','stale','network'] as const)test(`T151 ${unavailable} times out then accepts late matching terminal on normal polling`,async({page})=>{
+ const data=await trackedSetup(page);let reads=0,writes=1;
+ page.on('request',r=>{if(new URL(r.url()).pathname==='/api/monitor/retry')writes++;});
+ await page.route('**/api/monitor',r=>{reads++;return unavailable==='network'?r.abort():r.fulfill({json:{clusters:data}});});
+ if(unavailable==='missing')data[0].retry_status=null;
+ if(unavailable==='stale'){data[0].retry_status=retryStatus('default',trackedId,'finished');data[0].retry_status_error='监控心跳已陈旧，请求结果尚未确认';}
+ for(let i=0;i<40;i++){
+  await page.clock.runFor(3000);await expect.poll(()=>reads).toBe(i+1);
+  if(unavailable==='network')await expect(page.getByText('Failed to fetch')).toBeVisible();
+  else await page.waitForTimeout(10);
+ }
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('等待超时，结果尚未确认');
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');expect(writes).toBe(1);
+ data[0].retry_status=retryStatus('default',trackedId,'finished');data[0].retry_status_error=null;
+ await page.route('**/api/monitor',r=>r.fulfill({json:{clusters:data}}));await localPoll(page,30000);
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('本次采样完成');expect(writes).toBe(1);
+});
+test('T151 late old registration cannot start polling or overwrite a newer refusal after card switches',async({page})=>{
+ await setupRetry(page);let release!:()=>void,calls=0;
+ const pending=new Promise<void>(resolve=>{release=resolve;});
+ await page.route('**/api/monitor/retry',async r=>{
+  calls++;if(calls===1){await pending;await r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso,request_id:trackedId}});}
+  else await r.fulfill({json:{entry:'default',result:'refused',reason:'monitor_not_running',requested_at:null,request_id:null}});
+ });
+ await page.getByRole('button',{name:'立即重新采样'}).click();await expect.poll(()=>calls).toBe(1);
+ await page.getByRole('button',{name:'选择服务器 batch'}).click();await page.getByRole('button',{name:'选择服务器 default'}).click();
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('正在请求…');
+ await page.getByRole('button',{name:'立即重新采样'}).click();
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('监控未运行，未登记请求');
+ const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/monitor/retry');release();await response;
+ await page.clock.runFor(9000);await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('监控未运行，未登记请求');expect(calls).toBe(2);
+});
+test('T151 legacy new snapshot explicitly cannot identify the request',async({page})=>{
+ const data=await setupRetry(page);await page.route('**/api/monitor/retry',r=>r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso}}));
+ await page.getByRole('button',{name:'立即重新采样'}).click();await expect(page.locator('.server-retry [role=status]')).toContainText('旧后端无法精确追踪');
+ data[0].snapshot!.sampled_at=new Date(now+4000).toISOString();await localPoll(page);
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('已收到新采样，无法精确对应本次请求');
+});
+for(const request_id of [null,'invalid',3])test(`T151 malformed tracking id ${request_id} never polls fast`,async({page})=>{
+ await setupRetry(page);let writes=0;
+ await page.route('**/api/monitor/retry',r=>{writes++;return r.fulfill({json:{entry:'default',result:'queued',reason:null,requested_at:iso,request_id}});});
+ await page.getByRole('button',{name:'立即重新采样'}).click();
+ await expect(page.locator('.server-retry [role=status]')).toContainText('无效的重试 JSON');
+ await page.clock.runFor(9000);await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');expect(writes).toBe(1);
+});
+for(const width of [1440,390])test(`T151 synthetic terminal feedback screenshot ${width}`,async({page},info)=>{
+ await page.setViewportSize({width,height:860});const data=await trackedSetup(page);
+ data[0].retry_status={...retryStatus('default',trackedId,'discarded'),reason:'config_changed',finished_at:iso};
+ await localPoll(page);await expect(page.locator('.server-retry [role=status]')).toHaveText('配置已变化，旧请求未执行');
+ if(width===390){
+  await page.locator('.server-retry').evaluate(el=>el.scrollIntoView({block:'center'}));
+  await page.screenshot({path:info.outputPath(`t151-terminal-${width}.png`)});
+ }
+ else await page.screenshot({path:info.outputPath(`t151-terminal-${width}.png`),fullPage:true});
 });

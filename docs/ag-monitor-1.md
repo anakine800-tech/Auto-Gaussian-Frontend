@@ -211,7 +211,7 @@ cluster 必须是启动时查询的入口；两个字段缺少、多余或类型
 暂停入口只有页面内二次确认后才传 true。重试不限频、不占用现有操作锁，合并由 ag 负责。
 15 秒超时或无效 JSON 均返回错误，不自动重试。
 
-ag JSON 原样返回以下字段，退出码 queued / already_queued / in_progress 为 0，refused 为 1：
+ag JSON 返回以下已知字段（未知附加键忽略），退出码 queued / already_queued / in_progress 为 0，refused 为 1：
 
 ```text
 entry: 当前入口名
@@ -221,5 +221,60 @@ requested_at: UTC ISO 时间 | null
 ```
 
 前三种 result 的 reason 为 null；refused 必须带原因。前端校验字段、入口与退出码，
-不从人类输出推断成功。请求发出后只加速本机 `/api/monitor`，每 3 秒读取；对应入口
-sampled_at 改变或满 120 秒后恢复每 30 秒。其他 Study / Attempt 请求保持原有节奏。
+不从人类输出推断成功。仅受理结果加速本机 `/api/monitor`，每 3 秒读取；追踪及旧后端
+兜底见 T151。其他 Study / Attempt 请求保持原有 30 秒节奏。
+
+
+## T151：请求控制状态与 API 包装字段
+
+配套生产端：T149 合并提交 `06f3dfe2d4a62452bbd003a51cd3472c427834a1`。
+控制文件与 `ag-monitor/1` 快照分开读取，不往快照插入请求状态，也不依据控制文件改变占用数据。
+`GET /api/monitor` 每个 ClusterRow 可含：
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| retry_tracking_supported | boolean；同根、心跳年龄 0–90 秒、唯一 name/source 的版本 1 标记可用 |
+| retry_status | 下述对象或 null；来自该来源的独立控制文件 |
+| retry_status_error | string 或 null；只表示请求状态读取/来源/能力问题，不覆盖 snapshot/error |
+
+根部 `.ag-monitor/watch.json` 的 `retry_tracking_version` 必须为整数 1；
+`entries[name].source` 为 `legacy` 或 `named`。legacy 仅可绑定 default；named 使用确切入口名。
+legacy 控制结果读取 `.ag-monitor/retry-status.json`，named 读取
+`.ag-monitor/<name>/retry-status.json`。无快照或入口从 watch 移除后，仍保留该位置的结果行。
+双 default 来源不按显示名或时间选取；来源歧义不能开启追踪。
+控制读取复用描述符相对路径、`O_NOFOLLOW`、普通文件检查及每文件 2 MiB 上限。
+标记/状态的已知字段严格校验，未知附加键忽略，坏记录只使请求结果不可用。
+
+retry_status 字段：version=1、entry、32 位小写十六进制 request_id、UTC requested_at、
+state、reason、finished_at、sampled_at、ok。queued/running 的 reason 和后三项均为 null；
+finished 的 finished_at/sampled_at 为 UTC 时间，ok 为真实布尔值，reason=null；
+discarded 的 finished_at 为 UTC 时间，sampled_at/ok=null，reason 为下列四种之一。
+
+| reason | 页面反馈 |
+| --- | --- |
+| auth_confirmation_required | 需先确认认证问题已修复 |
+| entry_removed | 入口已移除 |
+| config_changed | 配置已变化，旧请求未执行 |
+| monitor_restarted | 监控已重启，本次请求结果尚未确认 |
+
+`monitor_restarted` 也可能来自重启前已进入 running 的请求：可能已经查询，但没有可确认的发布完成结果。
+前端因此显示结果尚未确认，不据此断言未执行；匹配该终态仍立即结束快速轮询，不自动重新登记。
+
+只有能力可用时，固定 argv 为 `ag monitor --retry <入口> --json --track`，
+auth_fixed=true 追加 `--auth-fixed`；追踪前再次通过现有 clusters 查询核对 study 根。
+标记只说明能力，ag 自己判断进程是否运行、请求能否受理。浏览器 POST 字段与权限保持原样。
+追踪响应增加 request_id：受理必须为有效标识，refused 必须为 null；无标识不能降级冒充追踪受理。
+旧命令仍只返回原四字段。登记 15 秒超时、退出码不符、JSON 无效或参数不支持均不再登记第二次。
+
+页面以 name + source + request_id 对应终态。finished/ok=true 显示“本次采样完成”，
+ok=false 显示“本次采样失败，请查看采样错误”；discarded 显示上述原因，两者都在下一次读取结束快速轮询。
+不同标识显示“本次请求结果无法确认”；缺记录、心跳陈旧和网络暂断保持未知，最多等待 120 秒，
+超时显示“等待超时，结果尚未确认”。普通 30 秒读取继续接收同一标识的迟到结果。
+旧四字段响应以新快照结束等待时，只显示“已收到新采样，无法精确对应本次请求”。
+请求消息按入口来源保存，切卡不串结果；旧登记响应先核对操作序号再改变文案或轮询。
+不展示内部标识，不自动重登记、停止 ag 或取消作业。
+
+本地配套验收使用隔离导出的上述后端源码，以 `T151_BACKEND_SOURCE=<EXPORTED_BACKEND>/ag/src`
+运行 `python -B -m unittest tests.test_server_monitor.PairedBackendTests -v`。
+配置替身调用真实 CLI，假 Transport 走真实锁、控制文件、sample/publish；无默认配置、真实研究或 SSH。
+未指定该显式源码路径时，普通测试跳过此独立配套项。正式服务兼容性留给后续发布部署单。

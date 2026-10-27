@@ -1,7 +1,13 @@
 import type {AttemptSummary,Document} from './api';
 import {object} from './api';
 import {capacityGroups} from './capacity-overview';
-export type ClusterRow={name:string;source:string;ambiguous:boolean;snapshot:Monitor|null;error:string|null};
+export type RetryStatus={version:1;entry:string;request_id:string;requested_at:string;state:'queued'|'running'|'finished'|'discarded';reason:null|'auth_confirmation_required'|'entry_removed'|'config_changed'|'monitor_restarted';finished_at:string|null;sampled_at:string|null;ok:boolean|null};
+export type ClusterRow={name:string;source:string;ambiguous:boolean;snapshot:Monitor|null;error:string|null;retry_tracking_supported?:boolean;retry_status?:RetryStatus|null;retry_status_error?:string|null};
+export function retryTerminal(status:RetryStatus){
+ if(status.state==='finished')return status.ok?'本次采样完成':'本次采样失败，请查看采样错误';
+ if(status.state!=='discarded')return null;
+ return status.reason==='auth_confirmation_required'?'需先确认认证问题已修复':status.reason==='entry_removed'?'入口已移除':status.reason==='config_changed'?'配置已变化，旧请求未执行':'监控已重启，本次请求结果尚未确认';
+}
 export function clusterLabel(row:Pick<ClusterRow,'name'|'snapshot'>){
  const name=row.snapshot?.cluster?.display_name;
  return name?`${name}（${row.name}）`:row.name;

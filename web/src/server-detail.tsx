@@ -1,11 +1,10 @@
-import {useRef,useState} from 'react';
-import {amount,nodeAllocation,orderedResourceTiers,resourceWalltimeLabel,safeIdentity} from './jobs-data';
+import {useState} from 'react';
+import {amount,nodeAllocation,orderedResourceTiers,resourceWalltimeLabel,retryTerminal,safeIdentity} from './jobs-data';
 import type {Job,ServerModel} from './jobs-data';
 import {routeHash} from './routing';
 import {SnapshotProgress,WalltimeProgress} from './job-progress';
 import {localTime,nextSampleText,pauseReason} from './server-cards';
 import {actionToken} from './actions';
-import {retryMonitor} from './api';
 import {Collapsible,DataTable,Drawer,ErrorNotice,readPreference,savePreference,StatusBadge} from './ui';
 function NodeAllocation({name,label,total,assigned,unit=''}:{name:string;label:string;total:number|null|undefined;assigned:number|null|undefined;unit?:string}){
  const value=nodeAllocation(total,assigned);
@@ -15,22 +14,13 @@ function NodeAllocation({name,label,total,assigned,unit=''}:{name:string;label:s
   </>}
  </span>;
 }
-export function ServerDetail({model:m,revision,now,onRetry}:{model:ServerModel;revision:number;now:number;onRetry:()=>void}){
+export function ServerDetail({model:m,revision,now,onRetry,retryMessage}:{model:ServerModel;revision:number;now:number;onRetry:(authFixed:boolean)=>void;retryMessage:string}){
  const d=m.row.snapshot,c=d?.cluster,own=d?.own,summary=m.hasData?c?.job_summary:null;
  const preference='server-mine:'+m.row.name;
  const [onlyMine,setOnlyMine]=useState(()=>readPreference(preference,'false')==='true');
  const slurm=m.scheduler==='SLURM';
- const [confirm,setConfirm]=useState(false),[retryMessage,setRetryMessage]=useState(''),requestNumber=useRef(0);
- async function retry(authFixed:boolean){
-  if(!actionToken)return;
-  setConfirm(false);const request=++requestNumber.current;setRetryMessage('正在请求…');
-  try{
-   const result=await retryMonitor(m.row.name,authFixed,actionToken);
-   if(['queued','already_queued','in_progress'].includes(result.result))onRetry();
-   const message=result.result==='queued'?'已请求，等待采样':result.result==='already_queued'?'已在等待，结果见下一份快照':result.result==='in_progress'?'正在采样，结果见下一份快照':result.reason==='monitor_not_running'?'监控未运行，未登记请求':result.reason==='auth_confirmation_required'?'需要先确认已修复认证问题':`ag：${result.result}（${result.reason??'未提供原因'}）`;
-   if(request===requestNumber.current)setRetryMessage(message);
-  }catch(e){if(request===requestNumber.current)setRetryMessage(e instanceof Error?e.message:'重试请求失败');}
- }
+ const [confirm,setConfirm]=useState(false);
+ function retry(authFixed:boolean){setConfirm(false);onRetry(authFixed);}
  function jobTable(title:string,rows:Job[],running:boolean){
   const total=running?summary?.running_jobs:summary?.queued_jobs,cores=running?summary?.running_cores:summary?.queued_cores;
   const others=running?summary?.others_running_jobs:summary?.others_queued_jobs,otherCores=running?summary?.others_running_cores:summary?.others_queued_cores;
@@ -66,6 +56,8 @@ export function ServerDetail({model:m,revision,now,onRetry}:{model:ServerModel;r
    {c?.storage_error&&<ErrorNotice>存储查询失败：{c.storage_error}</ErrorNotice>}
    {c?.expiry_warning&&<ErrorNotice>{c.expiry_warning}</ErrorNotice>}
   </section>}
+  {m.row.retry_status_error&&<ErrorNotice>{m.row.retry_status_error}</ErrorNotice>}
+  {!retryMessage&&!m.row.retry_status_error&&m.row.retry_status&&<p role="status">最近请求：{retryTerminal(m.row.retry_status)??'结果尚未确认'}</p>}
   {m.row.error&&<ErrorNotice>{m.row.error}</ErrorNotice>}
   <div className="server-detail-heading"><h2>{m.label}</h2><label><input type="checkbox" checked={onlyMine} onChange={e=>{setOnlyMine(e.target.checked);savePreference(preference,String(e.target.checked));}}/>只看本人</label></div>
   {!c?.jobs&&<p className="muted">旧快照：全员作业、内存和硬件分段未知；以下保留已采集的本人作业。</p>}

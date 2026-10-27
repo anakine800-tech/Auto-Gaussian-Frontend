@@ -21,9 +21,16 @@ export function coreHours(m:Record<string,unknown>):string{
  return `${Number((m.cores*(h+min/60+sec/3600)).toFixed(3))} 核时（核数 × walltime）`;
 }
 
-export async function retryMonitor(cluster:string,auth_fixed:boolean,token:string):Promise<{entry:string;result:'queued'|'already_queued'|'in_progress'|'refused';reason:null|'monitor_not_running'|'auth_confirmation_required'|'unknown_entry';requested_at:string|null}>{
+export type MonitorRetry={entry:string;result:'queued'|'already_queued'|'in_progress'|'refused';reason:null|'monitor_not_running'|'auth_confirmation_required'|'unknown_entry';requested_at:string|null;request_id?:string|null};
+export async function retryMonitor(cluster:string,auth_fixed:boolean,token:string):Promise<MonitorRetry>{
  const response=await fetch('/api/monitor/retry',{method:'POST',headers:{'Content-Type':'application/json','X-AG-Token':token},body:JSON.stringify({cluster,auth_fixed})});
  const body=await response.json();
  if(!response.ok)throw Error(body.detail??`重试请求失败 (${response.status})`);
- return body;
+ const utc=(v:unknown)=>typeof v==='string'&&v.includes('T')&&/(Z|\+00:00)$/.test(v)&&Number.isFinite(Date.parse(v));
+ if(!object(body)||body.entry!==cluster||!['queued','already_queued','in_progress','refused'].includes(body.result as string)
+  ||!['monitor_not_running','auth_confirmation_required','unknown_entry',null].includes(body.reason as string|null)
+  ||(body.result==='refused')!==(body.reason!==null)||!(body.requested_at===null||utc(body.requested_at))
+  ||('request_id' in body&&(body.result==='refused'?body.request_id!==null:
+   typeof body.request_id!=='string'||!/^[0-9a-f]{32}$/.test(body.request_id)||!utc(body.requested_at))))throw Error('ag monitor 返回无效的重试 JSON；未自动重试');
+ return body as MonitorRetry;
 }
