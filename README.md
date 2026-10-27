@@ -1,9 +1,11 @@
-# Auto-Gaussian Study Viewer v4.6.2
+# Auto-Gaussian Study Viewer v4.6.3
 
-**配合 ag 4.6.2 使用。** This is the v4.6.2 release candidate; see [CHANGELOG.md](CHANGELOG.md#v462).
+**配合 ag 4.6.3 使用。** This is the v4.6.3 release candidate; see [CHANGELOG.md](CHANGELOG.md#v463).
 
 标准部署为每台电脑一个操作模式前端（8773）+ 一个监控服务；重启操作版后令牌会更换，已打开页面须刷新。
-T146 只准备版本号和文档；发布 PR 经监督方审阅后按负责人明确授权发布，两个 v4.6.2 tag 核验完成后才进入获准的部署。
+T153 只准备版本号和文档；最终配套验收使用负责人合并 T152 后的真实完整合并 SHA。
+功能合入不会自动更新运行检出或服务；发布 PR 经监督方审阅并由负责人合并后，后续同号 tag/Release、部署及服务重启分别按明确指示执行。
+两个 v4.6.3 tag 核验及对应机器实际部署验收完成后，才记录该机器已升级。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
 构建依赖 setuptools 83.0.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
@@ -80,7 +82,7 @@ source installation above serves the explicit Vite build.
 
 ### 可选只读启动
 
-1. 同步已合并的前端 main，按上面的步骤安装并构建；配合 ag 4.6.0 使用。
+1. 在获准部署时同步已核对的前端 v4.6.3 发布提交，按上面的步骤安装并构建；配合 ag 4.6.3 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -676,16 +678,23 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.6.2 includes T145 (#44): explicit PBS node selection for opted-in Gaussian
-entries, original priority groups and overall order, half/quarter matching tiers,
-availability/restriction reasons, expiry checks and an immutable target summary.
-The selector never preselects a node; the backend independently checks live
-admission and actual placement. Existing four/five-card layouts, node allocation
-details, Gaussian-only/resource fields and Slurm views remain compatible.
-Node state and allocated slots are separate; unknown or stale values are labelled,
-and slots do not measure CPU utilization. Existing snapshots supply the data;
-no per-node remote query is added. Pair this release with backend ag 4.6.2 (#345).
-Both T146 PRs change only versions, the backend version assertion and documentation.
+V4.6.3 includes the already merged T147 (#46) and T151 (#47). Slurm availability
+uses actual Idle cores, with Other shown separately and missing or contradictory
+resources left unknown. Hardware notes are deduplicated; refused retries do not
+start fast polling; expired sampling plans show that the next round is awaited;
+the pause confirmation wording is corrected.
+Retry feedback uses an explicit capability marker and matches the entry, source
+and request. Matching terminal results immediately stop fast polling; old backends
+retain the four-key response and explicitly cannot confirm the exact request.
+A monitor restart leaves the request result unconfirmed, even if it was running;
+the viewer never automatically registers it again. Existing four/five-card layouts,
+PBS node selection/allocation, Slurm, study and evidence views remain compatible.
+
+Pair this release with backend ag 4.6.3: T148 improves monitor accuracy, T149 adds
+request tracking and configuration rereads, and T150 fills missing resource lines
+for new Gaussian inputs in ag. The frontend does not backfill existing Attempts
+or add automatic operations. T153 changes only version constants and documentation,
+including the shared restart wording and completed T146/T147 task entries.
 Read-only defaults, path/size checks and ag-mediated actions stay unchanged.
 The existing UI passes no approval/policy option, so its submit and cancel
 actions still use the Mac dialog.
@@ -694,8 +703,10 @@ actions still use the Mac dialog.
 工具状态、采用记录、`termination` 和 `n_imag` 均不等于科学验收。
 
 Supervisory review is required for both release PRs. Merge and publication follow
-explicit owner authorization; `v4.6.2` tags point to each release PR's exact merge
-commit, using that repository's v4.6.2 CHANGELOG section. Deployment requires
+explicit owner authorization; `v4.6.3` tags must point to each release PR's exact merge
+commit, using that repository's v4.6.3 CHANGELOG section. Those future merge commits
+are recorded only after they exist. Final pairing uses the verified full T152 merge
+SHA, never the older T149 merge or a floating main. Deployment requires
 authorization and follows OPERATIONS.md after both tags are verified. Complete all required
 development-machine checks, including existing-entry regression and the observation
 period specified in the private deployment message, before configuring the research
@@ -715,19 +726,31 @@ ledger display checks on the research computer. Preserve that study in a contain
 directory beginning with `_`. An existing study's first `--upgrade-catalog` requires
 owner approval; upgraded catalogs cannot be downgraded or opened/written with 4.5.x.
 Release preparation is not deployment; deployment results are recorded separately.
+Research-computer maintenance reuses its existing private plan; the target version
+and maintenance window require later instructions. Historical release notes do not
+establish the current deployed version or acceptance status of either machine.
+
+### 版本核对
+
+在对应隔离安装或获准部署的 Python 环境核对包元数据、实际导入模块与网页包，
+三处版本均应为 `4.6.3`；同时核对 `pyproject.toml`，不再沿用 runtime 4.0.0 例外。
+模块路径必须指向本次选定安装或源码，版本字符串本身不能证明运行服务已经升级。
+
+```sh
+.venv/bin/python -B -c 'import importlib.metadata as m, autog_frontend; print(m.version("autog-frontend-readonly")); print(autog_frontend.__version__); print(autog_frontend.__file__)'
+.venv/bin/python -B -c 'import json, pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]); print(json.loads(pathlib.Path("web/package.json").read_text())["version"])'
+```
 
 ### 已知问题
 
 - 串行采样经转发一轮可能 100–150 秒；手动重试先等当前入口完成，再耗时采目标入口。睡眠停采、醒来自动恢复，初期可能因网络未就绪失败或退避。
-- 醒来后下次采样时间可能显示过去时间；核数/内存都未知时 notes 重复；重试被拒仍短暂快速轮询；暂停确认文案有多余空格，均留待后续修正。
-- `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0，本次按工单保留；Python 包元数据和网页包版本为 4.6.2。
 - catalog v2 升级后不能降级，也不能删行降级；G0、扫描和登记状态都是诊断与记录，不代表科学验收。
-- Slurm“其他”状态核数被计入空闲，后续独立修正。
 - 证据库冷启动在已有测量中约 2.5 秒，实际耗时随本机与文件数量变化。
 - source-map-js 的临时 override 待 PostCSS 自然升级到修复版本后删除。
 
 ## 版本历史
 
+- **v4.6.3（发布准备）**：T147 监控资源与重试显示修补、T151 请求终态与重启未确认反馈；三处版本统一，清理已完成待办，配合 ag 4.6.3。[发布说明](CHANGELOG.md#v463)
 - **v4.6.2**：T145 显式 PBS 节点选择、原优先级分组与顺序、半数/四分之一及资源摘要；旧入口不显示不适用控件，配合 ag 4.6.2。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T143 PBS 节点分配明细、四/五卡响应式布局、可选四/六档与单作业时限显示；配合 ag 4.6.1，复用快照并明确未知及非实时状态。[发布说明](CHANGELOG.md#v461)
 - **v4.6.0**：T132 catalog v2 通道与候选只读面板、负责人声明及容器目录过滤；配合 ag 4.6.0，catalog 升级不可降级。[发布说明](CHANGELOG.md#v460)
