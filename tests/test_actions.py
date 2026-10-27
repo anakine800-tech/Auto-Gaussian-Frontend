@@ -512,7 +512,7 @@ class MonitorRetryTests(unittest.TestCase):
         invalid = [[], {}, dict(good,entry='batch'), dict(good,result='success'),
                    dict(good,reason='auth'), dict(good,reason='monitor_not_running'),
                    dict(good,result='refused'), dict(good,requested_at=3),
-                   dict(good,requested_at='2026-10-25T03:00:00+08:00'), dict(good,extra=True)]
+                   dict(good,requested_at='2026-10-25T03:00:00+08:00')]
         for data in invalid:
             self.control(retry_response=data)
             before = len(self.calls()); response = self.retry()
@@ -520,7 +520,7 @@ class MonitorRetryTests(unittest.TestCase):
             self.assertIn('无效的重试 JSON',response.json()['detail'])
             self.assertEqual(len(self.calls()),before+1)
         self.control(retry_stdout='not json', retry_stderr='Synthetic ag failure', retry_code=2)
-        self.assertIn('Synthetic ag failure',self.retry().json()['detail'])
+        self.assertNotIn('Synthetic ag failure',self.retry().json()['detail'])
         actions = Actions(Studies(self.studies), self.fake)
         for error in (subprocess.TimeoutExpired('fake',15), OSError('synthetic')):
             with patch('autog_frontend.actions.subprocess.run',side_effect=error) as run:
@@ -557,3 +557,66 @@ class MonitorRetryTests(unittest.TestCase):
             finally:
                 (self.root/'retry-release').touch()
                 self.assertEqual(retry.result(timeout=5).status_code,200)
+
+    def tracking_marker(self, source='named', **extra):
+        from datetime import datetime, timezone
+        cache = self.studies/'.ag-monitor'; cache.mkdir(exist_ok=True)
+        if source == 'named':
+            (cache/'latest.json').unlink(missing_ok=True)  # Remove only the synthetic legacy fixture.
+        value = dict(pid=1, heartbeat_at=datetime.now(timezone.utc).isoformat(),
+                     retry_tracking_version=1, entries={'default': dict(source=source, pause_reason=None)}) | extra
+        (cache/'watch.json').write_text(json.dumps(value))
+        return cache
+
+    def test_t151_tracking_argv_and_forward_fields(self):
+        for source in ('legacy', 'named'):
+            self.tracking_marker(source)
+            for result in ('queued', 'already_queued', 'in_progress', 'refused'):
+                for auth in (False, True):
+                    good = dict(entry='default', result=result, reason='monitor_not_running' if result=='refused' else None,
+                                requested_at=None if result=='refused' else '2026-01-01T00:00:00Z',
+                                request_id=None if result=='refused' else 'a'*32)
+                    self.control(retry_response=good | dict(extra='ignored'),retry_code=1 if result=='refused' else 0)
+                    before=len(self.calls());response=self.retry(dict(cluster='default',auth_fixed=auth))
+                    self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json(),good)
+                    self.assertEqual(len(self.calls()),before+1)
+                    self.assertEqual(self.calls()[-1],['monitor','--retry','default','--json','--track']+(['--auth-fixed'] if auth else []))
+        (self.studies/'.ag-monitor/watch.json').unlink()
+        old = {k:v for k,v in good.items() if k!='request_id'}
+        self.control(retry_response=old|dict(extra='ignored'),retry_code=1)
+        self.assertEqual(self.retry().json(),old)
+        self.assertNotIn('--track',self.calls()[-1])
+
+    def test_t151_invalid_tracking_never_falls_back(self):
+        self.tracking_marker()
+        good = dict(entry='default', result='queued', reason=None, requested_at='2026-01-01T00:00:00Z',request_id='a'*32)
+        for invalid in ({k:v for k,v in good.items() if k!='request_id'},dict(good,request_id=None),
+                        dict(good,request_id='A'*32),dict(good,request_id=3),dict(good,requested_at=None),
+                        dict(good,result='refused',reason='monitor_not_running')):
+            self.control(retry_response=invalid,retry_code=1 if invalid['result']=='refused' else 0)
+            before=len(self.calls());self.assertEqual(self.retry().status_code,502)
+            self.assertEqual(len(self.calls()),before+1);self.assertIn('--track',self.calls()[-1])
+        self.control(retry_stdout='unsupported --track',retry_code=2)
+        before=len(self.calls());self.assertEqual(self.retry().status_code,502);self.assertEqual(len(self.calls()),before+1)
+        actions=Actions(Studies(self.studies),self.fake)
+        with patch.object(actions,'settings',return_value=actions.clusters), patch('autog_frontend.actions.subprocess.run',side_effect=subprocess.TimeoutExpired('fake',15)) as run:
+            with self.assertRaises(StudyError) as caught:actions.retry_monitor(dict(cluster='default',auth_fixed=False))
+            self.assertEqual(caught.exception.status,504);self.assertEqual(run.call_count,1)
+            self.assertIn('--track',run.call_args.args[0])
+
+    def test_t151_invalid_stale_and_ambiguous_markers_use_one_legacy_call(self):
+        for extra in (dict(retry_tracking_version=2), dict(retry_tracking_version=True),
+                      dict(heartbeat_at='2026-01-01T00:00:00Z'), dict(entries={'default':dict(source='unsafe')})):
+            self.tracking_marker(**extra)
+            before=len(self.calls());self.assertEqual(self.retry().status_code,200)
+            self.assertEqual(len(self.calls()),before+1);self.assertNotIn('--track',self.calls()[-1])
+        cache=self.tracking_marker('legacy');(cache/'default').mkdir()
+        before=len(self.calls());self.assertEqual(self.retry().status_code,200)
+        self.assertEqual(len(self.calls()),before+1);self.assertNotIn('--track',self.calls()[-1])
+
+    def test_t151_changed_ag_root_refuses_before_registration(self):
+        self.tracking_marker()
+        self.control(root_matches=False)
+        before=len(self.calls());response=self.retry()
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertEqual(len(self.calls()),before)

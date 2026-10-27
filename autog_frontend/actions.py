@@ -16,6 +16,7 @@ import subprocess
 import threading
 
 from .studies import StudyError, component
+from .monitor import retry_timestamp
 
 MAX_BODY = 1024 * 1024
 TIMEOUT = 420
@@ -163,19 +164,32 @@ class Actions:
                 or type(payload['auth_fixed']) is not bool):
             raise StudyError('Expected a configured cluster and boolean auth_fixed only', 400)
         cluster = payload['cluster']
+        # Use the same descriptor-protected resolver as GET /api/monitor, rooted
+        # at the Studies instance verified against the selected ag at startup.
+        rows = [row for row in self.store.monitors(self.clusters)['clusters'] if row['name'] == cluster]
+        track = len(rows) == 1 and rows[0]['retry_tracking_supported']
+        if track:
+            # A long-running viewer can outlive an ag configuration edit. Check
+            # the root again before using a marker to select the new argv.
+            try:
+                self.settings()
+            except ValueError:
+                raise StudyError('无法核对 ag 与页面的监控根目录；未登记请求', 409) from None
         argv = [self.executable, 'monitor', '--retry', cluster, '--json']
+        if track:
+            argv.append('--track')
         if payload['auth_fixed']:
             argv.append('--auth-fixed')
         try:
             process = subprocess.run(argv, shell=False, capture_output=True, timeout=15, check=False)
         except subprocess.TimeoutExpired:
-            raise StudyError('ag monitor 重试请求超时（15 秒）；未自动重试，结果请查看下一份快照', 504) from None
+            raise StudyError('ag monitor 重试请求超时（15 秒）；未自动重试，结果尚未确认', 504) from None
         except OSError:
             raise StudyError('无法运行 ag monitor 重试请求；未自动重试', 502) from None
         try:
             data = json.loads(process.stdout)
             if (not isinstance(data, dict)
-                    or set(data) != {'entry', 'result', 'reason', 'requested_at'}
+                    or not {'entry', 'result', 'reason', 'requested_at'} <= set(data)
                     or data['entry'] != cluster
                     or data['result'] not in ('queued', 'already_queued', 'in_progress', 'refused')
                     or data['reason'] not in (None, 'monitor_not_running', 'auth_confirmation_required', 'unknown_entry')):
@@ -185,16 +199,18 @@ class Actions:
                 raise ValueError()
             requested = data['requested_at']
             if requested is not None:
-                if (not isinstance(requested, str) or 'T' not in requested
-                        or datetime.fromisoformat(requested.replace('Z', '+00:00')).utcoffset()
-                        != timezone.utc.utcoffset(None)):
+                retry_timestamp(requested)
+            if track or 'request_id' in data:
+                request_id = data['request_id']
+                if (refused and request_id is not None or not refused and (
+                        not isinstance(request_id, str) or re.fullmatch(r'[0-9a-f]{32}', request_id) is None
+                        or requested is None)):
                     raise ValueError()
-            return data
+            keys = ('entry', 'result', 'reason', 'requested_at')
+            return {key: data[key] for key in (*keys, 'request_id') if key in data}
         except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
-            output = process.stderr.decode('utf-8', errors='replace').strip()
-            if not output:
-                output = process.stdout.decode('utf-8', errors='replace').strip()
-            raise StudyError('ag monitor 返回无效的重试 JSON；未自动重试' + (f'：{output}' if output else ''), 502) from None
+            # Raw control output can contain internal IDs or local paths.
+            raise StudyError('ag monitor 返回无效的重试 JSON；未自动重试，结果尚未确认', 502) from None
 
     def node_targets(self):
         result = {}
