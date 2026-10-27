@@ -227,6 +227,7 @@ for(const [idle,other] of [[4,12],[0,16],[16,0]])test(`T147 Slurm Idle ${idle} O
  await expect(cpu.locator('.resource-idle')).toHaveAttribute('width',String(100*idle/32));
  if(other)await expect(cpu.locator('.resource-other')).toHaveAttribute('width',String(100*other/32));
  else await expect(cpu.locator('.resource-other')).toHaveCount(0);
+ await expect(page.getByLabel('资源颜色图例')).toHaveText(`深色 = 本人浅色 = 他人空白 = 空闲${other?'灰色 = 其他状态':''}斜纹 = 未知`);
 });
 test('T147 Slurm missing and contradictory CPU counts stay unknown',()=>{
  const data=retryRows(),h=data[1].snapshot!.cluster!.hardware!;
