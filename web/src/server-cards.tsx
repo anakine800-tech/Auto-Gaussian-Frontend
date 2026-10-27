@@ -24,7 +24,7 @@ export function ResourceBar({label,value,unit=''}:{label:string;value:Segments;u
  <span className="resource-caption">{text}</span></span>;
 }
 export function ServerCards({models,selected,onSelect,now}:{models:ServerModel[];selected:string;onSelect:(key:string)=>void;now:number}){
- return <><div className="resource-legend" aria-label="资源颜色图例">{[['mine','深色 = 本人'],['others','浅色 = 他人'],['idle','空白 = 空闲'],['other','灰色 = 其他状态'],['unknown','斜纹 = 未知']].map(([kind,label])=><span key={kind}><i className={'legend-'+kind}/>{label}</span>)}</div><div className={'server-cards'+(models.length===5?' server-cards-five':'')}>{models.map(m=>{
+ return <><div className="resource-legend" aria-label="资源颜色图例">{[['mine','深色 = 本人'],['others','浅色 = 他人'],['idle','空白 = 空闲'],...(models.some(m=>(m.cores?.other??0)>0)?[['other','灰色 = 其他状态']]:[]),['unknown','斜纹 = 未知']].map(([kind,label])=><span key={kind}><i className={'legend-'+kind}/>{label}</span>)}</div><div className={'server-cards'+(models.length===5?' server-cards-five':'')}>{models.map(m=>{
   const d=m.row.snapshot,c=d?.cluster,failed=!!m.row.error||!d?.ok,summary=m.hasData?c?.job_summary:null;
   const ownKnown=!!d?.ok&&m.group.own!=null;
   const shared=[...m.group.group.filter(r=>r.name!==m.row.name).map(r=>models.find(x=>x.row===r)?.label??r.name),...m.group.missing];
