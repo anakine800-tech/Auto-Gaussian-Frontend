@@ -8,7 +8,7 @@ import {orderedResourceTiers,resourceWalltimeLabel,resourceWalltimeSeconds} from
 export const actionToken=document.querySelector<HTMLMetaElement>('meta[name="ag-token"]')?.content;
 type Tier={cores:number;mem_mb:number};
 type NodeOption={fraction:string;cores:number;mem_gb:number;tier:string|null};
-type NodeRow={name:string;priority:number;status:string;reason:string;options:NodeOption[]};
+type NodeRow={name:string;priority_group:number|null;order:number;priority:number;status:string;reason:string;options:NodeOption[]};
 type NodeTargets={fresh:boolean;valid_until?:string;nodes:NodeRow[];error?:string};
 const nodeStates:Record<string,string>={available:'可选',occupied:'已占用',insufficient:'资源不足',stale:'数据过期',restricted:'特殊核限制待验证',forbidden:'不允许提交',unknown:'数据未知'};
 type Cluster={node_targeting?:{default_fraction:'1/2';fractions:string[]};scheduler:string;tiers:Record<string,Tier>;max_walltime?:string;programs_enabled:{gaussian:boolean;xtb:boolean;crest:boolean}};
@@ -85,10 +85,10 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  {targeted&&<fieldset aria-label="PBS 节点选择"><legend>指定 PBS 节点</legend>
  <p>排序仅供参考，请明确选择节点。slots 表示调度分配核数，不是 CPU 实时利用率。提交前将重新检查，节点变化时停止。</p>
  {!fresh&&<p role="alert">节点数据过期或不可用，请刷新状态。{targets?.error}</p>}
- <label>目标节点 <select required aria-label="目标节点" value={target} onChange={e=>chooseNode(e.target.value)}><option value="" disabled>请选择具体节点</option>{targets?.nodes.map(n=><option key={n.name} value={n.name} disabled={!fresh||n.status!=='available'}>{n.priority}. {n.name} · {nodeStates[n.status]??'数据未知'}</option>)}</select></label>
+ <label>目标节点 <select required aria-label="目标节点" value={target} onChange={e=>chooseNode(e.target.value)}><option value="" disabled>请选择具体节点</option>{targets?.nodes.map(n=><option key={n.name} value={n.name} disabled={!fresh||n.status!=='available'}>{n.order}. {n.name} · {n.priority_group===null?'禁止节点':`优先级组 ${n.priority_group}`} · {nodeStates[n.status]??'数据未知'}</option>)}</select></label>
  <label>核数比例 <select aria-label="核数比例" value={fraction} onChange={e=>chooseNode(target,e.target.value)}><option value="1/2">1/2（默认）</option><option value="1/4">1/4</option></select></label>
  {target&&<p aria-live="polite">{option?.tier?`申请 ${option.cores} 核 / ${option.mem_gb} GB · ${option.tier}`:'此比例无可用档位或资源不足'}</p>}
- <ul>{targets?.nodes.map(n=><li key={n.name}>{n.name}：{fresh?(nodeStates[n.status]??'数据未知'):'非实时'} · {n.reason}</li>)}</ul>
+ <ul>{targets?.nodes.map(n=><li key={n.name}>{n.name}：{fresh?(nodeStates[n.status]??'数据未知'):'非实时'} · {n.priority_group===null?'禁止节点':`优先级组 ${n.priority_group}`} · 顺序 {n.order} · {n.reason}</li>)}</ul>
  </fieldset>}
  <label>档位 <select disabled={targeted} aria-label="档位" value={tier} onChange={e=>{setTier(e.target.value);setInput(resources(input,tiers[e.target.value]));}}>{orderedResourceTiers(tiers).map(([name,value])=><option key={name} value={name}>{name} · {value.cores} 核 · {value.mem_mb} MB</option>)}</select></label>
  <label>walltime <input required aria-label="walltime" aria-describedby="attempt-walltime-limit" aria-invalid={!!walltimeError} value={walltime} pattern="[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]" onChange={e=>setWalltime(e.target.value)}/></label>

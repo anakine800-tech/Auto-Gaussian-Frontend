@@ -55,7 +55,12 @@ def validate_targets(data, cluster, tiers):
         if (not isinstance(row, dict) or not isinstance(row.get('name'), str)
                 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,62}', row['name'])
                 or '..' in row['name'] or row['name'].endswith('.') or row['name'] in names
-                or type(row.get('priority')) is not int or row['priority'] != i + 1
+                or type(row.get('order')) is not int or row['order'] != i + 1
+                or type(row.get('priority')) is not int or row['priority'] != row['order']
+                or 'priority_group' not in row
+                or (row['priority_group'] is None and row.get('status') != 'forbidden')
+                or (row['priority_group'] is not None and
+                    (type(row['priority_group']) is not int or row['priority_group'] < 1))
                 or row.get('status') not in statuses or not isinstance(row.get('reason'), str)
                 or len(row['reason']) > 400 or not isinstance(row.get('options'), list)
                 or len(row['options']) > 2):

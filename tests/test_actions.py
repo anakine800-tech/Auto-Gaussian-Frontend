@@ -64,7 +64,7 @@ class ActionsTests(unittest.TestCase):
         targets=dict(schema='ag-node-targets/1',cluster='default',fresh=True,
                      sampled_at=datetime.now(timezone.utc).isoformat(),
                      valid_until=(datetime.now(timezone.utc)+timedelta(minutes=3)).isoformat(),
-                     nodes=[dict(name='compute-a',priority=1,status='available',reason='Synthetic candidate',
+                     nodes=[dict(name='compute-a',priority_group=1,order=1,priority=1,status='available',reason='Synthetic candidate',
                                  options=[dict(fraction='1/2',cores=24,mem_gb=48,tier='general')])])
         return actions,targets
 
@@ -79,6 +79,26 @@ class ActionsTests(unittest.TestCase):
                 self.assertFalse(actions.node_targets()['default']['fresh'])
         bad=json.loads(json.dumps(targets));bad['nodes'][0]['options'][0]['cores']=999
         with self.assertRaises(ValueError):validate_targets(bad,'default',actions.clusters['default']['tiers'])
+
+    def test_node_priority_groups_and_order_contract(self):
+        actions,targets=self.node_setup()
+        prototype=targets['nodes'][0]
+        groups=[1,1,1,2,3,4,4,5,None]
+        targets['nodes']=[prototype|dict(name=name,priority_group=groups[i],order=i+1,priority=i+1,
+                         status='forbidden' if name=='I' else 'restricted' if name=='G' else 'available')
+                         for i,name in enumerate('ABCDEFGHI')]
+        tiers=actions.clusters['default']['tiers']
+        self.assertEqual(validate_targets(targets,'default',tiers),targets)
+        self.assertEqual([r['priority_group'] for r in targets['nodes']],groups)
+        for change in ({'priority_group':None},{'priority_group':0},{'priority_group':True},
+                       {'priority_group':'1'},{'order':2},{'order':True},{'priority':2}):
+            bad=json.loads(json.dumps(targets));bad['nodes'][0].update(change)
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                validate_targets(bad,'default',tiers)
+        for missing in ('priority_group','order'):
+            bad=json.loads(json.dumps(targets));del bad['nodes'][0][missing]
+            with self.subTest(missing=missing),self.assertRaises(ValueError):
+                validate_targets(bad,'default',tiers)
 
     def test_explicit_node_fields_validate_before_draft_and_bind_fixed_argv(self):
         actions,targets=self.node_setup()
