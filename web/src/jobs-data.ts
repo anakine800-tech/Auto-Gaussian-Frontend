@@ -6,7 +6,7 @@ export type ClusterRow={name:string;source:string;ambiguous:boolean;snapshot:Mon
 export function retryTerminal(status:RetryStatus){
  if(status.state==='finished')return status.ok?'本次采样完成':'本次采样失败，请查看采样错误';
  if(status.state!=='discarded')return null;
- return status.reason==='auth_confirmation_required'?'需先确认认证问题已修复':status.reason==='entry_removed'?'入口已移除':status.reason==='config_changed'?'配置已变化，旧请求未执行':'监控已重启，旧请求未执行';
+ return status.reason==='auth_confirmation_required'?'需先确认认证问题已修复':status.reason==='entry_removed'?'入口已移除':status.reason==='config_changed'?'配置已变化，旧请求未执行':'监控已重启，本次请求结果尚未确认';
 }
 export function clusterLabel(row:Pick<ClusterRow,'name'|'snapshot'>){
  const name=row.snapshot?.cluster?.display_name;

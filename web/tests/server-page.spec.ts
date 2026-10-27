@@ -321,7 +321,7 @@ for(const ok of [true,false])test(`T151 queued running finished ${ok} uses contr
 });
 for(const [reason,message] of [
  ['auth_confirmation_required','需先确认认证问题已修复'],['entry_removed','入口已移除'],
- ['config_changed','配置已变化，旧请求未执行'],['monitor_restarted','监控已重启，旧请求未执行'],
+ ['config_changed','配置已变化，旧请求未执行'],['monitor_restarted','监控已重启，本次请求结果尚未确认'],
 ] as const)test(`T151 discarded ${reason} ends on next read without a new sample`,async({page})=>{
  const data=await trackedSetup(page),before=data[0].snapshot!.sampled_at;
  data[0].retry_status={...retryStatus('default',trackedId,'discarded'),reason,finished_at:iso};
@@ -330,6 +330,26 @@ for(const [reason,message] of [
  await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
  if(data[0].snapshot)expect(data[0].snapshot.sampled_at).toBe(before);
  await expect(page.getByRole('tabpanel')).not.toContainText(trackedId);
+});
+test('T151 running then monitor restart ends fast polling with unconfirmed result and no registration',async({page})=>{
+ let reads=0,writes=0;
+ page.on('request',r=>{const path=new URL(r.url()).pathname;if(path==='/api/monitor')reads++;if(path==='/api/monitor/retry')writes++;});
+ const data=await trackedSetup(page),before=structuredClone(data[0].snapshot);
+ data[0].retry_status=retryStatus('default',trackedId,'running');await localPoll(page);
+ await expect(page.locator('.server-retry [role=status]')).toHaveText('正在执行本次采样');
+ await expect(page.locator('.jobs-heading')).toContainText('每 3 秒');
+ data[0].retry_status={...retryStatus('default',trackedId,'discarded'),reason:'monitor_restarted',finished_at:new Date(now+6000).toISOString()};
+ await localPoll(page);
+ const message=page.locator('.server-retry [role=status]');
+ await expect(message).toHaveText('监控已重启，本次请求结果尚未确认');
+ await expect(page.locator('.jobs-heading')).toContainText('每 30 秒');
+ expect(reads).toBe(3);expect(writes).toBe(1);expect(data[0].snapshot).toEqual(before);
+ // The terminal result stops fast reads immediately, without waiting 120 s.
+ // The next ordinary read must preserve uncertainty and never register again.
+ await page.clock.runFor(29999);expect(reads).toBe(3);expect(writes).toBe(1);
+ await localPoll(page,1);expect(reads).toBe(4);expect(writes).toBe(1);
+ await expect(message).toHaveText('监控已重启，本次请求结果尚未确认');
+ expect(data[0].snapshot).toEqual(before);
 });
 test('T151 entries and sources are independent and card messages survive switching',async({page})=>{
  const data=await trackedSetup(page);

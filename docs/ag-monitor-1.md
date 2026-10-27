@@ -255,7 +255,10 @@ discarded 的 finished_at 为 UTC 时间，sampled_at/ok=null，reason 为下列
 | auth_confirmation_required | 需先确认认证问题已修复 |
 | entry_removed | 入口已移除 |
 | config_changed | 配置已变化，旧请求未执行 |
-| monitor_restarted | 监控已重启，旧请求未执行 |
+| monitor_restarted | 监控已重启，本次请求结果尚未确认 |
+
+`monitor_restarted` 也可能来自重启前已进入 running 的请求：可能已经查询，但没有可确认的发布完成结果。
+前端因此显示结果尚未确认，不据此断言未执行；匹配该终态仍立即结束快速轮询，不自动重新登记。
 
 只有能力可用时，固定 argv 为 `ag monitor --retry <入口> --json --track`，
 auth_fixed=true 追加 `--auth-fixed`；追踪前再次通过现有 clusters 查询核对 study 根。
