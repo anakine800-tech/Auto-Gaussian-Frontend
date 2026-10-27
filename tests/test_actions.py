@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
-from autog_frontend.actions import Actions, resource_input
+from autog_frontend.actions import Actions, resource_input, validate_targets
 from autog_frontend.api import create_app
 from autog_frontend.studies import Studies, StudyError
 from autog_frontend.inputs import parse_input
@@ -52,6 +52,86 @@ class ActionsTests(unittest.TestCase):
 
     def control(self, **values):
         (self.root/'control.json').write_text(json.dumps(values))
+
+    def node_setup(self):
+        from datetime import datetime, timedelta, timezone
+        data=settings(self.studies)
+        row=data['clusters'][0]
+        row['node_targeting']=dict(default_fraction='1/2',fractions=['1/2','1/4'])
+        row['resources']['tiers']['general']=dict(cores=24,mem_gb=48)
+        self.control(clusters_response=data)
+        actions=Actions(Studies(self.studies),self.fake)
+        targets=dict(schema='ag-node-targets/1',cluster='default',fresh=True,
+                     sampled_at=datetime.now(timezone.utc).isoformat(),
+                     valid_until=(datetime.now(timezone.utc)+timedelta(minutes=3)).isoformat(),
+                     nodes=[dict(name='compute-a',priority_group=1,order=1,priority=1,status='available',reason='Synthetic candidate',
+                                 options=[dict(fraction='1/2',cores=24,mem_gb=48,tier='general')])])
+        return actions,targets
+
+    def test_node_query_fixed_argv_and_contract(self):
+        actions,targets=self.node_setup()
+        with patch('subprocess.run',return_value=Mock(returncode=0,stdout=json.dumps(targets))) as run:
+            self.assertEqual(actions.node_targets(),{'default':targets})
+            self.assertEqual(run.call_args.args[0],[str(self.fake),'nodes','--cluster','default','--json'])
+            self.assertFalse(run.call_args.kwargs['shell'])
+        for change in ({'fresh':'true'},{'cluster':'other'},{'valid_until':'invalid'},{'nodes':[{}]}):
+            with patch('subprocess.run',return_value=Mock(returncode=0,stdout=json.dumps(targets|change))):
+                self.assertFalse(actions.node_targets()['default']['fresh'])
+        bad=json.loads(json.dumps(targets));bad['nodes'][0]['options'][0]['cores']=999
+        with self.assertRaises(ValueError):validate_targets(bad,'default',actions.clusters['default']['tiers'])
+
+    def test_node_priority_groups_and_order_contract(self):
+        actions,targets=self.node_setup()
+        prototype=targets['nodes'][0]
+        groups=[1,1,1,2,3,4,4,5,None]
+        targets['nodes']=[prototype|dict(name=name,priority_group=groups[i],order=i+1,priority=i+1,
+                         status='forbidden' if name=='I' else 'restricted' if name=='G' else 'available')
+                         for i,name in enumerate('ABCDEFGHI')]
+        tiers=actions.clusters['default']['tiers']
+        self.assertEqual(validate_targets(targets,'default',tiers),targets)
+        self.assertEqual([r['priority_group'] for r in targets['nodes']],groups)
+        for change in ({'priority_group':None},{'priority_group':0},{'priority_group':True},
+                       {'priority_group':'1'},{'order':2},{'order':True},{'priority':2}):
+            bad=json.loads(json.dumps(targets));bad['nodes'][0].update(change)
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                validate_targets(bad,'default',tiers)
+        for missing in ('priority_group','order'):
+            bad=json.loads(json.dumps(targets));del bad['nodes'][0][missing]
+            with self.subTest(missing=missing),self.assertRaises(ValueError):
+                validate_targets(bad,'default',tiers)
+
+    def test_explicit_node_fields_validate_before_draft_and_bind_fixed_argv(self):
+        actions,targets=self.node_setup()
+        payload=dict(action='prepare',study='butane-demo',attempt='prepared',cluster='default',input=gjf(),
+                     tier='general',walltime='01:00:00',label='target',relation='derived_from',method_basis='Synthetic only',
+                     target_node='compute-a',node_fraction='1/2')
+        before={p:p.read_bytes() for p in (self.study/'attempts').rglob('*') if p.is_file()}
+        with patch.object(actions,'node_targets',return_value={'default':targets}):
+            for change in ({'target_node':''},{'target_node':'compute-a:ppn=999'},{'node_fraction':'1/8'}, {'tier':'mini'}):
+                with self.assertRaises(StudyError):actions.execute(payload|change)
+                self.assertFalse((self.study/'drafts').exists())
+            missing=dict(payload);del missing['target_node']
+            with self.assertRaises(StudyError):actions.execute(missing)
+            with patch.object(actions,'run',return_value=({'stdout':'{}','stderr':'','exit_code':1,'timed_out':False},None)) as run:
+                actions.execute(payload)
+                self.assertEqual(run.call_args.args[0][-4:],['--target-node','compute-a','--node-fraction','1/2'])
+        self.assertEqual({p:p.read_bytes() for p in before},before)
+
+    def test_target_occupation_expiry_and_special_restrictions_never_create_draft(self):
+        actions,targets=self.node_setup()
+        payload=dict(action='prepare',study='butane-demo',attempt='prepared',cluster='default',input=gjf(),
+                     tier='general',walltime='01:00:00',label='target',relation='derived_from',method_basis='Synthetic only',
+                     target_node='compute-a',node_fraction='1/2')
+        for status in ('occupied','restricted','forbidden','unknown','insufficient','stale'):
+            targets['nodes'][0]['status']=status
+            with patch.object(actions,'node_targets',return_value={'default':targets}):
+                with self.assertRaises(StudyError):actions.execute(payload)
+        targets['nodes'][0]['status']='available';targets['valid_until']='2000-01-01T00:00:00+00:00'
+        with patch.object(actions,'node_targets',return_value={'default':targets}):
+            with self.assertRaises(StudyError):actions.execute(payload)
+        self.assertFalse((self.study/'drafts').exists())
+        # Opt-out entries reject even apparently valid extra selection fields.
+        self.assertEqual(self.prepare(target_node='compute-a',node_fraction='1/2').status_code,400)
 
     def test_startup_version_required_and_default_has_no_actions(self):
         self.assertEqual(self.calls(), [['--version']])

@@ -39,6 +39,51 @@ def resource_input(text, tier):
     return f'%nprocshared={tier["cores"]}\n%mem={tier["mem_mb"]}MB\n' + body
 
 
+
+def validate_targets(data, cluster, tiers):
+    statuses = {'available', 'occupied', 'insufficient', 'stale', 'restricted', 'forbidden', 'unknown'}
+    if (not isinstance(data, dict) or data.get('schema') != 'ag-node-targets/1'
+            or data.get('cluster') != cluster or type(data.get('fresh')) is not bool
+            or not isinstance(data.get('nodes'), list) or len(data['nodes']) > 256):
+        raise ValueError('Invalid node candidate response')
+    if data['fresh']:
+        stamp = datetime.fromisoformat(data['valid_until'])
+        if stamp.tzinfo is None:
+            raise ValueError('Node candidate expiry requires timezone')
+    names = set()
+    for i, row in enumerate(data['nodes']):
+        if (not isinstance(row, dict) or not isinstance(row.get('name'), str)
+                or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,62}', row['name'])
+                or '..' in row['name'] or row['name'].endswith('.') or row['name'] in names
+                or type(row.get('order')) is not int or row['order'] != i + 1
+                or type(row.get('priority')) is not int or row['priority'] != row['order']
+                or 'priority_group' not in row
+                or (row['priority_group'] is None and row.get('status') != 'forbidden')
+                or (row['priority_group'] is not None and
+                    (type(row['priority_group']) is not int or row['priority_group'] < 1))
+                or row.get('status') not in statuses or not isinstance(row.get('reason'), str)
+                or len(row['reason']) > 400 or not isinstance(row.get('options'), list)
+                or len(row['options']) > 2):
+            raise ValueError('Invalid node candidate row')
+        names.add(row['name']); fractions = set()
+        for option in row['options']:
+            if (not isinstance(option, dict) or option.get('fraction') not in ('1/2', '1/4')
+                    or option['fraction'] in fractions or type(option.get('cores')) is not int
+                    or option['cores'] < 1 or type(option.get('mem_gb')) is not int
+                    or option['mem_gb'] != option['cores'] * 2):
+                raise ValueError('Invalid node candidate resources')
+            fractions.add(option['fraction'])
+            if option.get('tier') is not None:
+                tier = tiers.get(option['tier'])
+                if tier != dict(cores=option['cores'], mem_mb=option['mem_gb'] * 800):
+                    raise ValueError('Node candidate tier does not match cluster resources')
+    return data
+
+
+def targets_fresh(data):
+    return data.get('fresh') is True and datetime.now(timezone.utc) < datetime.fromisoformat(data['valid_until'])
+
+
 class Actions:
     def __init__(self, store, executable=None):
         self.store = store
@@ -97,6 +142,10 @@ class Actions:
                     raise ValueError('Invalid ag program availability')
                 clusters[name] = dict(scheduler=row['scheduler'], tiers=tiers,
                                       programs_enabled={key: enabled[key] for key in ('gaussian', 'xtb', 'crest')})
+                if 'node_targeting' in row:
+                    if row['scheduler'] != 'pbs' or row['node_targeting'] != {'default_fraction':'1/2', 'fractions':['1/2','1/4']}:
+                        raise ValueError('Invalid node targeting capability')
+                    clusters[name]['node_targeting'] = row['node_targeting']
                 if 'max_walltime' in resources:
                     walltime_seconds(resources['max_walltime'])
                     clusters[name]['max_walltime'] = resources['max_walltime']
@@ -147,6 +196,21 @@ class Actions:
                 output = process.stdout.decode('utf-8', errors='replace').strip()
             raise StudyError('ag monitor 返回无效的重试 JSON；未自动重试' + (f'：{output}' if output else ''), 502) from None
 
+    def node_targets(self):
+        result = {}
+        for name, cluster in self.clusters.items():
+            if 'node_targeting' not in cluster:
+                continue
+            try:
+                response = subprocess.run([self.executable, 'nodes', '--cluster', name, '--json'],
+                                          shell=False, capture_output=True, timeout=15, check=False)
+                if response.returncode:
+                    raise ValueError('Cannot read node candidates')
+                result[name] = validate_targets(json.loads(response.stdout), name, cluster['tiers'])
+            except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+                result[name] = dict(fresh=False, nodes=[], error='节点候选不可用，请刷新状态核对；不会自动重试。')
+        return result
+
     def context(self, study, attempt):
         component(study); component(attempt)
         if study.startswith('-') or attempt.startswith('-'):
@@ -172,7 +236,7 @@ class Actions:
                 # A damaged input disables editing, not status/fetch/cancel.
                 pass
         return dict(state=status.get('state'), can_cancel=status.get('state') in ('submitted', 'running') or residue,
-                    source=source, clusters=self.clusters, manifest=manifest)
+                    source=source, clusters=self.clusters, manifest=manifest, node_targets=self.node_targets())
 
     def draft(self, study, label, text):
         name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '-' + label + '.gjf'
@@ -198,6 +262,9 @@ class Actions:
         fields = {'action', 'study', 'attempt'}
         if action == 'prepare':
             fields |= {'cluster', 'input', 'tier', 'walltime', 'label', 'relation', 'method_basis'}
+            selected = self.clusters.get(payload.get('cluster')) if isinstance(payload.get('cluster'), str) else None
+            if selected and 'node_targeting' in selected:
+                fields |= {'target_node', 'node_fraction'}
         elif action not in ('status', 'fetch', 'submit', 'cancel'):
             raise StudyError('Unsupported action', 400)
         if set(payload) != fields or any(not isinstance(v, str) or '\x00' in v for v in payload.values()):
@@ -232,11 +299,22 @@ class Actions:
                     raise StudyError('Invalid tier, walltime or method basis', 400)
                 if 'max_walltime' in cluster and duration > walltime_seconds(cluster['max_walltime']):
                     raise StudyError('walltime exceeds configured cluster maximum; ag remains the final resource guard', 400)
+                target_args = []
+                if 'node_targeting' in cluster:
+                    candidates = context['node_targets'][payload['cluster']]
+                    row = next((r for r in candidates['nodes'] if r['name'] == payload['target_node']), None)
+                    if not targets_fresh(candidates) or row is None or row['status'] != 'available':
+                        raise StudyError('Target node is unavailable or stale; no draft created', 409)
+                    option = next((o for o in row['options'] if o['fraction'] == payload['node_fraction']
+                                   and o['tier'] == payload['tier']), None)
+                    if option is None:
+                        raise StudyError('Selected node fraction must match a configured tier', 400)
+                    target_args = ['--target-node', row['name'], '--node-fraction', option['fraction']]
                 draft = self.draft(study, label, resource_input(payload['input'], tier))
                 argv = [self.executable, 'prepare', '--json', '--study', str(self.store.root / study),
                         '--template', 'gaussian', '--input', str(draft), '--cluster', payload['cluster'], '--tier', payload['tier'],
                         '--walltime', payload['walltime'], '--label', label, '--parent', attempt,
-                        '--relation', relation, '--method-basis', payload['method_basis']]
+                        '--relation', relation, '--method-basis', payload['method_basis']] + target_args
             else:
                 argv = [self.executable, action, '--json', attempt]
             result, pending = self.run(argv)
