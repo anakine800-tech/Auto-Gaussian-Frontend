@@ -71,7 +71,7 @@ export type Monitor={
  }|null;
  warnings:(Association&{kind:string;job_id:string|null;detail:string})[];
 };
-export type Segments={total:number;mine:number;others:number;idle:number}|null;
+export type Segments={total:number;mine:number;others:number;idle:number;other?:number}|null;
 // PBS state and scheduler allocation are independent. Missing/inconsistent
 // values cannot establish free capacity or a proportion (including 0/0).
 export function nodeAllocation(total:number|null|undefined,assigned:number|null|undefined){
@@ -85,6 +85,15 @@ export function nodeAllocation(total:number|null|undefined,assigned:number|null|
 export function segments(total:number|null|undefined,allocated:number|null|undefined,mine:number|null|undefined):Segments{
  if(total==null||allocated==null||mine==null||total<=0||mine<0||allocated<mine||allocated>total)return null;
  return {total,mine,others:allocated-mine,idle:total-allocated};
+}
+// sinfo Other is not Idle. Missing or contradictory CPU counts cannot
+// establish free capacity, even when total minus allocated is positive.
+function slurmSegments(h:Hardware|null|undefined,mine:number|null|undefined):Segments{
+ if(!h)return null;
+ const {cores_total:total,cores_allocated:allocated,cores_idle:idle,cores_other:other}=h;
+ if([total,allocated,idle,other,mine].some(v=>typeof v!=='number'||!Number.isFinite(v)||!Number.isInteger(v)||v<0))return null;
+ if(total===null||allocated===null||idle===null||other===null||mine==null||total<=0||mine>allocated||allocated+idle+other!==total)return null;
+ return {total,mine,others:allocated-mine,idle,other};
 }
 export const entryKey=(row:ClusterRow)=>JSON.stringify([row.name,row.source]);
 export const amount=(n:number|null|undefined)=>n==null?'未知':Number(n.toFixed(1)).toString();
@@ -107,9 +116,9 @@ export function serverModels(rows:ClusterRow[],now:number){
   const sort=(items:Job[],field:'start_time'|'qtime')=>[...items].sort((a,b)=>Number(!!b.mine)-Number(!!a.mine)||(Date.parse(a[field]??'')||Infinity)-(Date.parse(b[field]??'')||Infinity)||a.job_id.localeCompare(b.job_id));
   const nodes=state.hasData?cluster?.nodes??[]:[],known=scheduler!=='SLURM'&&cluster?.hardware_capacity_known!==false&&nodes.length>0&&nodes.every(n=>nodeAllocation(n.cores_total,n.cores_used).remaining!==null);
   const free=nodes.filter(n=>n.state==='free');
-  return {key:entryKey(row),row,label:clusterLabel(row)+(row.ambiguous?' · '+row.source:''),...state,group,scheduler,sampling:data?.sampling??null,notes:hardware?.notes??[],
+  return {key:entryKey(row),row,label:clusterLabel(row)+(row.ambiguous?' · '+row.source:''),...state,group,scheduler,sampling:data?.sampling??null,notes:[...new Set(hardware?.notes??[])],
    warningCount:(data?.warnings.length??0)+(hardware?.error?1:0)+(cluster?.storage_error?1:0)+(cluster?.expiry_warning?1:0),
-   cores:usable?segments(hardware?.cores_total,hardware?.cores_allocated,own?.cores_running):null,
+   cores:usable?(scheduler==='SLURM'?slurmSegments(hardware,own?.cores_running):segments(hardware?.cores_total,hardware?.cores_allocated,own?.cores_running)):null,
    memory:usable?segments(hardware?.mem_total_gb,hardware?.mem_allocated_gb,own?.mem_running_gb):null,
    running:sort(visible.filter(isRunning),'start_time'),queued:sort(visible.filter(isQueued),'qtime'),
    freeNodes:known?free.filter(n=>n.cores_used===0).length:null,totalNodes:nodes.length||null,

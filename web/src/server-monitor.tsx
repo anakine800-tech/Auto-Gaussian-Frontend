@@ -61,7 +61,7 @@ export function ServerMonitor({revision}:{revision:number}){
   const next=e.key==='ArrowRight'?(i+1)%models.length:e.key==='ArrowLeft'?(i+models.length-1)%models.length:e.key==='Home'?0:e.key==='End'?models.length-1:null;
   if(next!==null){e.preventDefault();setSelected(models[next].key);document.getElementById('server-tab-'+next)?.focus();}
  }}>{m.label}{' '}{m.warningCount>0&&<span className="server-warning-count">{m.warningCount} 条警告</span>}</button>)}</div>
- <div id="server-detail" role="tabpanel" aria-labelledby={'server-tab-'+models.indexOf(active)}><ServerDetail key={active.key} model={active} revision={tick} onRetry={()=>watchRetry(active)}/></div>
+ <div id="server-detail" role="tabpanel" aria-labelledby={'server-tab-'+models.indexOf(active)}><ServerDetail key={active.key} model={active} revision={tick} now={now} onRetry={()=>watchRetry(active)}/></div>
  </>}
  <Panel title="刚结束待取回" className="jobs-table"><p className="muted">仅列本地状态为 finished 的 Attempt；不按时间、队列消失或日志终止标记推断。请进入详情核对并取回。</p>
  {localErrors.map((e,i)=><ErrorNotice key={i}>{e}</ErrorNotice>)}{local===null?<p className="muted">{localErrors.length?'本地列表不可用':'读取本地 Attempt…'}</p>:<DataTable label="待取回作业表" rows={finished} rowKey={r=>r.study+':'+r.attempt.id} columns={[
