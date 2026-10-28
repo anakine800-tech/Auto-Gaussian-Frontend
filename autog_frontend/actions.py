@@ -67,6 +67,9 @@ def validate_targets(data, cluster, tiers):
                 or len(row['options']) > 2):
             raise ValueError('Invalid node candidate row')
         names.add(row['name']); fractions = set()
+        if 'selectable' in row and (type(row['selectable']) is not bool or
+                (row['selectable'] and row['status'] in ('forbidden', 'restricted'))):
+            raise ValueError('Invalid node selectability')
         for option in row['options']:
             if (not isinstance(option, dict) or option.get('fraction') not in ('1/2', '1/4')
                     or option['fraction'] in fractions or type(option.get('cores')) is not int
@@ -76,13 +79,59 @@ def validate_targets(data, cluster, tiers):
             fractions.add(option['fraction'])
             if option.get('tier') is not None:
                 tier = tiers.get(option['tier'])
-                if tier != dict(cores=option['cores'], mem_mb=option['mem_gb'] * 800):
+                if not tier or (tier['cores'], tier['mem_mb']) != (option['cores'], option['mem_gb'] * 800):
                     raise ValueError('Node candidate tier does not match cluster resources')
     return data
 
 
 def targets_fresh(data):
     return data.get('fresh') is True and datetime.now(timezone.utc) < datetime.fromisoformat(data['valid_until'])
+
+
+def node_selectable(row):
+    return row.get('selectable', row['status'] == 'available') is True
+
+
+def validate_capacity(data, cluster, tier, target, resources):
+    # Bind advice to the exact request and configured scheduler resources. Never
+    # derive a capacity verdict from the partition totals in the viewer.
+    if (not isinstance(data, dict) or data.get('cluster') != cluster or data.get('tier') != tier
+            or data.get('target_node') != target
+            or type(data.get('cores')) is not int or data['cores'] != resources['cores']
+            or type(data.get('mem_gb')) is not int or data['mem_gb'] != resources['mem_gb']
+            or type(data.get('snapshot_fresh')) is not bool
+            or not isinstance(data.get('nodes'), list) or len(data['nodes']) > 256):
+        raise ValueError('Capacity response does not match the request')
+    for key in ('sampled_at', 'valid_until'):
+        if data[key] is not None:
+            retry_timestamp(data[key])
+        elif data['snapshot_fresh']:
+            raise ValueError('Fresh capacity requires observation and expiry times')
+    clean = {key: data[key] for key in ('cluster', 'tier', 'target_node', 'cores', 'mem_gb',
+                                       'sampled_at', 'valid_until', 'snapshot_fresh')}
+    rows = []
+    for row in [data, *data['nodes']]:
+        if (not isinstance(row, dict) or row.get('availability') not in ('enough', 'queue', 'unknown', 'not_applicable')
+                or (row.get('fits_total') is not None and type(row['fits_total']) is not bool)
+                or not isinstance(row.get('reasons'), list) or len(row['reasons']) > 32
+                or any(not isinstance(v, str) or len(v) > 400 for v in row['reasons'])
+                or any(row.get(k) is not None and (not isinstance(row[k], str) or len(row[k]) > 400)
+                       for k in ('cpu_source', 'memory_source'))):
+            raise ValueError('Invalid capacity advice')
+        if (row['availability'] in ('enough', 'queue') and
+                (row.get('fits_total') is not True or not data['snapshot_fresh'])):
+            raise ValueError('Capacity advice lacks current fit evidence')
+        if row['availability'] == 'not_applicable' and row.get('fits_total') is not False:
+            raise ValueError('Capacity advice lacks total specification evidence')
+        value = {k: row.get(k) for k in ('availability', 'fits_total', 'reasons', 'cpu_source', 'memory_source')}
+        if row is data:
+            clean.update(value)
+        else:
+            if (not isinstance(row.get('name'), str) or not row['name'] or len(row['name']) > 256
+                    or (target is not None and row['name'] != target)):
+                raise ValueError('Invalid capacity node identity')
+            rows.append(value | {'name': row['name']})
+    return clean | {'nodes': rows}
 
 
 class Actions:
@@ -103,6 +152,10 @@ class Actions:
         self.clusters = self.settings()
         self.token = secrets.token_urlsafe(32)
         self.lock = threading.Lock()
+        # Serialize discovery so rapid form changes cannot repeatedly invoke an
+        # unsupported command. This never acquires/releases the operation lock.
+        self.capacity_lock = threading.Lock()
+        self.capacity_unavailable = False
 
     def settings(self):
         # ag owns configuration parsing. Root verification prevents actions on a
@@ -137,12 +190,17 @@ class Actions:
                     cores, memory = value['cores'], value['mem_gb']
                     if type(cores) is not int or cores < 1 or type(memory) is not int or memory < 1:
                         raise ValueError('Invalid ag resource tier')
-                    tiers[tier] = dict(cores=cores, mem_mb=memory * 800)
+                    tiers[tier] = dict(cores=cores, mem_gb=memory, mem_mb=memory * 800)
                 enabled = row['programs_enabled']
                 if any(type(enabled[key]) is not bool for key in ('gaussian', 'xtb', 'crest')):
                     raise ValueError('Invalid ag program availability')
                 clusters[name] = dict(scheduler=row['scheduler'], tiers=tiers,
                                       programs_enabled={key: enabled[key] for key in ('gaussian', 'xtb', 'crest')})
+                if 'default_tier' in resources:
+                    default = resources['default_tier']
+                    if not isinstance(default, str) or default not in tiers:
+                        raise ValueError('Invalid default resource tier')
+                    clusters[name]['default_tier'] = default
                 if 'node_targeting' in row:
                     if row['scheduler'] != 'pbs' or row['node_targeting'] != {'default_fraction':'1/2', 'fractions':['1/2','1/4']}:
                         raise ValueError('Invalid node targeting capability')
@@ -154,6 +212,47 @@ class Actions:
         except (OSError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError,
                 UnicodeError, json.JSONDecodeError, RecursionError) as exc:
             raise ValueError('Cannot query ag clusters and verify viewer study root') from exc
+
+    def capacity(self, payload):
+        fields = {'cluster', 'tier'}
+        if isinstance(payload, dict) and 'target_node' in payload:
+            fields.add('target_node')
+        if (not isinstance(payload, dict) or set(payload) != fields
+                or any(not isinstance(v, str) for v in payload.values())
+                or payload['cluster'] not in self.clusters):
+            raise StudyError('Expected a configured cluster, tier and optional target_node only', 400)
+        name, tier, target = payload['cluster'], payload['tier'], payload.get('target_node')
+        cluster = self.clusters[name]
+        if (tier not in cluster['tiers'] or
+                (target is not None and ('node_targeting' not in cluster or
+                 not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,62}', target) or '..' in target or target.endswith('.')))):
+            raise StudyError('Invalid capacity resource selection', 400)
+        resources = cluster['tiers'][tier]
+        unknown = dict(cluster=name, tier=tier, target_node=target, cores=resources['cores'],
+                       mem_gb=resources['mem_gb'], fits_total=None, availability='unknown',
+                       sampled_at=None, valid_until=None, snapshot_fresh=False,
+                       cpu_source=None, memory_source=None, nodes=[])
+        unavailable = unknown | dict(capability_unavailable=True,
+                                    reasons=['容量能力不可用；需配套支持 capacity 命令的 ag，更新后重启前端。'])
+        with self.capacity_lock:
+            if self.capacity_unavailable:
+                return unavailable
+            try:
+                if self.settings() != self.clusters:
+                    return unknown | dict(reasons=['ag 资源设置已变化，请重启前端；当前容量无法判断。'])
+                argv = [self.executable, 'capacity', '--cluster', name, '--tier', tier]
+                if target is not None:
+                    argv += ['--target-node', target]
+                argv += ['--json']
+                result = subprocess.run(argv, shell=False, capture_output=True, timeout=15, check=False)
+                if result.returncode == 2:
+                    self.capacity_unavailable = True
+                    return unavailable
+                if result.returncode:
+                    raise ValueError('Capacity query failed')
+                return validate_capacity(json.loads(result.stdout), name, tier, target, resources)
+            except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, OverflowError, RecursionError):
+                return unknown | dict(reasons=['容量读取失败或响应无法核对；未自动重试，可手动刷新容量。'])
 
     def retry_monitor(self, payload):
         # ag coalesces monitor requests; a long fetch must not block this local
@@ -319,7 +418,7 @@ class Actions:
                 if 'node_targeting' in cluster:
                     candidates = context['node_targets'][payload['cluster']]
                     row = next((r for r in candidates['nodes'] if r['name'] == payload['target_node']), None)
-                    if not targets_fresh(candidates) or row is None or row['status'] != 'available':
+                    if not targets_fresh(candidates) or row is None or not node_selectable(row):
                         raise StudyError('Target node is unavailable or stale; no draft created', 409)
                     option = next((o for o in row['options'] if o['fraction'] == payload['node_fraction']
                                    and o['tier'] == payload['tier']), None)
