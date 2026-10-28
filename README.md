@@ -352,8 +352,8 @@ CREST Attempt 默认展示已有 `facts.crest_diagnostics` 的摘要及四种状
 不进入 Gaussian 振动／优化解析。普通日志搜索、选择与浏览器后退继续可用。
 
 只读及操作模式均可查看已有来源；查看不调用 ag、不取回、不刷新 facts、不重试计算。
-合成配套样例的候选后端提交及未完成的合并依赖见
-[T160 合成检查说明](tests/fixtures/crest-diagnostics/README.md)。最终配套验收须等 T158、T159 合并；
+已合并后端提交、CLI 生成的合成样例与前端配套检查见
+[T160 合成检查说明](tests/fixtures/crest-diagnostics/README.md)。
 这里的本地合成检查不代表现场取回、实际研究页面观察或科学验收。
 
 ## 构象集合与 CREST 输出（T54）

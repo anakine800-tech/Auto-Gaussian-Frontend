@@ -5,12 +5,20 @@ backend source; the output records that checkout's full provenance commit.
 """
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
-from unittest.mock import patch
-
-from ag import facts
 
 WATER = '3\n-5.0\nO 0 0 0\nH 0 0 1\nH 0 1 0\n'
+
+# Run the real CLI parser/handler in a separate interpreter, with the same
+# module entry point as python -m ag.cli and an explicit remote-call guard.
+CLI = '''import runpy, sys
+from unittest.mock import patch
+sys.argv = ['ag', 'facts', sys.argv[1], '--json']
+with patch('ag.transport.SSHTransport', side_effect=AssertionError('offline only')):
+    runpy.run_module('ag.cli', run_name='__main__')
+'''
 
 
 def generate():
@@ -42,17 +50,22 @@ def generate():
                 (outputs / 'job.slurm.out').write_text('')
                 if case != 'missing':
                     (outputs / 'job.slurm.err').write_text(stderr)
-            with patch('ag.transport.SSHTransport', side_effect=AssertionError('offline only')):
-                try:
-                    parsed = facts.build_facts(path)
-                except facts.CrestParseIncomplete as exc:
-                    parsed = exc.facts
+            completed = subprocess.run([sys.executable, '-B', '-c', CLI, str(path)],
+                                       capture_output=True, text=True, timeout=30, check=False)
+            expected_code = 1 if case == 'incomplete' else 0
+            if completed.returncode != expected_code:
+                raise RuntimeError(f'{case}: unexpected ag facts exit code {completed.returncode}')
+            parsed = json.loads(completed.stdout)
+            if parsed != json.loads((path / 'facts.json').read_text()):
+                raise RuntimeError(f'{case}: CLI JSON differs from persisted facts')
+            if case == 'incomplete' and 'CREST 解析未完成' not in completed.stderr:
+                raise RuntimeError('Incomplete case did not report its parse limitation')
             result[case] = dict(manifest=manifest, facts=parsed,
                                 outputs={p.name: p.read_text() for p in sorted(outputs.iterdir())},
                                 geometries={p.name: p.read_text() for p in path.glob('*.xyz')})
     target = Path(__file__).with_name('generated.json')
     target.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
-    print('Generated seven synthetic cases with backend provenance; no remote calls.')
+    print('Generated seven synthetic cases via ag facts CLI; persisted JSON matches; no remote calls.')
 
 
 if __name__ == '__main__':

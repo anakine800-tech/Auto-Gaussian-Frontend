@@ -59,7 +59,7 @@ class CrestDiagnosticTests(unittest.TestCase):
                 data = self.client.get(self.url.replace('crest-error','crest-'+case)).json()
                 self.assertEqual(data['crest_diagnostics']['status'], expected)
                 self.assertEqual(data['facts']['data']['ag_provenance']['git_commit'],
-                                 '17d0636e8003c4a74c70c2dd5fc0fea5277efbed')
+                                 'ebf711cafc934b15c6b045582e69511752117e53')
                 self.assertNotIn('window.crestExecuted', json.dumps(data))
             record = self.record(); source = self.source(record)
             response = self.client.get(self.url+f"/crest-diagnostics/{source['index']}", params={'token':record['token']})
