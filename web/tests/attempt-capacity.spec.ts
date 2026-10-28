@@ -6,7 +6,7 @@ function advice(request:Record<string,string>,availability:Verdict='enough'){
  const detail={availability,fits_total:availability==='unknown'?null:availability!=='not_applicable',reasons:['Synthetic capacity evidence'],cpu_source:'synthetic CPU allocation',memory_source:'synthetic requested memory'};
  return {...request,target_node:request.target_node??null,cores:48,mem_gb:96,...detail,sampled_at:new Date().toISOString(),valid_until:new Date(Date.now()+180000).toISOString(),snapshot_fresh:true,nodes:[{name:request.target_node??'compute-a',...detail}]};
 }
-async function context(page:Page,options:{defaults?:boolean;nodes?:boolean}={defaults:true}){
+async function context(page:Page,options:{defaults?:boolean;nodes?:boolean;blockedHalf?:boolean}={defaults:true}){
  await page.route('**/api/actions/butane-demo/prepared',async route=>{
   const response=await route.fetch(),data=await response.json();
   data.clusters.default.tiers.max={cores:48,mem_gb:96,mem_mb:76800};
@@ -21,7 +21,7 @@ async function context(page:Page,options:{defaults?:boolean;nodes?:boolean}={def
     {name:'restricted-d',priority_group:4,order:4,priority:4,status:'restricted',selectable:false,reason:'Synthetic restricted'},
     {name:'denied-e',priority_group:null,order:5,priority:5,status:'forbidden',selectable:false,reason:'Synthetic denied'},
     {name:'disabled-f',priority_group:5,order:6,priority:6,status:'available',selectable:false,reason:'Synthetic disabled'}
-   ].map(n=>({...n,options:[{fraction:'1/2',cores:24,mem_gb:48,tier:'general'},{fraction:'1/4',cores:12,mem_gb:24,tier:'mini'}]}))}};
+   ].map(n=>({...n,options:[{fraction:'1/2',cores:24,mem_gb:48,tier:'general',...(options.blockedHalf&&n.name==='busy-b'?{selectable:false}:{})},{fraction:'1/4',cores:12,mem_gb:24,tier:'mini',...(options.blockedHalf?{selectable:true}:{})}]}))}};
   }
   await route.fulfill({json:data});
  });
@@ -97,6 +97,19 @@ test('legacy default fallback and unavailable capacity do not change prepare cap
  await expect(page.getByRole('button',{name:'保存并新建',exact:true})).toBeEnabled();expect(calls).toBe(1);
  await page.getByLabel('档位',{exact:true}).selectOption('general');await page.getByLabel('集群',{exact:true}).selectOption('batch');
  await expect(page.getByLabel('档位',{exact:true})).toHaveValue('general');
+});
+
+test('per-fraction selectability keeps a prohibited half visible until the user chooses a quarter',async({page})=>{
+ await context(page,{nodes:true,blockedHalf:true});
+ await page.route('**/api/attempt-capacity',route=>route.fulfill({json:advice(route.request().postDataJSON(),'unknown')}));
+ await open(page);await page.getByLabel('目标节点',{exact:true}).selectOption('busy-b');
+ const save=page.getByRole('button',{name:'保存并新建',exact:true}),fraction=page.getByLabel('核数比例',{exact:true});
+ await expect(fraction).toHaveValue('1/2');await expect(page.getByLabel('档位',{exact:true})).toHaveValue('general');
+ await expect(save).toBeDisabled();await expect(page.getByText('当前节点的此比例不可用，请明确选择其他比例或节点。')).toBeVisible();
+ await fraction.selectOption('1/4');await expect(save).toBeEnabled();
+ await expect(page.getByLabel('目标节点',{exact:true})).toHaveValue('busy-b');
+ await expect(page.getByLabel('输入全文')).toHaveValue(/^%nprocshared=12\n%mem=19200MB/);
+ await expect(panel(page)).toContainText(labels.unknown);
 });
 
 test('expiry and local query failures remain unknown without refreshing or resetting resources',async({page})=>{

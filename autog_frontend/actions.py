@@ -77,6 +77,8 @@ def validate_targets(data, cluster, tiers):
                     or option['mem_gb'] != option['cores'] * 2):
                 raise ValueError('Invalid node candidate resources')
             fractions.add(option['fraction'])
+            if 'selectable' in option and type(option['selectable']) is not bool:
+                raise ValueError('Invalid node fraction selectability')
             if option.get('tier') is not None:
                 tier = tiers.get(option['tier'])
                 if not tier or (tier['cores'], tier['mem_mb']) != (option['cores'], option['mem_gb'] * 800):
@@ -429,6 +431,8 @@ class Actions:
                                    and o['tier'] == payload['tier']), None)
                     if option is None:
                         raise StudyError('Selected node fraction must match a configured tier', 400)
+                    if option.get('selectable', True) is not True:
+                        raise StudyError('Selected node fraction is unavailable; no draft created', 409)
                     target_args = ['--target-node', row['name'], '--node-fraction', option['fraction']]
                 draft = self.draft(study, label, resource_input(payload['input'], tier))
                 argv = [self.executable, 'prepare', '--json', '--study', str(self.store.root / study),

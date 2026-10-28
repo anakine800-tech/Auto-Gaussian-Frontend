@@ -595,6 +595,9 @@ class ActionsTests(unittest.TestCase):
         with patch.object(actions, 'node_targets', return_value={'default':targets}), patch.object(actions, 'run', return_value=({'stdout':'{}','exit_code':1}, None)) as run:
             actions.execute(payload)
             self.assertEqual(run.call_args.args[0][-4:], ['--target-node','compute-a','--node-fraction','1/2'])
+            node['options'][0]['selectable'] = False
+            with self.assertRaisesRegex(StudyError, 'fraction is unavailable'): actions.execute(payload)
+            node['options'][0]['selectable'] = True
             node['selectable'] = False
             with self.assertRaises(StudyError): actions.execute(payload)
             node['selectable'] = True
@@ -602,6 +605,10 @@ class ActionsTests(unittest.TestCase):
             with self.assertRaises(StudyError): actions.execute(payload)
             self.assertEqual(run.call_count, 1)
         for invalid in (None, 1, 'true'):
+            node['selectable'] = True
+            node['options'][0]['selectable'] = invalid
+            with self.assertRaises(ValueError): validate_targets(targets, 'default', actions.clusters['default']['tiers'])
+            node['options'][0]['selectable'] = True
             node['selectable'] = invalid
             with self.assertRaises(ValueError): validate_targets(targets, 'default', actions.clusters['default']['tiers'])
         for status in ('forbidden', 'restricted'):
@@ -780,8 +787,8 @@ class PairedResourceTests(unittest.TestCase):
         from datetime import datetime, timezone
         source = os.environ.get('T158_BACKEND_SOURCE')
         if not source:
-            self.skipTest('Supply the isolated installed T154/T156 backend source for the paired run')
-        from ag import attempt, config, monitor, study
+            self.skipTest('Supply the isolated installed T154/T156/T157 backend source for the paired run')
+        from ag import attempt, config, monitor, node_targeting, study
         self.assertEqual(Path(config.__file__).resolve(), Path(source).resolve()/'ag/config.py')
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()
@@ -816,7 +823,9 @@ class PairedResourceTests(unittest.TestCase):
 from pathlib import Path
 from unittest.mock import patch
 from ag import cli, capacity
-assert sys.argv[1] in ('--version', 'clusters', 'capacity', 'prepare'), 'Only local validation commands allowed'
+assert sys.argv[1] in ('--version', 'clusters', 'nodes', 'capacity', 'prepare'), 'Only local validation commands allowed'
+with Path(__file__).with_name('paired-argv.jsonl').open('a') as stream:
+    stream.write(json.dumps(sys.argv[1:])+'\\n')
 cfg = json.loads(Path(__file__).with_name('config.json').read_text())
 with patch.object(cli, 'load_config', return_value=cfg), patch.object(capacity, 'load_config', return_value=cfg), patch('ag.transport.SSHTransport', side_effect=AssertionError('Remote transport forbidden')):
     raise SystemExit(cli.main())
@@ -839,6 +848,77 @@ with patch.object(cli, 'load_config', return_value=cfg), patch.object(capacity, 
             new_path = root/'studies/water-demo/attempts'/manifest['attempt_id']
             new_input = next((new_path/'inputs').glob('*.gjf')).read_bytes()
             self.assertTrue(new_input.startswith(b'%nprocshared=48\n%mem=76800MB\n'))
+            # Final T157 candidates and per-fraction admission, from the real
+            # CLI and parser with synthetic PBS observations only.
+            cfg['node_targeting'] = dict(allowed_nodes=['compute-b','compute-a','compute-fast'],
+                denied_nodes=['login-a'], priority=[['compute-b','compute-a'],['compute-fast']],
+                restricted_nodes=['compute-fast'])
+            config.validate_cluster(cfg)
+            (root/'config.json').write_text(json.dumps(cfg))
+            actions = Actions(Studies(root/'studies'), wrapper)
+            self.assertEqual(actions.clusters['default']['default_tier'], 'max')
+            self.assertEqual(actions.clusters['default']['node_targeting'],
+                             dict(default_fraction='1/2', fractions=['1/2','1/4']))
+            raw_nodes = ''.join(f'{name}\n    state = free\n    np = 96\n    status = physmem=192gb\n'
+                + ('    jobs = 0-79/7.fixture\n' if name == 'compute-b' else '')
+                for name in ('compute-a','compute-b','compute-fast','login-a'))
+            for verdict, memory in (('queue', '160gb'), ('unknown', None)):
+                job = dict(job_id='7.fixture', job_state='R', exec_host='compute-b/0-79')
+                if memory is not None:
+                    job['Resource_List.mem'] = memory
+                snapshot['cluster']['nodes'] = node_targeting.strict_nodes(raw_nodes, [job])
+                snapshot['sampled_at'] = datetime.now(timezone.utc).isoformat()
+                snap_file.write_text(json.dumps(snapshot))
+                snap_before = (snap_file.read_bytes(), snap_file.stat().st_mtime_ns)
+                targets = actions.node_targets()['default']
+                self.assertEqual([r['name'] for r in targets['nodes']],
+                                 ['compute-b','compute-a','compute-fast','login-a'])
+                self.assertEqual([r['order'] for r in targets['nodes']], [1,2,3,4])
+                self.assertEqual([r['priority_group'] for r in targets['nodes']], [1,1,2,None])
+                busy, idle, restricted, denied = targets['nodes']
+                self.assertEqual((busy['status'], busy['selectable']), ('occupied', True))
+                self.assertEqual((idle['status'], idle['selectable']), ('available', True))
+                self.assertFalse(restricted['selectable']); self.assertFalse(denied['selectable'])
+                self.assertEqual([(o['fraction'],o['cores'],o['mem_gb'],o['tier'],o['selectable']) for o in busy['options']],
+                                 [('1/2',48,96,'max',True),('1/4',24,48,'general',True)])
+                self.assertEqual([o['capacity']['availability'] for o in busy['options']], [verdict,verdict])
+                for fraction, tier, cores, memory_gb in (('1/2','max',48,96), ('1/4','general',24,48)):
+                    advice = actions.capacity(dict(cluster='default',tier=tier,target_node='compute-b'))
+                    self.assertEqual(advice['availability'], verdict)
+                    result = actions.execute(dict(action='prepare', study='water-demo', attempt=parent['attempt_id'],
+                        cluster='default', tier=tier, input=source_input.read_text(), walltime='01:00:00',
+                        label=verdict+'-'+tier, relation='derived_from', method_basis='Synthetic only',
+                        target_node='compute-b', node_fraction=fraction))
+                    self.assertEqual(result['exit_code'], 0, result)
+                    manifest = json.loads(result['stdout'])
+                    self.assertEqual(manifest['node_target'],
+                                     dict(name='compute-b', fraction=fraction, slots=96, queue='batch'))
+                    self.assertEqual((manifest['cores'],manifest['mem_gb']), (cores,memory_gb))
+                    created = root/'studies/water-demo/attempts'/manifest['attempt_id']
+                    self.assertTrue(next((created/'inputs').glob('*.gjf')).read_bytes().startswith(
+                        f'%nprocshared={cores}\n%mem={memory_gb*800}MB\n'.encode()))
+                self.assertEqual((snap_file.read_bytes(),snap_file.stat().st_mtime_ns), snap_before)
+            # Rounded display memory can retain a tier while exact total bytes
+            # exclude only the half-node request. Respect the option flag.
+            snapshot['cluster']['nodes'] = node_targeting.strict_nodes(
+                'compute-a\n    state = free\n    np = 96\n    status = physmem=100663295kb\n', [])
+            snap_file.write_text(json.dumps(snapshot))
+            targets = actions.node_targets()['default']
+            row = next(r for r in targets['nodes'] if r['name'] == 'compute-a')
+            self.assertTrue(row['selectable'])
+            self.assertEqual([(o['tier'],o['selectable']) for o in row['options']], [('max',False),('general',True)])
+            payload = dict(action='prepare', study='water-demo', attempt=parent['attempt_id'], cluster='default',
+                tier='max', input=source_input.read_text(), walltime='01:00:00', label='boundary',
+                relation='derived_from', method_basis='Synthetic only', target_node='compute-a', node_fraction='1/2')
+            draft_files = list((root/'studies').rglob('*.gjf'))
+            with self.assertRaisesRegex(StudyError, 'fraction is unavailable'):
+                actions.execute(payload)
+            self.assertEqual(list((root/'studies').rglob('*.gjf')), draft_files)
+            self.assertEqual(actions.capacity(dict(cluster='default',tier='max',target_node='compute-a'))['availability'], 'not_applicable')
+            result = actions.execute(payload | dict(tier='general', node_fraction='1/4'))
+            self.assertEqual(result['exit_code'], 0, result)
+            commands = [json.loads(line)[0] for line in (root/'paired-argv.jsonl').read_text().splitlines()]
+            self.assertEqual(set(commands), {'--version','clusters','nodes','capacity','prepare'})
             self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
             self.assertEqual(source_input.read_bytes(), original_input)
             self.assertEqual(source_input.stat().st_mtime_ns, original_mtime)

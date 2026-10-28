@@ -8,7 +8,7 @@ import {AttemptCapacity} from './attempt-capacity';
 
 export const actionToken=document.querySelector<HTMLMetaElement>('meta[name="ag-token"]')?.content;
 type Tier={cores:number;mem_mb:number;mem_gb?:number};
-type NodeOption={fraction:string;cores:number;mem_gb:number;tier:string|null};
+type NodeOption={fraction:string;cores:number;mem_gb:number;tier:string|null;selectable?:boolean};
 type NodeRow={name:string;priority_group:number|null;order:number;priority:number;status:string;reason:string;selectable?:boolean;options:NodeOption[]};
 type NodeTargets={fresh:boolean;valid_until?:string;nodes:NodeRow[];error?:string};
 const nodeStates:Record<string,string>={available:'空闲',occupied:'已占用',insufficient:'资源不足',stale:'数据过期',restricted:'特殊核限制待验证',forbidden:'不允许提交',unknown:'数据未知'};
@@ -61,7 +61,7 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  const targeted=!!context?.clusters[cluster]?.node_targeting,targets=context?.node_targets?.[cluster];
  const fresh=targets?.fresh===true&&typeof targets.valid_until==='string'&&Date.parse(targets.valid_until)>now;
  const node=targets?.nodes.find(n=>n.name===target),option=node?.options.find(o=>o.fraction===fraction);
- const nodeReady=!targeted||(fresh&&!!node&&nodeSelectable(node)&&!!option?.tier&&option.tier===tier);
+ const nodeReady=!targeted||(fresh&&!!node&&nodeSelectable(node)&&!!option?.tier&&option.selectable!==false&&option.tier===tier);
  const canPrepare=nodeReady&&!!tiers[tier]&&context?.clusters[cluster]?.programs_enabled.gaussian&&!walltimeError;
  function selectCluster(name:string){
   const choices=context?.clusters[name]?.tiers??{},t=draftTier(context?.clusters[name],tier);
@@ -94,6 +94,7 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  <label>目标节点 <select required aria-label="目标节点" value={target} onChange={e=>chooseNode(e.target.value)}><option value="" disabled>请选择具体节点</option>{targets?.nodes.map(n=><option key={n.name} value={n.name} disabled={!fresh||!nodeSelectable(n)}>{n.order}. {n.name} · {n.priority_group===null?'禁止节点':`优先级组 ${n.priority_group}`} · {nodeStates[n.status]??'数据未知'}</option>)}</select></label>
  <label>核数比例 <select aria-label="核数比例" value={fraction} onChange={e=>chooseNode(target,e.target.value)}><option value="1/2">1/2（默认）</option><option value="1/4">1/4</option></select></label>
  {target&&<p aria-live="polite">{option?.tier?`申请 ${option.cores} 核 / ${option.mem_gb} GB · ${option.tier}`:'此比例无可用档位或资源不足'}</p>}
+ {target&&option?.selectable===false&&<p role="alert">当前节点的此比例不可用，请明确选择其他比例或节点。</p>}
  <div className="attempt-node-table" tabIndex={0} role="region" aria-label="节点状态表"><table><caption>节点顺序与占用</caption><thead><tr><th>顺序</th><th>节点</th><th>优先级组</th><th>状态</th><th>说明</th></tr></thead><tbody>{targets?.nodes.map(n=><tr key={n.name}><td>{n.order}</td><th scope="row">{n.name}</th><td>{n.priority_group??'禁止节点'}</td><td>{fresh?(nodeStates[n.status]??'数据未知'):'非实时'} · {fresh&&nodeSelectable(n)?'可选择':'不可选择'}</td><td>{n.reason}</td></tr>)}</tbody></table></div>
  </fieldset>}
  <label>档位 <select disabled={targeted} aria-label="档位" value={tier} onChange={e=>{setTier(e.target.value);setInput(resources(input,tiers[e.target.value]));}}>{orderedResourceTiers(tiers).map(([name,value])=><option key={name} value={name}>{name} · {value.cores} 核 · 调度内存 {value.mem_gb??'未知'} GB</option>)}</select></label>

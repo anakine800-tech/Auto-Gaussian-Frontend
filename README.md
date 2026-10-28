@@ -883,8 +883,9 @@ README 与 hook 本身不包含任何项目私有词条。
 ## 新建 Attempt 的资源与容量（T158）
 
 完整能力需要后端同时具备 T154 的入口默认档位、T156 的本地 `capacity` 命令和
-T157 的节点 `selectable` 字段；不按版本号推断能力。当前开发阶段的节点兼容以合成响应验证，
-T157 最终配套联调仍待完成。本功能只在既有 Gaussian 新建表单中显示，不增加服务器页控件。
+T157 的节点及比例选项 `selectable` 字段；不按版本号推断能力。
+已用包含三项接口的后端合并提交 `e109019b3028aad75fb434b5eafce1633af72aca` 完成隔离合成联调。
+本功能只在既有 Gaussian 新建表单中显示，不增加服务器页控件。
 
 “基于此新建”在所选入口显式配置 `resources.default_tier` 时优先用该档位，
 切入口时按目标入口默认值重新填入资源。没有配置时保留父档位／当前合法档位与 simple 回退。
@@ -913,6 +914,8 @@ ag capacity --cluster <ENTRY> --tier <TIER> [--target-node <NODE>] --json
 
 具名节点保留原 priority/order，同表显示空闲候选与占用节点；仍需明确选择具体节点和 1/2 或 1/4 比例。
 `selectable=true` 的占用节点可选，`false` 不可选；缺字段时仅允许旧 `available` 状态。
+比例选项明确返回 `selectable=false` 时保留当前选择并提示不可用，保存前须明确选择其他合法比例或节点；
+缺少比例标记时沿用原档位匹配规则。节点整体可选不代表每个比例都可用，容量 unknown 本身不禁止保存。
 禁用、受限、过期节点与无对应档位的原保护保留；不自动换节点或降档。
 
 T158 的本地配套验收可在当前检出的独立 `.venv` 安装指定后端源码后运行：
@@ -922,5 +925,6 @@ T158_BACKEND_SOURCE='<ISOLATED_BACKEND>/ag/src' .venv/bin/python -B -m unittest 
 ```
 
 该用例核对实际导入位置，替换配置入口为临时合成配置，并禁止构造 SSHTransport；
-使用真实 CLI 完成 clusters、capacity 和本地 prepare，核对旧输入／Attempt 字节及时间戳不变。
+使用真实 CLI 完成 clusters、nodes、capacity 和本地 prepare，核对默认 48/96、占用节点的 1/2 与 1/4、
+queue／unknown 均可本地准备，以及精确内存导致仅某一比例不可用的边界；核对旧输入／Attempt 字节及时间戳不变。
 未提供路径时普通测试跳过该独立配套项。它不执行 submit/cancel，不代表现场调度验收。
