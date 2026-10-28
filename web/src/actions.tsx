@@ -4,16 +4,22 @@ import type {Attempt} from './api';
 import {ActionBar,Drawer} from './ui';
 import {routeHash} from './routing';
 import {orderedResourceTiers,resourceWalltimeLabel,resourceWalltimeSeconds} from './jobs-data';
+import {AttemptCapacity} from './attempt-capacity';
 
 export const actionToken=document.querySelector<HTMLMetaElement>('meta[name="ag-token"]')?.content;
-type Tier={cores:number;mem_mb:number};
-type NodeOption={fraction:string;cores:number;mem_gb:number;tier:string|null};
-type NodeRow={name:string;priority_group:number|null;order:number;priority:number;status:string;reason:string;options:NodeOption[]};
+type Tier={cores:number;mem_mb:number;mem_gb?:number};
+type NodeOption={fraction:string;cores:number;mem_gb:number;tier:string|null;selectable?:boolean};
+type NodeRow={name:string;priority_group:number|null;order:number;priority:number;status:string;reason:string;selectable?:boolean;options:NodeOption[]};
 type NodeTargets={fresh:boolean;valid_until?:string;nodes:NodeRow[];error?:string};
-const nodeStates:Record<string,string>={available:'可选',occupied:'已占用',insufficient:'资源不足',stale:'数据过期',restricted:'特殊核限制待验证',forbidden:'不允许提交',unknown:'数据未知'};
-type Cluster={node_targeting?:{default_fraction:'1/2';fractions:string[]};scheduler:string;tiers:Record<string,Tier>;max_walltime?:string;programs_enabled:{gaussian:boolean;xtb:boolean;crest:boolean}};
+const nodeStates:Record<string,string>={available:'空闲',occupied:'已占用',insufficient:'资源不足',stale:'数据过期',restricted:'特殊核限制待验证',forbidden:'不允许提交',unknown:'数据未知'};
+type Cluster={node_targeting?:{default_fraction:'1/2';fractions:string[]};scheduler:string;tiers:Record<string,Tier>;default_tier?:string;max_walltime?:string;programs_enabled:{gaussian:boolean;xtb:boolean;crest:boolean}};
 type Context={state:string;can_cancel:boolean;source:string|null;clusters:Record<string,Cluster>;manifest:Record<string,unknown>;node_targets?:Record<string,NodeTargets>};
 export type ActionResult={stdout:string;stderr:string;exit_code:number|null;timed_out:boolean;notice?:string;new_attempt?:string};
+function draftTier(cluster:Cluster|undefined,inherited:string){
+ const tiers=cluster?.tiers??{};
+ return cluster?.default_tier&&tiers[cluster.default_tier]?cluster.default_tier:tiers[inherited]?inherited:'simple';
+}
+function nodeSelectable(node:NodeRow){return node.selectable??node.status==='available';}
 function resources(input:string,tier:Tier){
  return `%nprocshared=${tier.cores}\n%mem=${tier.mem_mb}MB\n`+input.split('\n').filter(line=>!/^\s*%(nprocshared|mem)\s*=/i.test(line)).join('\n');
 }
@@ -44,7 +50,7 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  function edit(){
   if(!context?.source)return;
   setTarget('');setFraction('1/2');setNow(Date.now());
-  const m=context.manifest,c=typeof m.cluster==='string'?m.cluster:'default',tiers=context.clusters[c]?.tiers??{},t=typeof m.tier==='string'&&tiers[m.tier]?m.tier:'simple';
+  const m=context.manifest,c=typeof m.cluster==='string'?m.cluster:'default',tiers=context.clusters[c]?.tiers??{},t=draftTier(context.clusters[c],typeof m.tier==='string'?m.tier:'simple');
   setCluster(context.clusters[c]?c:'');setTier(t);setInput(tiers[t]?resources(context.source,tiers[t]):context.source);setWalltime(typeof m.walltime==='string'?m.walltime:'01:00:00');
   const science=object(m.science)?m.science:{};setBasis(typeof science.method_basis==='string'?science.method_basis:'');setEditing(true);setConfirm(false);
  }
@@ -55,10 +61,10 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  const targeted=!!context?.clusters[cluster]?.node_targeting,targets=context?.node_targets?.[cluster];
  const fresh=targets?.fresh===true&&typeof targets.valid_until==='string'&&Date.parse(targets.valid_until)>now;
  const node=targets?.nodes.find(n=>n.name===target),option=node?.options.find(o=>o.fraction===fraction);
- const nodeReady=!targeted||(fresh&&node?.status==='available'&&!!option?.tier&&option.tier===tier);
+ const nodeReady=!targeted||(fresh&&!!node&&nodeSelectable(node)&&!!option?.tier&&option.selectable!==false&&option.tier===tier);
  const canPrepare=nodeReady&&!!tiers[tier]&&context?.clusters[cluster]?.programs_enabled.gaussian&&!walltimeError;
  function selectCluster(name:string){
-  const choices=context?.clusters[name]?.tiers??{},t=choices[tier]?tier:'simple';
+  const choices=context?.clusters[name]?.tiers??{},t=draftTier(context?.clusters[name],tier);
   setTarget('');setFraction('1/2');setNow(Date.now());
   setCluster(name);setTier(t);if(choices[t])setInput(resources(input,choices[t]));
  }
@@ -83,14 +89,18 @@ export function AttemptActions({study,data,revision,busy,onBusy,onResult}:{study
  {cluster&&cluster!==parentCluster&&<p role="alert">同一能量曲线内的物种应在同一集群计算</p>}
  {cluster&&!context.clusters[cluster]?.programs_enabled.gaussian&&<p role="alert">此集群未启用 Gaussian。</p>}
  {targeted&&<fieldset aria-label="PBS 节点选择"><legend>指定 PBS 节点</legend>
- <p>排序仅供参考，请明确选择节点。slots 表示调度分配核数，不是 CPU 实时利用率。提交前将重新检查，节点变化时停止。</p>
+ <p>排序仅供参考，请明确选择节点。slots 表示调度分配核数，不是 CPU 实时利用率。可选择的已占用节点可能需要排队；提交前由 ag 重新检查。</p>
  {!fresh&&<p role="alert">节点数据过期或不可用，请刷新状态。{targets?.error}</p>}
- <label>目标节点 <select required aria-label="目标节点" value={target} onChange={e=>chooseNode(e.target.value)}><option value="" disabled>请选择具体节点</option>{targets?.nodes.map(n=><option key={n.name} value={n.name} disabled={!fresh||n.status!=='available'}>{n.order}. {n.name} · {n.priority_group===null?'禁止节点':`优先级组 ${n.priority_group}`} · {nodeStates[n.status]??'数据未知'}</option>)}</select></label>
+ <label>目标节点 <select required aria-label="目标节点" value={target} onChange={e=>chooseNode(e.target.value)}><option value="" disabled>请选择具体节点</option>{targets?.nodes.map(n=><option key={n.name} value={n.name} disabled={!fresh||!nodeSelectable(n)}>{n.order}. {n.name} · {n.priority_group===null?'禁止节点':`优先级组 ${n.priority_group}`} · {nodeStates[n.status]??'数据未知'}</option>)}</select></label>
  <label>核数比例 <select aria-label="核数比例" value={fraction} onChange={e=>chooseNode(target,e.target.value)}><option value="1/2">1/2（默认）</option><option value="1/4">1/4</option></select></label>
  {target&&<p aria-live="polite">{option?.tier?`申请 ${option.cores} 核 / ${option.mem_gb} GB · ${option.tier}`:'此比例无可用档位或资源不足'}</p>}
- <ul>{targets?.nodes.map(n=><li key={n.name}>{n.name}：{fresh?(nodeStates[n.status]??'数据未知'):'非实时'} · {n.priority_group===null?'禁止节点':`优先级组 ${n.priority_group}`} · 顺序 {n.order} · {n.reason}</li>)}</ul>
+ {target&&option?.selectable===false&&<p role="alert">当前节点的此比例不可用，请明确选择其他比例或节点。</p>}
+ <div className="attempt-node-table" tabIndex={0} role="region" aria-label="节点状态表"><table><caption>节点顺序与占用</caption><thead><tr><th>顺序</th><th>节点</th><th>优先级组</th><th>状态</th><th>说明</th></tr></thead><tbody>{targets?.nodes.map(n=><tr key={n.name}><td>{n.order}</td><th scope="row">{n.name}</th><td>{n.priority_group??'禁止节点'}</td><td>{fresh?(nodeStates[n.status]??'数据未知'):'非实时'} · {fresh&&nodeSelectable(n)?'可选择':'不可选择'}</td><td>{n.reason}</td></tr>)}</tbody></table></div>
  </fieldset>}
- <label>档位 <select disabled={targeted} aria-label="档位" value={tier} onChange={e=>{setTier(e.target.value);setInput(resources(input,tiers[e.target.value]));}}>{orderedResourceTiers(tiers).map(([name,value])=><option key={name} value={name}>{name} · {value.cores} 核 · {value.mem_mb} MB</option>)}</select></label>
+ <label>档位 <select disabled={targeted} aria-label="档位" value={tier} onChange={e=>{setTier(e.target.value);setInput(resources(input,tiers[e.target.value]));}}>{orderedResourceTiers(tiers).map(([name,value])=><option key={name} value={name}>{name} · {value.cores} 核 · 调度内存 {value.mem_gb??'未知'} GB</option>)}</select></label>
+ {context.clusters[cluster]?.default_tier&&<p>入口默认档位：{context.clusters[cluster].default_tier}；手动选择有效。</p>}
+ {tiers[tier]&&<p className="attempt-resources" aria-label="草稿资源">申请 {tiers[tier].cores} 核 · 调度内存 {tiers[tier].mem_gb??'未知'} GB · Gaussian 输入内存 {tiers[tier].mem_mb} MB</p>}
+ <AttemptCapacity key={`${study}/${data.id}`} cluster={cluster} tier={tier} target={targeted?target:undefined} token={actionToken!} now={now}/>
  <label>walltime <input required aria-label="walltime" aria-describedby="attempt-walltime-limit" aria-invalid={!!walltimeError} value={walltime} pattern="[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]" onChange={e=>setWalltime(e.target.value)}/></label>
  <p id="attempt-walltime-limit">单作业时限上限：{resourceWalltimeLabel(limit)}；提交时仍由 ag 核对资源限制。</p>
  {walltimeError&&<p role="alert">{walltimeError}</p>}

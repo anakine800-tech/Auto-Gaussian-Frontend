@@ -49,7 +49,7 @@ test('wait limit displays partial output and running notice without inventing an
 test('new Attempt, automatic input preview/diff, two-step submit through fake ag',async({page},info)=>{
  const errors:string[]=[],posts:Record<string,unknown>[]=[];
  page.on('pageerror',e=>errors.push(e.message));
- page.on('request',r=>{if(r.method()==='POST')posts.push(r.postDataJSON());});
+ page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/api/actions'))posts.push(r.postDataJSON());});
  await page.goto('/#/butane-demo/prepared');
  await expect(page.getByText('可操作（经 ag）',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'基于此新建',exact:true}).click();
@@ -103,7 +103,7 @@ test('unknown has no submit; scheduler residue can cancel; readonly has no actio
 test('clusters change tiers and input, warn across clusters and retain the parent cluster',async({page},info)=>{
  const errors:string[]=[],posts:Record<string,string>[]=[];
  page.on('pageerror',e=>errors.push(e.message));
- page.on('request',r=>{if(r.method()==='POST')posts.push(r.postDataJSON());});
+ page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/api/actions'))posts.push(r.postDataJSON());});
  await page.goto('/#/butane-demo/prepared');
  await expect(page.locator('.attempt-detail')).toContainText('所属集群：default');
  await page.getByRole('button',{name:'基于此新建',exact:true}).click();
@@ -111,7 +111,7 @@ test('clusters change tiers and input, warn across clusters and retain the paren
  await page.getByLabel('档位',{exact:true}).selectOption('general');
  await expect(page.getByLabel('输入全文')).toHaveValue(/^%nprocshared=22\n%mem=40000MB/);
  await page.getByLabel('集群',{exact:true}).selectOption('batch');
- await expect(page.getByLabel('档位',{exact:true}).locator('option:checked')).toHaveText('general · 64 核 · 128000 MB');
+ await expect(page.getByLabel('档位',{exact:true}).locator('option:checked')).toHaveText('general · 64 核 · 调度内存 160 GB');
  await expect(page.getByLabel('输入全文')).toHaveValue(/^%nprocshared=64\n%mem=128000MB/);
  await expect(page.getByText('同一能量曲线内的物种应在同一集群计算',{exact:true})).toBeVisible();
  await page.getByLabel('集群',{exact:true}).selectOption('default');

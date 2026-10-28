@@ -39,6 +39,21 @@ def main():
             requested_at=None if result == 'refused' else '2026-10-25T03:00:00Z'))
         print(json.dumps(response))
         return control.get('retry_code', 1 if result == 'refused' else 0)
+    if args[0] == 'capacity':
+        if not control.get('capacity_supported', True):
+            import argparse
+            parser = argparse.ArgumentParser(prog='ag')
+            parser.add_subparsers(dest='command').add_parser('clusters')
+            parser.parse_args(args)  # Actual argparse unknown-command response.
+        print(control.get('capacity_stdout', json.dumps(control.get('capacity_response',
+              capacity_response(control.get('clusters_response', settings(home/'studies')),
+                                args[args.index('--cluster')+1], args[args.index('--tier')+1],
+                                args[args.index('--target-node')+1] if '--target-node' in args else None)))))
+        print(control.get('capacity_stderr', ''), end='', file=sys.stderr)
+        return control.get('capacity_code', 0)
+    if args[0] == 'nodes':
+        print(json.dumps(control.get('nodes_response', {})))
+        return 0
     (home/'started').touch()
     print(control.get('early_stdout', ''), end='', flush=True)
     print(control.get('early_stderr', ''), end='', file=sys.stderr, flush=True)
@@ -63,7 +78,7 @@ def main():
         raw = source.read_bytes()
         (attempt/'inputs'/source.name).write_bytes(raw)
         cluster = value('--cluster')
-        row = next(row for row in settings(root)['clusters'] if row['name'] == cluster)
+        row = next(row for row in control.get('clusters_response', settings(root))['clusters'] if row['name'] == cluster)
         tier = value('--tier')
         cores, memory = (row['resources']['tiers'][tier][key] for key in ('cores', 'mem_gb'))
         manifest = dict(schema='ag-attempt/1', attempt_id=attempt_id, study_id=study.name,
@@ -92,6 +107,17 @@ def make_fake(directory):
     executable.write_text('#!'+sys.executable+'\n'+Path(__file__).read_text()+'\nraise SystemExit(main())\n')
     executable.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     return executable
+
+
+def capacity_response(config, cluster='default', tier='general', target=None, availability='enough'):
+    from datetime import datetime, timedelta, timezone
+    resource = next(r for r in config['clusters'] if r['name'] == cluster)['resources']['tiers'][tier]
+    now = datetime.now(timezone.utc)
+    advice = dict(availability=availability, fits_total=None if availability == 'unknown' else availability != 'not_applicable',
+                  reasons=['Synthetic capacity advice'], cpu_source='synthetic CPU allocation', memory_source='synthetic requested memory')
+    return dict(cluster=cluster, tier=tier, target_node=target, **resource, **advice,
+                sampled_at=now.isoformat(), valid_until=(now+timedelta(minutes=3)).isoformat(), snapshot_fresh=True,
+                nodes=[dict(name=target or 'compute-a', **advice)])
 
 
 def settings(root):

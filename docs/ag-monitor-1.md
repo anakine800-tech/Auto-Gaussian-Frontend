@@ -278,3 +278,34 @@ ok=false 显示“本次采样失败，请查看采样错误”；discarded 显�
 运行 `python -B -m unittest tests.test_server_monitor.PairedBackendTests -v`。
 配置替身调用真实 CLI，假 Transport 走真实锁、控制文件、sample/publish；无默认配置、真实研究或 SSH。
 未指定该显式源码路径时，普通测试跳过此独立配套项。正式服务兼容性留给后续发布部署单。
+
+## T156：单节点容量增量与 T158 表单消费
+
+核对数据提供端：包含 T154/T156/T157 的合并提交 `e109019b3028aad75fb434b5eafce1633af72aca`。
+这些是可选增量；旧快照缺字段继续读取，缺失容量信息保持未知。
+
+| 位置 | 字段 | 含义 |
+| --- | --- | --- |
+| cluster | nodes_error | 可选节点采样错误；不清空已成功的本人作业或硬件摘要 |
+| cluster.nodes[] | partition / partition_state | Slurm 精确分区身份与状态 |
+| cluster.nodes[] | cores_idle / cores_other | Slurm 可用／其他 CPU 数，非实时 CPU 使用率 |
+| cluster.nodes[] | cpu_source / memory_source | Slurm 为 `sinfo CPUsState` / `sinfo Memory/AllocMem` |
+| cluster.nodes[] | capacity_error | 可选矛盾节点记录说明 |
+| cluster.nodes[] | capacity_cpu_consistent | PBS 容量核数观测一致性；旧快照缺字段无法证明容量 |
+| cluster.nodes[] | mem_total_bytes / mem_assigned_bytes | PBS 精确总内存／已申请内存字节数，容量边界不使用已舍入 GB |
+
+Slurm 的 mem_total_gb / mem_assigned_gb 保留 MiB 转为二进制 GB 后的精确分数，不向上取整。
+PBS 仍按既有 available/assigned 或 Torque 作业申请来源取值，不用 RSS、physmem−availmem 或按核数分摊。
+节点记录不能按行号拼接、重复相加或以分区总和替代；这些判断由后端 `ag capacity` 负责。
+
+新建表单不直接消费快照推算容量，而读取该本地命令的 JSON：
+`cluster`、`tier`、`target_node`、`cores`、`mem_gb`、`fits_total`、`availability`、`reasons`、
+`sampled_at`、`valid_until`、`snapshot_fresh`、`cpu_source`、`memory_source`、`nodes`。
+`fits_total` 为 true/false/null；`availability` 为 enough/queue/unknown/not_applicable。
+每个节点含 name、fits_total、availability、reasons 和两项来源。
+前端核对响应与请求一致，按后端有效期显示过期；不另设容量算法，不改变采样周期或服务器页。
+来源字段描述调度分配口径，不能作为立即启动、账号剩余额度或科学验收的保证。
+
+具名节点另读 `ag nodes`：节点行与每个比例选项的 `selectable` 控制是否可选择／本地准备，
+`status` 继续表达空闲、占用等显示状态。前端保留两级判定，不从容量提示反推可选性；
+选项的精确容量判断由 T157 复用 T156 完成。缺新字段沿用原状态与档位匹配规则。

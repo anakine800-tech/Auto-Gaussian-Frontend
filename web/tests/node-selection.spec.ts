@@ -39,8 +39,8 @@ test('explicit node, half default, quarter resources, immutable submission summa
  }
  await expect(target.locator('option[value="I"]')).toHaveJSProperty('disabled',true);
  await expect(target.locator('option[value="G"]')).toHaveJSProperty('disabled',true);
- await expect(page.getByText('G：特殊核限制待验证 · 优先级组 4 · 顺序 7',{exact:false})).toBeVisible();
- await expect(page.getByText('H：可选 · 优先级组 5 · 顺序 8',{exact:false})).toBeVisible();
+ await expect(page.getByRole('row').filter({has:page.getByRole('rowheader',{name:'G',exact:true})})).toBeVisible();
+ await expect(page.getByRole('row').filter({has:page.getByRole('rowheader',{name:'H',exact:true})})).toBeVisible();
  // Native selectors retain keyboard semantics. No click on a preselected candidate.
  await target.focus();await target.press('1');await target.press('Tab');
  await expect(fraction).toBeFocused();

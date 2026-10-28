@@ -80,6 +80,19 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
                 raise StudyError('Invalid JSON request', 400) from None
             return await run_in_threadpool(actions.execute, payload)
 
+        @app.post('/api/attempt-capacity')
+        async def attempt_capacity(request: Request):
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > 4096:
+                    raise StudyError('Capacity request exceeds 4 KiB', 413)
+            try:
+                payload = json.loads(body)
+            except (ValueError, UnicodeError, RecursionError):
+                raise StudyError('Invalid JSON request', 400) from None
+            return await run_in_threadpool(actions.capacity, payload)
+
         @app.post('/api/monitor/retry')
         async def retry_monitor(request: Request):
             from .actions import MAX_BODY

@@ -16,7 +16,7 @@ from autog_frontend.actions import Actions, resource_input, validate_targets
 from autog_frontend.api import create_app
 from autog_frontend.studies import Studies, StudyError
 from autog_frontend.inputs import parse_input
-from tests.fake_ag import make_fake, settings, action_studies
+from tests.fake_ag import make_fake, settings, action_studies, capacity_response
 from tests.study_fixture import gjf
 
 
@@ -333,7 +333,7 @@ class ActionsTests(unittest.TestCase):
 
     def test_clusters_legacy_named_disabled_changed_and_unknown(self):
         context=self.client.get('/api/actions/butane-demo/prepared').json()
-        self.assertEqual(context['clusters']['batch']['tiers']['general'],dict(cores=64,mem_mb=128000))
+        self.assertEqual(context['clusters']['batch']['tiers']['general'],dict(cores=64,mem_gb=160,mem_mb=128000))
         self.assertEqual(self.prepare(cluster='missing').status_code,400)
         self.assertEqual(self.prepare(cluster='../batch').status_code,400)
         response=self.prepare(cluster='batch')
@@ -456,6 +456,164 @@ class ActionsTests(unittest.TestCase):
                     actions.execute(dict(action='status',study='butane-demo',attempt='prepared'))
             self.assertFalse(actions.lock.locked())
         self.assertEqual(self.calls(),[['--version'],['--version']])
+
+
+    def test_t158_default_resources_and_explicit_tier_preserve_parent_bytes(self):
+        cfg = settings(self.studies)
+        cfg['clusters'][0]['resources'].update(default_tier='max')
+        cfg['clusters'][0]['resources']['tiers']['max'] = dict(cores=48, mem_gb=96)
+        self.control(clusters_response=cfg)
+        actions = Actions(Studies(self.studies), self.fake)
+        self.assertEqual(actions.clusters['default']['default_tier'], 'max')
+        self.assertNotIn('default_tier', actions.clusters['batch'])
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (self.study/'attempts').rglob('*') if p.is_file()}
+        for tier, cores, memory in [('max', 48, 76800), ('simple', 8, 9600)]:
+            result = actions.execute(dict(action='prepare', study='butane-demo', attempt='prepared',
+                cluster='default', input=gjf(), tier=tier, walltime='01:00:00', label='default-'+tier,
+                relation='derived_from', method_basis='Synthetic only'))
+            self.assertEqual(result['exit_code'], 0, result)
+            draft = next((self.study/'drafts').glob('*-default-'+tier+'.gjf'))
+            self.assertTrue(draft.read_text().startswith(f'%nprocshared={cores}\n%mem={memory}MB\n'))
+            self.assertEqual(draft.read_text().split('\n')[2:], resource_input(gjf(), dict(cores=1, mem_mb=1)).split('\n')[2:])
+        self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
+        cfg['clusters'][0]['resources']['default_tier'] = 'general'
+        self.control(clusters_response=cfg)
+        with self.assertRaises(StudyError):
+            actions.execute(dict(action='status', study='butane-demo', attempt='prepared'))
+        for invalid in (None, True, 1, 'missing', [], {}):
+            cfg['clusters'][0]['resources']['default_tier'] = invalid
+            self.control(clusters_response=cfg)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                Actions(Studies(self.studies), self.fake)
+
+    def test_t158_capacity_fixed_argv_request_binding_and_no_operation_lock(self):
+        actions, targets = self.node_setup()
+        reply = capacity_response(settings(self.studies), target='compute-a')
+        reply.update(cores=24, mem_gb=48)
+        actions.lock.acquire()
+        before = {p: p.read_bytes() for p in self.studies.rglob('*') if p.is_file()}
+        try:
+            with patch.object(actions, 'settings', return_value=actions.clusters), patch('subprocess.run', return_value=Mock(returncode=0, stdout=json.dumps(reply))) as run:
+                result = actions.capacity(dict(cluster='default', tier='general', target_node='compute-a'))
+                self.assertEqual(result, reply)
+                self.assertEqual(run.call_args.args[0], [str(self.fake), 'capacity', '--cluster', 'default', '--tier', 'general', '--target-node', 'compute-a', '--json'])
+                self.assertEqual(run.call_args.kwargs, dict(shell=False, capture_output=True, timeout=15, check=False))
+                self.assertTrue(actions.lock.locked())
+        finally:
+            actions.lock.release()
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.assertFalse((self.study/'drafts').exists())
+
+    def test_t158_capacity_validates_input_token_and_same_origin_before_invocation(self):
+        payload = dict(cluster='default', tier='general')
+        before = self.calls(queries=True)
+        self.assertEqual(self.client.post('/api/attempt-capacity', json=payload).status_code, 403)
+        headers = {'X-AG-Token': self.token}
+        self.assertEqual(self.client.post('/api/attempt-capacity', json=payload, headers=headers|{'Origin':'https://example.org'}).status_code, 403)
+        readonly = self.client_for(create_app(self.studies))
+        self.assertEqual(readonly.post('/api/attempt-capacity', json=payload).status_code, 405)
+        for invalid in ([], {}, payload|{'tier':True}, payload|{'tier':'--help'}, payload|{'cluster':'missing'},
+                        payload|{'target_node':'compute-a'}, payload|{'executable':'other'}, payload|{'extra':0}):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(self.client.post('/api/attempt-capacity', json=invalid, headers=headers).status_code, 400)
+        self.assertEqual(self.client.post('/api/attempt-capacity', content=b'x'*4097, headers=headers).status_code, 413)
+        self.assertEqual(self.calls(queries=True), before)
+        result = self.client.post('/api/attempt-capacity', json=payload, headers=headers)
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()['availability'], 'enough')
+        self.assertEqual(self.calls()[-1], ['capacity', '--cluster', 'default', '--tier', 'general', '--json'])
+        actions, _ = self.node_setup()
+        for node in ('', '--help', 'compute-a;id', '../compute-a', 'compute-a.', 'a\x00b'):
+            with self.assertRaises(StudyError):
+                actions.capacity(payload|{'target_node':node})
+
+    def test_t158_capacity_unavailable_once_and_unknown_does_not_block_prepare(self):
+        self.control(capacity_supported=False)
+        headers = {'X-AG-Token':self.token}
+        for tier in ('general', 'mini', 'simple'):
+            response = self.client.post('/api/attempt-capacity', headers=headers, json=dict(cluster='default', tier=tier))
+            self.assertTrue(response.json()['capability_unavailable'])
+            self.assertEqual(response.json()['availability'], 'unknown')
+        self.assertEqual(sum(c[0] == 'capacity' for c in self.calls()), 1)
+        self.assertEqual(self.prepare().json()['exit_code'], 0)
+
+    def test_t158_capacity_exit_two_read_errors_recover_on_the_next_request(self):
+        headers = {'X-AG-Token':self.token}
+        payload = dict(cluster='default', tier='general')
+        old_command = "ag: error: argument command: invalid choice: 'capacity' (choose from 'clusters')\n"
+        for stdout, stderr in (
+                (json.dumps({'error':'Synthetic local read failed', 'exit_code':2}), ''),
+                (json.dumps({'error':'Synthetic local read failed', 'exit_code':2}), old_command),
+                ('', 'ag: error: unrecognized arguments: --target-node compute-a\n'),
+                ('', 'Synthetic local read failed\n')):
+            with self.subTest(stdout=bool(stdout), stderr=bool(stderr)):
+                before = sum(c[0] == 'capacity' for c in self.calls())
+                self.control(capacity_code=2, capacity_stdout=stdout, capacity_stderr=stderr)
+                failed = self.client.post('/api/attempt-capacity', headers=headers, json=payload).json()
+                self.assertEqual(failed['availability'], 'unknown')
+                self.assertNotIn('capability_unavailable', failed)
+                self.control()
+                recovered = self.client.post('/api/attempt-capacity', headers=headers, json=payload).json()
+                self.assertEqual(recovered['availability'], 'enough')
+                self.assertEqual(sum(c[0] == 'capacity' for c in self.calls()), before + 2)
+
+    def test_t158_capacity_verdicts_and_bad_or_mismatched_responses(self):
+        actions = Actions(Studies(self.studies), self.fake)
+        payload = dict(cluster='default', tier='general')
+        for verdict in ('enough', 'queue', 'unknown', 'not_applicable'):
+            reply = capacity_response(settings(self.studies), availability=verdict)
+            self.control(capacity_response=reply)
+            self.assertEqual(actions.capacity(payload)['availability'], verdict)
+        good = capacity_response(settings(self.studies))
+        for change in ({'cluster':'batch'}, {'tier':'simple'}, {'target_node':'other'}, {'cores':True}, {'mem_gb':96},
+                       {'snapshot_fresh':False}, {'snapshot_fresh':'true'}, {'valid_until':None}, {'sampled_at':'bad'},
+                       {'fits_total':False}, {'availability':'invented'}, {'nodes':[{}]}, {'reasons':[1]}, {'cpu_source':[]}):
+            self.control(capacity_response=good|change)
+            with self.subTest(change=change):
+                self.assertEqual(actions.capacity(payload)['availability'], 'unknown')
+        self.control(capacity_stdout='not JSON')
+        self.assertEqual(actions.capacity(payload)['availability'], 'unknown')
+        self.control(capacity_code=1)
+        self.assertEqual(actions.capacity(payload)['availability'], 'unknown')
+        self.control(root_matches=False)
+        before = sum(c[0] == 'capacity' for c in self.calls())
+        self.assertEqual(actions.capacity(payload)['availability'], 'unknown')
+        self.assertEqual(sum(c[0] == 'capacity' for c in self.calls()), before)
+        with patch.object(actions, 'settings', return_value=actions.clusters), patch('subprocess.run', side_effect=subprocess.TimeoutExpired('synthetic', 15)) as run:
+            self.assertEqual(actions.capacity(payload)['availability'], 'unknown')
+            self.assertEqual(run.call_count, 1)
+        self.assertFalse(actions.lock.locked())
+
+    def test_t158_explicit_selectability_allows_occupied_and_retains_other_guards(self):
+        actions, targets = self.node_setup()
+        node = targets['nodes'][0]
+        node.update(status='occupied', selectable=True)
+        validate_targets(targets, 'default', actions.clusters['default']['tiers'])
+        payload = dict(action='prepare', study='butane-demo', attempt='prepared', cluster='default', input=gjf(),
+                       tier='general', walltime='01:00:00', label='shared', relation='derived_from', method_basis='Synthetic only',
+                       target_node='compute-a', node_fraction='1/2')
+        with patch.object(actions, 'node_targets', return_value={'default':targets}), patch.object(actions, 'run', return_value=({'stdout':'{}','exit_code':1}, None)) as run:
+            actions.execute(payload)
+            self.assertEqual(run.call_args.args[0][-4:], ['--target-node','compute-a','--node-fraction','1/2'])
+            node['options'][0]['selectable'] = False
+            with self.assertRaisesRegex(StudyError, 'fraction is unavailable'): actions.execute(payload)
+            node['options'][0]['selectable'] = True
+            node['selectable'] = False
+            with self.assertRaises(StudyError): actions.execute(payload)
+            node['selectable'] = True
+            targets['valid_until'] = '2000-01-01T00:00:00+00:00'
+            with self.assertRaises(StudyError): actions.execute(payload)
+            self.assertEqual(run.call_count, 1)
+        for invalid in (None, 1, 'true'):
+            node['selectable'] = True
+            node['options'][0]['selectable'] = invalid
+            with self.assertRaises(ValueError): validate_targets(targets, 'default', actions.clusters['default']['tiers'])
+            node['options'][0]['selectable'] = True
+            node['selectable'] = invalid
+            with self.assertRaises(ValueError): validate_targets(targets, 'default', actions.clusters['default']['tiers'])
+        for status in ('forbidden', 'restricted'):
+            node.update(status=status, selectable=True)
+            with self.assertRaises(ValueError): validate_targets(targets, 'default', actions.clusters['default']['tiers'])
 
 
 class MonitorRetryTests(unittest.TestCase):
@@ -620,3 +778,148 @@ class MonitorRetryTests(unittest.TestCase):
         before=len(self.calls());response=self.retry()
         self.assertEqual(response.status_code,409,response.text)
         self.assertEqual(len(self.calls()),before)
+
+
+class PairedResourceTests(unittest.TestCase):
+    def test_t158_installed_backend_clusters_capacity_and_local_prepare(self):
+        """Explicit isolated installation only; no default config, SSH or submit."""
+        import sys
+        from datetime import datetime, timezone
+        source = os.environ.get('T158_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated installed T154/T156/T157 backend source for the paired run')
+        from ag import attempt, config, monitor, node_targeting, study
+        self.assertEqual(Path(config.__file__).resolve(), Path(source).resolve()/'ag/config.py')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            ssh = root/'synthetic-config'; ssh.touch()
+            cfg = dict(ssh=dict(config_file=str(ssh), host='fixture'),
+                remote=dict(allowed_root=str(root/'remote'), ag_root=str(root/'remote/ag')),
+                scheduler=dict(queue='batch'), programs=dict(gaussian=dict(g16root=str(root/'g16')), xtb=dict(root=str(root/'chem'))),
+                resources=dict(max_cores=48, max_committed_cores=96, default_tier='max', tiers={
+                    'mini':dict(cores=4,mem_gb=8),'simple':dict(cores=8,mem_gb=16),
+                    'general':dict(cores=24,mem_gb=48),'complex':dict(cores=32,mem_gb=64),'max':dict(cores=48,mem_gb=96)}),
+                local=dict(studies_root=str(root/'studies')), _config_dir=str(root))
+            config.validate_cluster(cfg)
+            study.init(cfg, 'water-demo')
+            source_input = root/'water.gjf'
+            source_input.write_text('%nprocshared=8\n%mem=12800MB\n%chk=water.chk\n# HF/STO-3G SP\n\nSynthetic water\n\n0 1\nO 0 0 0\nH 0 0 1\nH 0 1 0\n\n')
+            with patch('ag.transport.SSHTransport', side_effect=AssertionError('Remote transport forbidden')):
+                parent = attempt.prepare(cfg, study_name='water-demo', template='gaussian', input_path=source_input,
+                                         tier='simple', walltime='01:00:00', label='parent', method_basis='Synthetic only')
+            parent_path = root/'studies/water-demo/attempts'/parent['attempt_id']
+            before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in parent_path.rglob('*') if p.is_file()}
+            original_input = source_input.read_bytes()
+            original_mtime = source_input.stat().st_mtime_ns
+            snapshot = monitor.empty_snapshot(cfg, 60)
+            snapshot.update(sampled_at=datetime.now(timezone.utc).isoformat(), ok=True)
+            snapshot['cluster']['nodes'] = [dict(name='compute-a', state='free', cores_total=48, cores_used=0,
+                mem_total_gb=96, mem_assigned_gb=0, mem_total_bytes=96*1024**3, mem_assigned_bytes=0, capacity_cpu_consistent=True)]
+            cache = root/'studies/.ag-monitor'; cache.mkdir()
+            snap_file = cache/'latest.json'; snap_file.write_text(json.dumps(snapshot))
+            (root/'config.json').write_text(json.dumps(cfg))
+            wrapper = root/'paired-ag'
+            wrapper.write_text('#!'+sys.executable+'\n'+'''import json, sys
+from pathlib import Path
+from unittest.mock import patch
+from ag import cli, capacity
+assert sys.argv[1] in ('--version', 'clusters', 'nodes', 'capacity', 'prepare'), 'Only local validation commands allowed'
+with Path(__file__).with_name('paired-argv.jsonl').open('a') as stream:
+    stream.write(json.dumps(sys.argv[1:])+'\\n')
+cfg = json.loads(Path(__file__).with_name('config.json').read_text())
+with patch.object(cli, 'load_config', return_value=cfg), patch.object(capacity, 'load_config', return_value=cfg), patch('ag.transport.SSHTransport', side_effect=AssertionError('Remote transport forbidden')):
+    raise SystemExit(cli.main())
+''')
+            wrapper.chmod(0o700)
+            actions = Actions(Studies(root/'studies'), wrapper)
+            self.assertEqual(actions.clusters['default']['default_tier'], 'max')
+            self.assertEqual(actions.clusters['default']['tiers']['max'], dict(cores=48,mem_gb=96,mem_mb=76800))
+            for used, state, verdict in [(0,'free','enough'),(8,'free','queue'),(0,'down','unknown')]:
+                snapshot['cluster']['nodes'][0].update(cores_used=used, state=state)
+                snap_file.write_text(json.dumps(snapshot)); raw = snap_file.read_bytes()
+                self.assertEqual(actions.capacity(dict(cluster='default',tier='max'))['availability'], verdict)
+                self.assertEqual(snap_file.read_bytes(), raw)
+            result = actions.execute(dict(action='prepare', study='water-demo', attempt=parent['attempt_id'],
+                cluster='default', tier='max', input=source_input.read_text(), walltime='01:00:00', label='derived',
+                relation='derived_from', method_basis='Synthetic only'))
+            self.assertEqual(result['exit_code'], 0, result)
+            manifest = json.loads(result['stdout'])
+            self.assertEqual((manifest['cores'], manifest['mem_gb']), (48,96))
+            new_path = root/'studies/water-demo/attempts'/manifest['attempt_id']
+            new_input = next((new_path/'inputs').glob('*.gjf')).read_bytes()
+            self.assertTrue(new_input.startswith(b'%nprocshared=48\n%mem=76800MB\n'))
+            # Final T157 candidates and per-fraction admission, from the real
+            # CLI and parser with synthetic PBS observations only.
+            cfg['node_targeting'] = dict(allowed_nodes=['compute-b','compute-a','compute-fast'],
+                denied_nodes=['login-a'], priority=[['compute-b','compute-a'],['compute-fast']],
+                restricted_nodes=['compute-fast'])
+            config.validate_cluster(cfg)
+            (root/'config.json').write_text(json.dumps(cfg))
+            actions = Actions(Studies(root/'studies'), wrapper)
+            self.assertEqual(actions.clusters['default']['default_tier'], 'max')
+            self.assertEqual(actions.clusters['default']['node_targeting'],
+                             dict(default_fraction='1/2', fractions=['1/2','1/4']))
+            raw_nodes = ''.join(f'{name}\n    state = free\n    np = 96\n    status = physmem=192gb\n'
+                + ('    jobs = 0-79/7.fixture\n' if name == 'compute-b' else '')
+                for name in ('compute-a','compute-b','compute-fast','login-a'))
+            for verdict, memory in (('queue', '160gb'), ('unknown', None)):
+                job = dict(job_id='7.fixture', job_state='R', exec_host='compute-b/0-79')
+                if memory is not None:
+                    job['Resource_List.mem'] = memory
+                snapshot['cluster']['nodes'] = node_targeting.strict_nodes(raw_nodes, [job])
+                snapshot['sampled_at'] = datetime.now(timezone.utc).isoformat()
+                snap_file.write_text(json.dumps(snapshot))
+                snap_before = (snap_file.read_bytes(), snap_file.stat().st_mtime_ns)
+                targets = actions.node_targets()['default']
+                self.assertEqual([r['name'] for r in targets['nodes']],
+                                 ['compute-b','compute-a','compute-fast','login-a'])
+                self.assertEqual([r['order'] for r in targets['nodes']], [1,2,3,4])
+                self.assertEqual([r['priority_group'] for r in targets['nodes']], [1,1,2,None])
+                busy, idle, restricted, denied = targets['nodes']
+                self.assertEqual((busy['status'], busy['selectable']), ('occupied', True))
+                self.assertEqual((idle['status'], idle['selectable']), ('available', True))
+                self.assertFalse(restricted['selectable']); self.assertFalse(denied['selectable'])
+                self.assertEqual([(o['fraction'],o['cores'],o['mem_gb'],o['tier'],o['selectable']) for o in busy['options']],
+                                 [('1/2',48,96,'max',True),('1/4',24,48,'general',True)])
+                self.assertEqual([o['capacity']['availability'] for o in busy['options']], [verdict,verdict])
+                for fraction, tier, cores, memory_gb in (('1/2','max',48,96), ('1/4','general',24,48)):
+                    advice = actions.capacity(dict(cluster='default',tier=tier,target_node='compute-b'))
+                    self.assertEqual(advice['availability'], verdict)
+                    result = actions.execute(dict(action='prepare', study='water-demo', attempt=parent['attempt_id'],
+                        cluster='default', tier=tier, input=source_input.read_text(), walltime='01:00:00',
+                        label=verdict+'-'+tier, relation='derived_from', method_basis='Synthetic only',
+                        target_node='compute-b', node_fraction=fraction))
+                    self.assertEqual(result['exit_code'], 0, result)
+                    manifest = json.loads(result['stdout'])
+                    self.assertEqual(manifest['node_target'],
+                                     dict(name='compute-b', fraction=fraction, slots=96, queue='batch'))
+                    self.assertEqual((manifest['cores'],manifest['mem_gb']), (cores,memory_gb))
+                    created = root/'studies/water-demo/attempts'/manifest['attempt_id']
+                    self.assertTrue(next((created/'inputs').glob('*.gjf')).read_bytes().startswith(
+                        f'%nprocshared={cores}\n%mem={memory_gb*800}MB\n'.encode()))
+                self.assertEqual((snap_file.read_bytes(),snap_file.stat().st_mtime_ns), snap_before)
+            # Rounded display memory can retain a tier while exact total bytes
+            # exclude only the half-node request. Respect the option flag.
+            snapshot['cluster']['nodes'] = node_targeting.strict_nodes(
+                'compute-a\n    state = free\n    np = 96\n    status = physmem=100663295kb\n', [])
+            snap_file.write_text(json.dumps(snapshot))
+            targets = actions.node_targets()['default']
+            row = next(r for r in targets['nodes'] if r['name'] == 'compute-a')
+            self.assertTrue(row['selectable'])
+            self.assertEqual([(o['tier'],o['selectable']) for o in row['options']], [('max',False),('general',True)])
+            payload = dict(action='prepare', study='water-demo', attempt=parent['attempt_id'], cluster='default',
+                tier='max', input=source_input.read_text(), walltime='01:00:00', label='boundary',
+                relation='derived_from', method_basis='Synthetic only', target_node='compute-a', node_fraction='1/2')
+            draft_files = list((root/'studies').rglob('*.gjf'))
+            with self.assertRaisesRegex(StudyError, 'fraction is unavailable'):
+                actions.execute(payload)
+            self.assertEqual(list((root/'studies').rglob('*.gjf')), draft_files)
+            self.assertEqual(actions.capacity(dict(cluster='default',tier='max',target_node='compute-a'))['availability'], 'not_applicable')
+            result = actions.execute(payload | dict(tier='general', node_fraction='1/4'))
+            self.assertEqual(result['exit_code'], 0, result)
+            commands = [json.loads(line)[0] for line in (root/'paired-argv.jsonl').read_text().splitlines()]
+            self.assertEqual(set(commands), {'--version','clusters','nodes','capacity','prepare'})
+            self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
+            self.assertEqual(source_input.read_bytes(), original_input)
+            self.assertEqual(source_input.stat().st_mtime_ns, original_mtime)
+            self.assertFalse((root/'remote').exists())
