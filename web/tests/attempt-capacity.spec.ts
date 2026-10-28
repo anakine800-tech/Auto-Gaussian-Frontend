@@ -123,3 +123,17 @@ test('readonly and stale action token cannot gain capacity query access',async({
  await context(page);await page.route('**/api/attempt-capacity',route=>route.fulfill({status:403,json:{detail:'Invalid action token'}}));
  await open(page);await expect(panel(page)).toContainText('前端已重启，请刷新页面');
 });
+
+test('temporary local read errors keep manual refresh enabled and recover on the next request',async({page})=>{
+ await context(page);let calls=0;
+ await page.route('**/api/attempt-capacity',route=>{
+  calls++;const data=advice(route.request().postDataJSON(),calls===1?'unknown':'enough');
+  return route.fulfill({json:{...data,reasons:[calls===1?'Synthetic temporary local read error':'Synthetic recovered observation']}});
+ });
+ await open(page);await expect(panel(page)).toContainText('Synthetic temporary local read error');
+ const refresh=panel(page).getByRole('button',{name:'刷新容量'});
+ await expect(refresh).toBeEnabled();expect(calls).toBe(1);
+ await refresh.click();await expect(panel(page)).toContainText('Synthetic recovered observation');
+ await expect(panel(page)).toContainText(labels.enough);await expect(refresh).toBeEnabled();
+ expect(calls).toBe(2);await expect(page.getByLabel('档位',{exact:true})).toHaveValue('max');
+});

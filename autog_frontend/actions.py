@@ -245,7 +245,12 @@ class Actions:
                     argv += ['--target-node', target]
                 argv += ['--json']
                 result = subprocess.run(argv, shell=False, capture_output=True, timeout=15, check=False)
-                if result.returncode == 2:
+                # argparse uses 2 for an unknown command, but ag also uses 2
+                # with JSON for local OSError/KeyError. Only the former proves
+                # this executable lacks capacity; transient errors stay retryable.
+                if (result.returncode == 2 and not result.stdout.strip() and
+                        re.search(rb"(?m)^ag: error: argument command: invalid choice: 'capacity' \(choose from [^\r\n]+\)\r?$",
+                                  result.stderr)):
                     self.capacity_unavailable = True
                     return unavailable
                 if result.returncode:

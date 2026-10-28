@@ -41,11 +41,15 @@ def main():
         return control.get('retry_code', 1 if result == 'refused' else 0)
     if args[0] == 'capacity':
         if not control.get('capacity_supported', True):
-            return 2
+            import argparse
+            parser = argparse.ArgumentParser(prog='ag')
+            parser.add_subparsers(dest='command').add_parser('clusters')
+            parser.parse_args(args)  # Actual argparse unknown-command response.
         print(control.get('capacity_stdout', json.dumps(control.get('capacity_response',
               capacity_response(control.get('clusters_response', settings(home/'studies')),
                                 args[args.index('--cluster')+1], args[args.index('--tier')+1],
                                 args[args.index('--target-node')+1] if '--target-node' in args else None)))))
+        print(control.get('capacity_stderr', ''), end='', file=sys.stderr)
         return control.get('capacity_code', 0)
     if args[0] == 'nodes':
         print(json.dumps(control.get('nodes_response', {})))

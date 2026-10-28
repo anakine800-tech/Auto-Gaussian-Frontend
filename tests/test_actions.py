@@ -537,6 +537,26 @@ class ActionsTests(unittest.TestCase):
         self.assertEqual(sum(c[0] == 'capacity' for c in self.calls()), 1)
         self.assertEqual(self.prepare().json()['exit_code'], 0)
 
+    def test_t158_capacity_exit_two_read_errors_recover_on_the_next_request(self):
+        headers = {'X-AG-Token':self.token}
+        payload = dict(cluster='default', tier='general')
+        old_command = "ag: error: argument command: invalid choice: 'capacity' (choose from 'clusters')\n"
+        for stdout, stderr in (
+                (json.dumps({'error':'Synthetic local read failed', 'exit_code':2}), ''),
+                (json.dumps({'error':'Synthetic local read failed', 'exit_code':2}), old_command),
+                ('', 'ag: error: unrecognized arguments: --target-node compute-a\n'),
+                ('', 'Synthetic local read failed\n')):
+            with self.subTest(stdout=bool(stdout), stderr=bool(stderr)):
+                before = sum(c[0] == 'capacity' for c in self.calls())
+                self.control(capacity_code=2, capacity_stdout=stdout, capacity_stderr=stderr)
+                failed = self.client.post('/api/attempt-capacity', headers=headers, json=payload).json()
+                self.assertEqual(failed['availability'], 'unknown')
+                self.assertNotIn('capability_unavailable', failed)
+                self.control()
+                recovered = self.client.post('/api/attempt-capacity', headers=headers, json=payload).json()
+                self.assertEqual(recovered['availability'], 'enough')
+                self.assertEqual(sum(c[0] == 'capacity' for c in self.calls()), before + 2)
+
     def test_t158_capacity_verdicts_and_bad_or_mismatched_responses(self):
         actions = Actions(Studies(self.studies), self.fake)
         payload = dict(cluster='default', tier='general')
