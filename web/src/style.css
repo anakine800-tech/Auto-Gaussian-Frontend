@@ -20,3 +20,14 @@ details{margin:var(--space-3) 0}label{display:inline-flex;align-items:center;gap
 .attempt-node-table{max-width:100%;overflow-x:auto;margin:12px 0}
 .attempt-node-table table{min-width:480px;width:100%;border-collapse:collapse}
 .attempt-node-table th,.attempt-node-table td{text-align:left;padding:6px;border-bottom:1px solid var(--line)}
+
+/* T160: styles confined to the CREST diagnostic panel. */
+.crest-diagnostics{border-top:1px solid var(--line);margin-top:12px;padding-top:10px;min-width:0;font-size:var(--fs-sm)}
+.crest-diagnostics h3{margin:0 0 8px}.crest-diagnostics p{margin:6px 0;overflow-wrap:anywhere}
+.crest-diagnostics .crest-state{font-weight:600}.crest-diagnostics .crest-note{color:var(--muted)}
+.crest-diagnostics details{margin-top:8px;min-width:0}.crest-diagnostics summary{cursor:pointer;overflow-wrap:anywhere}
+.crest-diagnostics .crest-source,.crest-diagnostics .crest-file{border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:8px}
+.crest-diagnostics .crest-hash{font-family:monospace;font-size:11px;overflow-wrap:anywhere}
+.crest-diagnostics pre{max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.crest-diagnostics .crest-hit{background:#fff1c8;color:#403316}.crest-diagnostics .crest-line{color:#686868;user-select:none}
+.crest-diagnostics button{max-width:100%;white-space:normal;overflow-wrap:anywhere}

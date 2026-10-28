@@ -105,6 +105,36 @@ def create_preview_studies(root):
     return study
 
 
+def create_crest_study(root):
+    """Materialize saved T159 output without importing or executing ag."""
+    import copy
+    cases = json.loads((Path(__file__).parent/'fixtures/crest-diagnostics/generated.json').read_text())
+    for name in ('mismatch', 'lost', 'malformed', 'legacy'):
+        cases[name] = copy.deepcopy(cases['error'])
+    cases['mismatch']['outputs']['job.slurm.err'] = 'changed local text\n'
+    del cases['lost']['outputs']['job.slurm.err']
+    cases['malformed']['facts']['crest_diagnostics'] = {'status': 'identified'}
+    del cases['legacy']['facts']['crest_diagnostics']
+    cases['legacy']['facts']['error_hint'] = '旧版合成错误提示'
+    study = Path(root)/'crest-demo'
+    study.mkdir(parents=True)
+    (study/'study.md').write_text('# CREST 合成来源演示\n\n不是现场计算或科学验收。\n')
+    for case, record in cases.items():
+        base = study/'attempts'/('crest-'+case)
+        (base/'outputs').mkdir(parents=True)
+        (base/'inputs').mkdir()
+        manifest = dict(record['manifest'], attempt_id=base.name, label=base.name)
+        (base/'manifest.json').write_text(json.dumps(manifest))
+        (base/'status.json').write_text('{"state":"fetched"}')
+        (base/'facts.json').write_text(json.dumps(record['facts'], ensure_ascii=False))
+        (base/'inputs/water.xyz').write_text('3\nSynthetic water\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
+        for name, text in record['outputs'].items():
+            (base/'outputs'/name).write_text(text)
+        for name, text in record['geometries'].items():
+            (base/name).write_text(text)
+    return study
+
+
 if __name__ == '__main__':
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)

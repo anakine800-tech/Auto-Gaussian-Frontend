@@ -168,6 +168,11 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     def log(study: str, attempt: str, log: str, start: int = Query(0, ge=0), limit: int = Query(120, ge=1, le=500)):
         return store.log_page(study, attempt, log, start, limit)
 
+    @app.get('/api/studies/{study}/attempts/{attempt}/crest-diagnostics/{index}')
+    def crest_excerpt(study: str, attempt: str, index: int,
+                      token: str = Query(pattern='^[0-9a-f]{64}$')):
+        return store.crest_excerpt(study, attempt, index, token)
+
     @app.get('/api/studies/{study}/attempts/{attempt}/optimization/{log}')
     def optimization(study: str, attempt: str, log: str):
         return store.optimization(study, attempt, log)
