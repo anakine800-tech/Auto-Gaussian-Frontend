@@ -23,6 +23,7 @@ import stat
 from threading import Lock
 from urllib.parse import unquote, urlsplit
 
+from .crest_diagnostics import metadata as crest_metadata, read_window, LogReadError, LOG_NAMES
 from .geometry import SYMBOLS, parse_xyz, xyz_frame
 from .inputs import parse_input
 from .optimization import parse_optimization
@@ -896,7 +897,7 @@ class Studies:
         for name, error in self.names((*base, 'outputs')):
             if error:
                 issues.append({'path': name, 'error': error})
-            elif name.lower().endswith(('.log', '.out')):
+            elif name.lower().endswith(('.log', '.out')) or name == 'job.slurm.err':
                 logs.append(name)
         try:
             input_files = [{'name': name, 'error': error} for name, error in self.names((*base, 'inputs'))]
@@ -905,33 +906,32 @@ class Studies:
             issues.append({'path': 'inputs', 'error': str(exc)})
         input_geometry = self.input_geometry(study, attempt, data['manifest'], input_files)
         return {'id': attempt, **data, 'geometry': geometry, 'input_geometry': input_geometry,
-                'input_files': input_files, 'logs': logs, 'issues': issues}
+                'input_files': input_files, 'logs': logs, 'issues': issues,
+                'crest_diagnostics': crest_metadata(data['facts']['data'], study, attempt)}
 
     def crest_frames(self, study, attempt, name, frame=0):
         from .ensembles import crest_frames
         return crest_frames(self, study, attempt, name, frame)
 
-    def log_parts(self, study, attempt, log):
+    def log_parts(self, study, attempt, log, *, text_only=False):
         parts = (component(study), 'attempts', component(attempt), 'outputs', component(log))
-        if not log.lower().endswith(('.log', '.out')):
+        if not log.lower().endswith(('.log', '.out')) and not (text_only and log == 'job.slurm.err'):
             raise StudyError('Only output logs are readable', 400)
+        if not text_only and log in LOG_NAMES:
+            raise StudyError('CREST and scheduler diagnostics are text only', 400)
         return parts
 
     def log_page(self, study, attempt, log, start, limit):
-        lines, total = [], 0
-        with self.open_file(self.log_parts(study, attempt, log)) as stream:
-            if os.fstat(stream.fileno()).st_size > 256*1024*1024:
-                raise StudyError('Log exceeds 256 MiB display limit', 413)
-            while True:
-                line = stream.readline(1024*1024+1)
-                if not line:
-                    break
-                if len(line) > 1024*1024:
-                    raise StudyError('Log line exceeds display limit', 413)
-                if start <= total < start+limit:
-                    lines.append(line.decode('utf-8', errors='replace'))
-                total += 1
-        return {'name': log, 'start': start, 'limit': limit, 'total_lines': total, 'text': ''.join(lines)}
+        try:
+            page = read_window(self, self.log_parts(study, attempt, log, text_only=True), log, start, limit)
+        except LogReadError as exc:
+            raise StudyError(str(exc), exc.status) from None
+        return {key: page[key] for key in ('name', 'start', 'limit', 'total_lines', 'text')}
+
+    def crest_excerpt(self, study, attempt, index, token):
+        from .crest_diagnostics import excerpt
+        return excerpt(self, study, attempt, index, token)
+
 
     def vibrations(self, study, attempt, log):
         raw = self.read(self.log_parts(study, attempt, log), 32*1024*1024)
@@ -1020,7 +1020,7 @@ class Studies:
             raise StudyError('无法预览：'+str(exc)) from None
 
     def log_search(self, study, attempt, log, query, start, last):
-        with self.open_file(self.log_parts(study, attempt, log)) as stream:
+        with self.open_file(self.log_parts(study, attempt, log, text_only=True)) as stream:
             if os.fstat(stream.fileno()).st_size > MAX_LOG_BYTES:
                 raise StudyError('日志搜索仅支持不超过 32 MB 的文件', 413)
             try:

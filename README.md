@@ -238,7 +238,7 @@ studies 根目录下以 `_` 或 `.` 开头的目录按容器处理，不列为 s
     review.md
     final.xyz
     inputs/*
-    outputs/*.log or *.out
+    outputs/*.log or *.out, outputs/job.slurm.err
     outputs/crest_conformers.xyz, crest_best.xyz, crest_ensemble.xyz
   structures/<name>/*.xyz
   analyses/*.json, *.md, *.csv, *.xyz, *.txt, *.png, *.jpg, *.jpeg, *.webp, *.svg, *.html
@@ -330,6 +330,31 @@ studies 根目录下以 `_` 或 `.` 开头的目录按容器处理，不列为 s
   `ensemble_G`. They are not recalculated. Settings and full JSON remain inspectable.
   Dedup and cluster JSON outputs are shown verbatim; XYZ files use the frame viewer. No complete sampling or scientific
   acceptance is inferred from any saved status or number.
+
+## CREST 错误摘要与来源（T160）
+
+CREST Attempt 默认展示已有 `facts.crest_diagnostics` 的摘要及四种状态：错误证据、
+原因未明确、未发现匹配错误、错误输出不可用。直接使用后端保存的判断，不重新匹配
+错误规则；`identified`、`parse_status=complete` 或 facts 存在均不代表计算成功。
+旧 facts 缺少此字段时继续显示 `error_hint` 并注明没有结构化来源，不要求刷新事实。
+
+展开单个来源才读取片段。来源限于当前 Attempt 的 `outputs/crest.out`、`job.pbs.out`、
+`job.slurm.out`、`job.slurm.err`；文件名、完整 SHA-256 和 1 基闭区间来自已有 facts。
+服务端复用逐级描述符路径检查，仅打开普通文件，读取后检查文件身份和诊断是否变化。
+哈希不符、缺失、空文件、非法范围、符号链接、特殊文件或超限分别提示，拒绝把当前
+不同字节作为原诊断的命中证据，不改写任何文件。
+
+片段包含前后至多三行上下文，最多 120 行、64 KiB UTF-8 显示文本，截断明确提示。
+“查看完整日志”打开该精确文件的现有分页器，默认每页 120 行；全文留在本地，
+文件上限仍为 256 MiB、单行上限仍为 1 MiB。分页显示当前本地文本，不自动证明与
+原诊断对应。日志和片段均为转义纯文本，这些固定诊断日志在打开折叠区前不预加载正文。
+只新增固定 `job.slurm.err` 的文本入口，不开放其他 `.err`；CREST 和调度器固定日志
+不进入 Gaussian 振动／优化解析。普通日志搜索、选择与浏览器后退继续可用。
+
+只读及操作模式均可查看已有来源；查看不调用 ag、不取回、不刷新 facts、不重试计算。
+合成配套样例的候选后端提交及未完成的合并依赖见
+[T160 合成检查说明](tests/fixtures/crest-diagnostics/README.md)。最终配套验收须等 T158、T159 合并；
+这里的本地合成检查不代表现场取回、实际研究页面观察或科学验收。
 
 ## 构象集合与 CREST 输出（T54）
 

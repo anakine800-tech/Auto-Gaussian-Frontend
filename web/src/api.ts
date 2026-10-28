@@ -5,7 +5,10 @@ export type StructureFile={parts:string[];error:string|null};
 export type StudySection={present:boolean;text:string;entries:{text:string;line:number;label?:string;state?:'pending'|'recorded'|'not_applicable'|'unknown'|'not_started'}[]};
 export type CatalogReview={available:boolean;attempts:string[];warning:string|null};
 export type Study={catalog_review?:CatalogReview;id:string;study:Document<string>;sections:Record<string,StudySection>;attempts:AttemptSummary[];graph:Graph;structure_files:StructureFile[];analyses:(Document&{name:string;schema:string|null;updated_at:string|null})[];issues:{path:string;error:string}[]};
-export type Attempt={id:string;manifest:Document;status:Document;facts:Document;review:Document<string>;geometry:Document;input_geometry:Document;input_files:{name:string;error:string|null}[];logs:string[];issues:{path:string;error:string}[]};
+export type CrestSource={index:number;error:string|null;file?:string;sha256?:string;line_start?:number;line_end?:number;findings:{level:string;message:string}[]};
+export type CrestDiagnostics={available:false;error:string}|{available:true;token:string;status:'identified'|'unresolved'|'none'|'unavailable';summary:string;sources:CrestSource[];files:{error:string|null;file?:string;sha256?:string;size?:number}[];missing_sources:string[];scan_truncated:boolean;summary_truncated:boolean;parse_status:'complete'|'incomplete'|null;parse_error:string|null};
+export type CrestExcerpt={status:string;text:string;name?:string;start?:number;total_lines?:number;shown_lines?:number;truncated?:boolean;sha256?:string;line_start?:number;line_end?:number};
+export type Attempt={id:string;manifest:Document;status:Document;facts:Document;review:Document<string>;geometry:Document;input_geometry:Document;input_files:{name:string;error:string|null}[];logs:string[];issues:{path:string;error:string}[];crest_diagnostics?:CrestDiagnostics|null};
 export function endpoint(...parts:string[]){return '/api/studies/'+parts.map(encodeURIComponent).join('/');}
 export async function get<T>(url:string,signal:AbortSignal):Promise<T>{
  const response=await fetch(url,{signal,cache:'no-store'});
