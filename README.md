@@ -1048,6 +1048,8 @@ queue／unknown 均可本地准备，以及精确内存导致仅某一比例不�
 计划内结构化提交约束按实际字段展示；缺失字段不补值，不估算剩余预算，
 意图计数不表示真实提交次数或科学验收。放宽输入提醒只汇总实际存在的
 `manifest.input_validation={mode:'relaxed', skipped_checks:[...], method_verified:false}`。
+只有标记字段确实不存在才按旧记录兼容；存在但为 null、未知模式、空或无效检查清单、
+或方法确认值不严格为 false 时，明确提示无法核实、提醒不完整。
 页面不提供自主启动、暂停、恢复、结束或计划编辑按钮；负责人在对话中使用正式 ag 操作。
 
 `GET /api/studies/{study}/autonomy` 不调用 ag、不查询远程、不写 study。

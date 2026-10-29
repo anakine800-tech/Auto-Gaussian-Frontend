@@ -175,6 +175,43 @@ class AutonomyReaderTests(unittest.TestCase):
         self.assertEqual(self.read()['relaxed_inputs'], [])
         self.assertIsNotNone(self.read()['relaxed_inputs_warning'])
 
+    def test_absent_input_validation_marker_is_old_compatible_and_immutable(self):
+        path = self.study / 'attempts/anti/manifest.json'
+        self.assertNotIn('input_validation', json.loads(path.read_text()))
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                  for p in (self.study / 'attempts').rglob('*') if p.is_file()}
+        data = self.read()
+        self.assertEqual(data['relaxed_inputs'], [])
+        self.assertIsNone(data['relaxed_inputs_warning'])
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
+
+    def test_present_unverifiable_input_markers_warn_instead_of_looking_ordinary(self):
+        path = self.study / 'attempts/anti/manifest.json'
+        manifest = json.loads(path.read_text())
+        valid = dict(mode='relaxed', skipped_checks=['method-route'], method_verified=False)
+        variants = [('null-marker', None), ('array-marker', []), ('empty-marker', {})]
+        for field, values in (
+                ('mode', ['unknown', 'strict', None]),
+                ('skipped_checks', [[], None, 'method-route', [''], ['  '], [1], ['method-route', None]]),
+                ('method_verified', [True, None, 0, 'false'])):
+            for value in values:
+                marker = dict(valid, **{field: value})
+                variants.append((f'{field}={value!r}', marker))
+            marker = dict(valid)
+            del marker[field]
+            variants.append((f'missing-{field}', marker))
+        for name, marker in variants:
+            with self.subTest(marker=name):
+                manifest['input_validation'] = marker
+                path.write_text(json.dumps(manifest))
+                before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                          for p in (self.study / 'attempts').rglob('*') if p.is_file()}
+                data = self.read()
+                self.assertEqual(data['relaxed_inputs'], [])
+                self.assertIn('无法核实', data['relaxed_inputs_warning'])
+                self.assertIn('提醒不完整', data['relaxed_inputs_warning'])
+                self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
+
     def policy(self):
         return dict(templates=['gaussian', 'crest', 'xtb', 'multiwfn'],
                     clusters={'entry-demo': dict(nodes=[], max_committed_cores=24,

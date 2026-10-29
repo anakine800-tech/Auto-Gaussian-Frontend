@@ -423,18 +423,17 @@ def _relaxed_inputs(store, study):
                     _require(len(raw) <= 256 * 1024)
                     manifest = _decode(raw)
                     _require(isinstance(manifest, dict))
-                    value = manifest.get('input_validation')
-                    if value is None:
-                        continue
-                    _require(isinstance(value, dict))
-                    if value.get('mode') != 'relaxed':
-                        continue
+                    if 'input_validation' not in manifest:
+                        continue  # Only genuinely absent markers are old-compatible.
+                    value = manifest['input_validation']
+                    _require(isinstance(value, dict) and value.get('mode') == 'relaxed')
                     _require(value.get('method_verified') is False)
                     skipped = _texts(value['skipped_checks'])
+                    _require(bool(skipped))
                     result.append(dict(attempt=name, mode='relaxed', skipped_checks=skipped,
                                        method_verified=False))
                 except (StudyError, OSError, ValueError, TypeError, KeyError, RecursionError):
-                    warning = '部分 Attempt 标记缺失、损坏或无法安全读取；放宽输入提醒不完整。'
+                    warning = '部分 Attempt 输入检查标记无法核实或无法安全读取；放宽输入提醒不完整。'
     except (StudyError, OSError):
         warning = 'Attempt 清单无法安全读取；放宽输入提醒不完整。'
     return result, warning
