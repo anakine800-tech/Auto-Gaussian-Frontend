@@ -3,11 +3,55 @@ import json
 import os
 
 
+def saved_profile():
+    """T193 invented saved values, including deliberately incomplete legacy rows."""
+    def conformer(attempt, spc=None):
+        source = {'attempt_id': attempt, 'section_index': 0, 'start_line': 1,
+                  'end_line': 20, 'route': '# HF/STO-3G Freq', 'protocol': {}}
+        return {'attempt_id': attempt, 'spc_attempt_id': spc,
+                'frequency_source': source,
+                'electronic_energy_source': {**source, 'attempt_id': spc or attempt},
+                'population': 0.5, 'degeneracy': 1, 'qh_G_hartree': -157.0}
+
+    long_id = 'P-synthetic-long-name-' + 'saved-state-' * 8
+    return {
+        'schema': 'ag-profile/1', 'units': 'kcal/mol', 'reference': 'R-mixture',
+        'temperature_K': 310.15, 'standard_state': '1M',
+        'explicit_solvent_concentrations_M': {'solvent': 0.125},
+        'states': [
+            {'id': 'R-mixture', 'kind': 'minimum', 'species': {'substrate': 1, 'solvent': 2},
+             'G_kcal': -987654.321, 'relative_G_kcal': 0},
+            {'id': 'TS-mixed', 'kind': 'ts', 'species': {'transition': 1, 'solvent': 2},
+             'G_kcal': -987650.0, 'relative_G_kcal': 12.3456789},
+            {'id': long_id, 'kind': 'minimum', 'species': {'product': 1, 'solvent': 2},
+             'G_kcal': -987640.0, 'relative_G_kcal': -4.125},
+            {'id': 'missing-energy', 'kind': 'ts', 'species': {'missing-species': 1},
+             'G_kcal': -987600.0},
+            {'id': 'nonfinite-energy', 'kind': 'minimum', 'species': {'missing-species': 1},
+             'G_kcal': -987580.0, 'relative_G_kcal': 'Infinity'},
+        ],
+        'species': {
+            'substrate': {'conformers': [conformer('anti', 'opt-demo'), conformer('gauche')],
+                          'settings': {'temperature_K': 310.15, 'concentration_mol_L': 1.0},
+                          'warnings': ['Synthetic species warning']},
+            'solvent': {'conformers': [conformer('anti')], 'warnings': []},
+            'transition': {'conformers': [conformer('opt-demo', 'gauche')], 'warnings': []},
+            'product': {'conformers': [conformer('anti')], 'warnings': []},
+        },
+        'warnings': [' \t=SUM(1,2)\n"synthetic warning"', '  +1', '  -1', '  @value',
+                     '\x01control character'],
+        'symmetry': {'warnings': ['Synthetic symmetry warning']},
+        'note': 'Synthetic display only; no chemical conclusion.',
+        'selectivity': [
+            {'id': 'synthetic-branch',
+             'pairwise': [{'a': 'R', 'b': 'S', 'ddG_barrier_kcal': 1.2, 'ratio_a_over_b': 7.5}],
+             'products': {'R': {'fraction': 0.88}, 'S': {'fraction': 0.12}}}],
+    }
+
+
 def add_analysis_reports(study):
     reports = {
-        'profile-demo.json': {'schema': 'ag-profile/1', 'units': 'kcal/mol', 'selectivity': [
-            {'id': 'synthetic-branch', 'pairwise': [{'a': 'R', 'b': 'S', 'ddG_barrier_kcal': 1.2, 'ratio_a_over_b': 7.5}],
-             'products': {'R': {'fraction': 0.88}, 'S': {'fraction': 0.12}}}]},
+        'profile-demo.json': saved_profile(),
         'coverage-demo.json': {'schema': 'ag-channel-coverage/1', 'channels': [
             {'channel_id': 'synthetic-a', 'imbalances': [{'metric': 'opt_count', 'count': 1}]}], 'product_branches': []},
         'nci-demo.json': {'schema': 'ag-nci/1', 'notice': '结果仅为相互作用的可视化与半定量分析，不是能量分解', 'frames': [
