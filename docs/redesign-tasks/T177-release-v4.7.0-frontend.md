@@ -32,7 +32,7 @@ Task: T177
 
 ## 实施与验收记录（2026-10-29）
 
-状态：版本、文档和前端一次完整离线回归完成；最终配套等待协调方提供 T178 的真实完整合并 SHA。保持 draft，未以当前后端 main 代替。
+状态：版本、文档、前端一次完整离线回归、T179 整合及 T178 真实合并源码的两项实际配套均完成；最终 HEAD 的 CI 和独立终审见 PR。保持 draft 交协调方复核，本执行会话不合并、发布或部署。
 
 ### 基线、来源与范围
 
@@ -60,7 +60,7 @@ Task: T177
 
 覆盖既有服务器四/五卡、PBS/Slurm、重试／迟到状态、研究、结果、证据、报告阅读、构象及振动、跨页实际本地 HTTP 集成；也包含 T158 默认档位、手选保留、容量未知、节点/比例与旧 CLI 路径，以及 T160 四种诊断状态、哈希不符、缺来源、惰性读取、分页及移动端。另目检本次合成的窄屏资源表单与桌面诊断来源截图。临时副本的六张既有 T132 参考 PNG 被测试更新，工作树原图逐字节不变，不提交生成图。
 
-### 最终配套与交付状态
+### 初始配套依赖与交付状态（已由末节最终配套解除）
 
 - 等待协调方提供 T178 **真实完整合并 SHA** 后，核对 GitHub merged 记录并从该提交导出实际后端源码；分别以现有 `T151_BACKEND_SOURCE` 和 `T158_BACKEND_SOURCE` 实际运行 PairedBackendTests 与 PairedResourceTests，逐项记录 testsRun、skipped、模块来源和后端版本；两项默认跳过都须补齐。当前后端 main、分支 HEAD 和历史功能配套均不替代。
 - 本次有效私有词表已确认存在、非空且正则有效；全量扫描 323 文件（110 个二进制跳过）、暂存扫描 7 文件均零命中，`git diff --check` 与 author/committer noreply 核对通过；交付前再核对最终暂存内容。
@@ -88,3 +88,45 @@ Task: T177
 | 范围、兼容与历史 | 相对 T179 合并提交仅七个允许文件变化；相对原 T177 HEAD，产品源码、全部测试、脚本和 web 字节不变；CI、T179 工单和锁文件与 T179 合并源码一致，旧版本历史保留 |
 
 本阶段没有重复本地全量 Python 或浏览器。原 T177 83.0.0 全量与 T179 自身 84.1.0 全量分别保留，本次只记录上述实际执行的整合检查。两项最终后端配套仍未执行，等待 T178 真实合并源码；本轮保留 T177 待办及 draft。
+
+### T178 合并后的最终配套与收尾（2026-10-29）
+
+#### 固定提交、隔离安装与来源
+
+- 已通过 GitHub 核对后端 [#372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372) 的 `merged=true`、`state=closed`；真实合并 SHA 为 `d2e6308e5f15964c363549d98e16239806650eb1`，合并时间 2026-10-29 11:53:28（Asia/Shanghai）。已审阅分支 HEAD `1a33ce3bf096b16d9d439bedf65dc9831e88880f` 只作来源说明，不作为配套基线。
+- 前端实际配套验证 HEAD 为 `6cc4230df23c0f20602f1f42605efda016a30d9f`，其四项 push/PR CI 均已通过且整合独立预审无阻塞。最终收尾仅更新 README/CHANGELOG、本单和 open-tasks，不变更已验证实现、测试、版本、依赖、构建或静态参考图；最终 HEAD 在 PR 记录并另核对 CI。
+- 正式后端检出未含该对象，因此只在本任务新建的独立 bare 对象库 fetch 此确切 SHA，再以 `git archive <SHA> ag` 导出。没有移动或修改后端正式检出。导出的 241 个文件逐项与该提交的 Git blob 比较，并在配套后再次核对 SHA-256，均未变化。
+- 在已验证 setuptools 84.1.0 的独立 Python 3.13.13 环境，用 `python -m pip install --no-deps --no-build-isolation -e <T178_EXPORT>/ag` 安装实际后端；未安装生产服务、未读取真实配置。清除 PYTHONPATH，元数据与实际模块的前后端版本均为 4.7.0。
+- 测试进程断言前端模块来自本工作树 `autog_frontend/__init__.py`，后端来自导出目录 `ag/src/ag/`；资源类记录的 22 个、监控类记录的 64 个实际已导入后端模块均与合并提交的源码哈希一致。完整解释器、模块绝对路径和原始日志只保存在本机。
+
+#### 两项实际执行结果
+
+分别在独立进程设置现有环境变量，以一次性本地记录器调用 `unittest.defaultTestLoader.loadTestsFromName` 和 `TextTestRunner` 执行原有类；没有改测试代码。记录器保存 result.testsRun、skipped、failures、errors 及 sys.modules 来源，并断言每类实际执行 1 项、0 跳过且成功。
+
+| 环境变量 | 实际执行类 | testsRun | skipped | failures / errors | 耗时 |
+|---|---|---:|---|---|---|
+| `T158_BACKEND_SOURCE=<T178_EXPORT>/ag/src` | `tests.test_actions.PairedResourceTests` | 1 | `[]` | 0 / 0 | 13.532 秒 |
+| `T151_BACKEND_SOURCE=<T178_EXPORT>/ag/src` | `tests.test_server_monitor.PairedBackendTests` | 1 | `[]` | 0 / 0 | 0.862 秒 |
+
+实际记录器入口参数为 `--frontend <FRONTEND_SOURCE> --backend <T178_EXPORT>/ag/src --merge-sha d2e6308e5f15964c363549d98e16239806650eb1 --case resources|monitor --output <NEW_LOCAL_JSON>`，通过同一个独立环境的 `python -B <LOCAL_RECORDER>` 执行，两类分别设置上表变量。此前全量中的两项 skip 历史保持原样；本节的 **2 项实际通过、0 跳过** 是单独补齐的配套证据。
+
+资源类使用真实本地 CLI 的 version/clusters/nodes/capacity/prepare，配置为临时合成数据并禁止 SSHTransport，覆盖默认资源、48/96 → 76800 MB、节点顺序、occupied/selectable、1/2 与 1/4、queue/unknown 和精确内存边界；旧 Attempt、源输入的字节及时间戳、快照均保留。监控类使用合成配置和假 Transport，覆盖 legacy/named 来源、追踪请求关联、queued/running/finished、四类 discarded、快照不造假及旧四键响应；不运行正式 watch。
+
+关键实际导入源码（相对导出根目录）：
+
+| 模块 | 来源 | SHA-256 |
+|---|---|---|
+| `ag` | `ag/src/ag/__init__.py` | `49724973fa261b0eeb2a5e831fa6fe2a3f83699e2ca302f144ab61cd99c79bca` |
+| `ag.cli` | `ag/src/ag/cli.py` | `a00e79f83fac44818fe0900c4c8b597083a7a330f0d07b71b2203f7f0f2d533f` |
+| `ag.attempt` | `ag/src/ag/attempt.py` | `ec6962f9e1909bc35d6eac587d2863e0e2001e7d8ff22bb691911842b63949ce` |
+| `ag.capacity` | `ag/src/ag/capacity.py` | `c4cee37f97149b3dfeeb4d812f6c3b1e71f06fd2fea7c5ba0f2900358488f0d6` |
+| `ag.monitor` | `ag/src/ag/monitor.py` | `d1f4fa30a0606ad57846448448af997a7cb4de86d5998d44ebf8586a51c0d14a` |
+| `ag.node_targeting` | `ag/src/ag/node_targeting.py` | `7a6cab03c98fa9d2417175ba694a3b93bae8a07559003301a7bc0aa729c8994c` |
+
+#### 最终状态与验证边界
+
+T179 已确认合并且本单要求的离线与实际配套验证完成，open-tasks 中已完成 T179 注释及 T177 项均移除，其他原注释／事项保留；T179 历史验收文本未改。README/CHANGELOG 记录实际配套 SHA 和两项零跳过结果。原 83.0.0 全量、84.1.0 整合及构建产物等价证据各自保留，无新功能，不重复本地全量浏览器。
+
+Dependabot #16 后续只读 API 返回 `state=fixed`、`fixed_at=2026-10-29T03:25:26Z`（11:25:26 Asia/Shanghai），替代前节较早查询时的 open 状态；协调方已独立核对，无手动 dismissal，也无 Windows 现场复现声明。
+
+最终候选继续保持 draft，等当前 HEAD 必要 CI 和独立终审后交协调方合并。仅离线合成、构建和发布候选配套验证；未连接集群、操作真实研究数据或生产配置，未自行合并、推 main、创建 tag/Release、部署或重启服务。

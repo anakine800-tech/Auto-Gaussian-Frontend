@@ -2,14 +2,14 @@
 
 ## v4.7.0
 
-**发布准备；目标配套 ag 4.7.0。最终配套待 T178 真实完整合并 SHA 验证，未创建 tag/Release 或部署。**
+**发布准备；配合 ag 4.7.0。已用 T178 真实合并提交 `d2e6308e5f15964c363549d98e16239806650eb1` 完成两项实际配套验证、0 跳过；未创建 tag/Release 或部署。**
 
 ### 变更
 
 - **新 Attempt 资源与容量（T158）。** 目标入口显式配置的默认档位优先，核数、调度内存和 Gaussian 输入内存分别显示；例如 48 核 / 96 GB 对应 76800 MB 输入内存。无默认值保留原继承／回退，手动选择不会被容量刷新覆盖。本地容量附采样时间和来源，未知不当作空闲，不保证立即启动。[#49](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/49)
 - **具名节点及比例（T158）。** 保留原分组和顺序，按后端明确的 selectable 显示可选占用节点及 1/2、1/4 选项；不可用比例保留提示，须由用户明确换选，不自动降档或换节点。旧响应沿用已有兼容路径；能力按字段和命令判断，不以版本号推断。默认档位与资源只用于新草稿及新 Attempt，不改旧 Attempt、源输入或绑定。
 - **CREST 诊断来源（T160）。** 展示已有 facts 中的错误证据、原因未明确、未发现匹配错误和错误输出不可用；旧 facts 保留 error_hint。展开来源才核对固定文件、完整 SHA-256 和行范围并读取有界片段，不匹配时拒绝展示命中正文，全文复用分页器。新增固定 job.slurm.err 文本入口，CREST／调度器日志不进入 Gaussian 解析。[#50](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/50)
-- **构建依赖安全更新（T179）。** setuptools 固定为 84.1.0，覆盖 pyproject 的构建要求、CI 两处安装及 README 当前两处说明；requirements.lock.txt 无 setuptools，不新增运行依赖。此更新对应低等级 [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w)，不声称已在 Windows 复现或 GitHub 告警已关闭。[#52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)
+- **构建依赖安全更新（T179）。** setuptools 固定为 84.1.0，覆盖 pyproject 的构建要求、CI 两处安装及 README 当前两处说明；requirements.lock.txt 无 setuptools，不新增运行依赖。此更新对应低等级 [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w)，未在 Windows 复现；GitHub #16 后续只读查询已返回 fixed，未手动 dismiss。[#52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)
 - **版本与文档（T177）。** Python 包元数据、运行时与网页包统一 4.7.0，仅更新发布文档和任务状态；不改功能源码、依赖、锁文件、测试、CI 或历史版本段落。
 
 按 `git log v4.6.3..fa48ab1a0c0d669233a189bb5457b143d07dd798 --first-parent` 核对，本仓功能增量仅 T158（合并 `d09868c43a6131cb8ea6452cb132a0e5a6d34d04`）与 T160（合并 `fa48ab1a0c0d669233a189bb5457b143d07dd798`）。
@@ -19,7 +19,7 @@ T179 已于 2026-10-29 合并，真实合并提交为 `8ceda045b1aa007c9dba882f2
 ### 验证与兼容边界
 
 - T177 记录本次 Python 全量、类型／生产构建、一次全量跨页浏览器回归、隔离安装版本及实际导入来源；使用合成数据、假 ag 和临时本地服务，截图写独立源码副本。真实失败保留证据，不重跑到绿或提高时间阈值掩盖。
-- 最终实际配套必须以 T178 的真实完整合并 SHA 导出源码，运行现有 PairedBackendTests 并记录 testsRun 与 skipped；当前 main、旧功能 PR 配套和默认 CI 跳过都不算本次通过。相关内容改变后补受影响验证，最终准确 HEAD 的 CI 与独立审阅由 PR 记录。
+- 最终实际配套使用 [T178 #372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372) 的上述真实合并源码，分别设置 T158_BACKEND_SOURCE、T151_BACKEND_SOURCE，运行现有 PairedResourceTests 和 PairedBackendTests：每类 testsRun=1、skipped=[]，均通过；实际导入和版本 4.7.0 已核对。旧全量中的默认跳过仍保留为历史记录，不当作配套通过。相关内容改变后补受影响验证，最终准确 HEAD 的 CI 与独立审阅由 PR 记录。
 - 取回、facts 解析及计算状态仍由 ag 处理；查看诊断不执行取回、刷新或重试，不把失败与缺证据混为一谈。诊断匹配、facts 存在、工具完成和页面数值均不等于科学验收。
 - 该前端不生成新增 Hessian，也不提供专用 Hessian 报告或派生模式查看；既有 Gaussian log 振动查看的适用范围不变。
 - 后端最新复核确认旧普通 PBS 与 Slurm 正式取回兼容均通过，满足 T159 原工单的最低现场要求；此前 PBS 传输失败仍保留。新集合、mdopt、不完整取回和真实错误诊断仍标未现场覆盖，不新增为原工单的强制发版门槛，也不由前端合成测试补成现场通过。
