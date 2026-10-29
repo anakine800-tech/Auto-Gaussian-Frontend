@@ -1,11 +1,15 @@
 # Auto-Gaussian Study Viewer v4.7.0
 
-**v4.7.0 发布准备，配合 ag 4.7.0。** 已用 T178 真实合并源码完成资源与监控两项配套验证，均实际执行且无跳过；见 [CHANGELOG.md](CHANGELOG.md#v470) 与 [T177 验收记录](docs/redesign-tasks/T177-release-v4.7.0-frontend.md)。
+**v4.7.0 已于 2026-10-29 正式发布，配合 ag 4.7.0。** 两个发布 PR 的最终独立审阅与 CI 均通过；资源与监控两项实际后端配套验证均通过、0 跳过。
+
+- [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.7.0)：tag 固定于 `f9c8143d4b30ff912140bcc4e2e931373754a84c`（[T177 #51](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/51)）。
+- [后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.7.0)：tag 固定于 `d2e6308e5f15964c363549d98e16239806650eb1`（[T178 #372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372)）。
+
+截至 2026-10-29，本机开发环境已按上述两个 tag 部署并验收：前后端元数据／runtime 与网页包均为 4.7.0，前端构建依赖 setuptools 84.1.0；网页构建、五卡显示与三个 HTTP 200 检查通过。研究机尚未更新，不能据此视为所有机器均已部署。
+发布与部署摘要见 [CHANGELOG.md](CHANGELOG.md#v470)；[T177 验收记录](docs/redesign-tasks/T177-release-v4.7.0-frontend.md)及 tag 内“发布准备”文字保留为合并前历史，不代表当前状态。后续文档提交不替代发布 tag，也不移动 tag。
 
 标准部署为每台电脑一个操作模式前端（8773）+ 一个监控服务；重启操作版后令牌会更换，已打开页面须刷新。
-T177 只准备版本号、文档和发布验证；配套后端为 T178 [#372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372) 的真实合并提交 `d2e6308e5f15964c363549d98e16239806650eb1`。
-功能合入不会自动更新运行检出或服务；发布 PR 经监督方审阅并由负责人合并后，后续同号 tag/Release、部署及服务重启分别按明确指示执行。
-两个 v4.7.0 tag 核验及对应机器实际部署验收完成后，才记录该机器已升级。
+功能合入或 Release 发布不会自动更新其他机器；各机器部署及服务重启仍按明确指示执行，经对应机器实际验收后才记录已升级。具体机器、路径与配置只留私有部署记录。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
 构建依赖 setuptools 84.1.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
@@ -703,7 +707,7 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.7.0 is release preparation for the already merged T158 (#49) and T160 (#50).
+V4.7.0 was published on 2026-10-29 with the already merged T158 (#49) and T160 (#50).
 It also includes T179 ([#52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)),
 merged as `8ceda045b1aa007c9dba882f287b11b4df12b840`, pinning setuptools to 84.1.0
 for builds and CI. This dependency update does not change runtime dependencies or
@@ -724,7 +728,7 @@ remain ag's responsibility; viewing does not fetch, refresh facts or retry a cal
 The paired backend is ag 4.7.0 from T178, merged as
 `d2e6308e5f15964c363549d98e16239806650eb1`. Both existing resource and monitor pairing
 classes passed against that exported source: one test each, zero skips. These are
-isolated synthetic checks, not deployment or scientific acceptance. T177 changes
+isolated synthetic checks, not deployment or scientific acceptance. T177 changed
 only version constants and release documentation. Existing Attempts, inputs, facts,
 read-only defaults, path/size checks and ag-mediated action gates remain unchanged.
 This frontend adds no Hessian generation, Hessian report viewer or Hessian-derived
@@ -735,16 +739,26 @@ actions still use the Mac dialog.
 页面上的相对能量和比较均为前端现场计算的非正式结果，正式数值以报告和登记为准；
 工具状态、采用记录、`termination` 和 `n_imag` 均不等于科学验收。
 
-Supervisory review is required for both release PRs. Merge and publication follow
-explicit owner authorization; `v4.7.0` tags must point to each release PR's exact merge
-commit, using that repository's v4.7.0 CHANGELOG section. Those future merge commits
-are recorded only after they exist. Final pairing uses the verified full T178 merge
-SHA, never an earlier backend merge, a branch head or a floating main. Deployment requires
-authorization and follows OPERATIONS.md after both tags are verified. Complete all required
-development-machine checks, including existing-entry regression and the observation
-period specified in the private deployment message, before configuring the research
-computer. Its approved maintenance window must have no research writes, and its
-checks are independent. Rebuild the UI, restart the single service and refresh open
+Both release PRs passed final independent review and CI and have been merged.
+The [frontend v4.7.0 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.7.0)
+is fixed at `f9c8143d4b30ff912140bcc4e2e931373754a84c`; the
+[backend v4.7.0 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.7.0)
+is fixed at the full T178 merge SHA above. Later documentation commits do not replace
+these release targets or move either tag. T177 and the tagged preparation text preserve
+the earlier execution stage.
+
+As of 2026-10-29, the local development environment has passed deployment acceptance
+at both tags: backend/frontend metadata and runtime plus the web package are 4.7.0,
+frontend setuptools is 84.1.0, and the web build, five-card display and three HTTP 200
+checks passed. The research computer has not been updated; this does not establish
+deployment on every machine. Machine-specific evidence stays in private records.
+Further deployment requires authorization and follows
+[OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md)
+after both exact release tags are verified.
+Complete all required development-machine checks, including existing-entry regression
+and the observation period specified in the private deployment message, before configuring
+the research computer. Its approved maintenance window must have no research writes,
+and its checks are independent. Rebuild the UI, restart the single service and refresh open
 action pages for the new token. Rollback includes the paired backend and compatible
 configuration; new policy/resource fields must not silently lose enforcement on old code.
 Do not rewrite node-bound Attempts into an old format during rollback. If old code
@@ -752,13 +766,13 @@ cannot safely handle new records, stop affected operations and report partial re
 Special CPU mapping and cross-client races require separate site acceptance;
 the current nodefile guard checks but does not archive the original nodefile.
 Real synthetic compute requires its own approval and placement/output/receipt evidence.
-This release preparation adds no study/catalog migration; the existing v2 conditions below remain.
+This release adds no study/catalog migration; the existing v2 conditions below remain.
 Before real studies write v2 events, both machines must be deployed and a temporary
 non-research study must pass candidate registration, `ag g0 --record` and frontend
 ledger display checks on the research computer. Preserve that study in a container
 directory beginning with `_`. An existing study's first `--upgrade-catalog` requires
 owner approval; upgraded catalogs cannot be downgraded or opened/written with 4.5.x.
-Release preparation is not deployment; deployment results are recorded separately.
+Publication does not establish deployment on other machines; deployment results are recorded separately.
 Research-computer maintenance reuses its existing private plan; the target version
 and maintenance window require later instructions. Historical release notes do not
 establish the current deployed version or acceptance status of either machine.
@@ -785,7 +799,7 @@ establish the current deployed version or acceptance status of either machine.
 
 ## 版本历史
 
-- **v4.7.0（发布准备）**：T158 新 Attempt 默认资源、单节点容量与可选节点比例；T160 CREST 诊断摘要和可核验来源；T179 构建依赖 setuptools 84.1.0；配合 ag 4.7.0，T178 真实合并源码的两项配套均通过、无跳过。[发布说明](CHANGELOG.md#v470)
+- **v4.7.0（2026-10-29 已发布）**：T158 新 Attempt 默认资源、单节点容量与可选节点比例；T160 CREST 诊断摘要和可核验来源；T179 构建依赖 setuptools 84.1.0；配合 ag 4.7.0，T178 真实合并源码的两项配套均通过、无跳过。[发布说明](CHANGELOG.md#v470)
 - **v4.6.3（发布准备）**：T147 监控资源与重试显示修补、T151 请求终态与重启未确认反馈；三处版本统一，清理已完成待办，配合 ag 4.6.3。[发布说明](CHANGELOG.md#v463)
 - **v4.6.2**：T145 显式 PBS 节点选择、原优先级分组与顺序、半数/四分之一及资源摘要；旧入口不显示不适用控件，配合 ag 4.6.2。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T143 PBS 节点分配明细、四/五卡响应式布局、可选四/六档与单作业时限显示；配合 ag 4.6.1，复用快照并明确未知及非实时状态。[发布说明](CHANGELOG.md#v461)

@@ -2,7 +2,14 @@
 
 ## v4.7.0
 
-**发布准备；配合 ag 4.7.0。已用 T178 真实合并提交 `d2e6308e5f15964c363549d98e16239806650eb1` 完成两项实际配套验证、0 跳过；未创建 tag/Release 或部署。**
+**2026-10-29 正式发布；配合 ag 4.7.0。两个发布 PR 的最终独立审阅与 CI 均通过并已合并；两项实际后端配套验证均通过、0 跳过。**
+
+- [前端 v4.7.0 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.7.0)：固定 tag 提交 `f9c8143d4b30ff912140bcc4e2e931373754a84c`（[T177 #51](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/51)）。
+- [后端 v4.7.0 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.7.0)：固定 tag 提交 `d2e6308e5f15964c363549d98e16239806650eb1`（[T178 #372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372)）。
+
+截至 2026-10-29，本机开发环境已按两个 tag 部署并验收：前后端元数据／runtime 与网页包均为 4.7.0，前端 setuptools 84.1.0，网页构建、五卡显示和三个 HTTP 200 检查通过。研究机尚未更新；发布及开发环境验收不代表所有机器已部署。具体机器信息仅留私有记录，其他部署仍按明确授权及 [OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md) 执行。
+
+T177 任务单与 tag 内“发布准备”文字保留合并前阶段记录；本节更新当前状态，后续文档提交不替代上述发布提交、不移动 tag。
 
 ### 变更
 
@@ -24,7 +31,7 @@ T179 已于 2026-10-29 合并，真实合并提交为 `8ceda045b1aa007c9dba882f2
 - 该前端不生成新增 Hessian，也不提供专用 Hessian 报告或派生模式查看；既有 Gaussian log 振动查看的适用范围不变。
 - 后端最新复核确认旧普通 PBS 与 Slurm 正式取回兼容均通过，满足 T159 原工单的最低现场要求；此前 PBS 传输失败仍保留。新集合、mdopt、不完整取回和真实错误诊断仍标未现场覆盖，不新增为原工单的强制发版门槛，也不由前端合成测试补成现场通过。
 - 保留四/五卡、PBS/Slurm 监控、研究、结果、证据及既有重试反馈回归；默认只读、路径保护、ag 人工批准和计算操作锁不变。catalog v2 不可降级；回退须核对配套后端、配置与新记录兼容性，不重写旧 Attempt。
-- 本单仅离线合成、构建和发布候选配套验证；未进行真实服务重启、集群验证或计算。两个发布 PR 经独立审阅及最终 CI 后交协调方合并；本执行会话不合并、不推 main、不建 tag/Release、不部署。未来发布和部署按明确指示及 [OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md) 执行，实际机器验收另记。
+- **T177 合并前历史记录（不是当前发布／部署状态）：** 本单仅离线合成、构建和发布候选配套验证；未进行真实服务重启、集群验证或计算。两个发布 PR 经独立审阅及最终 CI 后交协调方合并；本执行会话不合并、不推 main、不建 tag/Release、不部署。未来发布和部署按明确指示及 [OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md) 执行，实际机器验收另记。
 
 ## v4.6.3
 
