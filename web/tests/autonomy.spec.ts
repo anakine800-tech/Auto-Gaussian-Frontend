@@ -1,5 +1,20 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import type { AutonomyStatus } from "../src/api";
+
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
+async function screenshotAtTop(page: Page, path: string) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        window.scrollTo(0, 0);
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await page.screenshot({ path, fullPage: false });
+}
 
 const counts = { attempt: 3, remedy: 1, cancel: 0, reroute: 0 };
 function savedStatus(): AutonomyStatus {
@@ -187,18 +202,12 @@ test("saved autonomy page distinguishes a round from wakeups and stays read only
     page.getByRole("region", { name: "当前自主轮次" }),
   ).toContainText("round-demo");
   expect(writes).toEqual([]);
-  await page.screenshot({
-    path: info.outputPath("autonomy-desktop.png"),
-    fullPage: true,
-  });
+  await screenshotAtTop(page, info.outputPath("autonomy-desktop.png"));
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
-  await page.screenshot({
-    path: info.outputPath("autonomy-mobile.png"),
-    fullPage: true,
-  });
+  await screenshotAtTop(page, info.outputPath("autonomy-mobile.png"));
 });
 
 test("running, paused with live lease, and ended states refresh without changing study data", async ({
@@ -290,7 +299,7 @@ for (const [status, label] of [
 
 test("plan submission limits and event reasons are displayed without filling missing limits", async ({
   page,
-}, info) => {
+}) => {
   let data = savedStatus();
   await page.route("**/api/studies/*/autonomy", (route) =>
     route.fulfill({ json: data }),
@@ -331,7 +340,6 @@ test("plan submission limits and event reasons are displayed without filling mis
   await expect(page.locator(".autonomy-events")).toContainText(
     "合成事件摘要：已核对输入。",
   );
-  await policy.screenshot({ path: info.outputPath("autonomy-policy.png") });
   data.plans[0].spec.submission_policy!.allow_relaxed = false;
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   await page.getByText("计划内提交约束", { exact: true }).click();

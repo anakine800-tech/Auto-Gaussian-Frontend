@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
 test.use({ baseURL: "http://127.0.0.1:18766" });
+test.afterEach(async ({ page }) => {
+  // Context refresh can still be in flight after the final disabled assertion.
+  // Finish its handler before Playwright closes the page; do not hide errors.
+  await page.unrouteAll({ behavior: "wait" });
+});
 
 async function candidates(
   page: import("@playwright/test").Page,
