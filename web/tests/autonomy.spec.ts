@@ -5,6 +5,13 @@ const counts = { attempt: 3, remedy: 1, cancel: 0, reroute: 0 };
 function savedStatus(): AutonomyStatus {
   const now = Date.now() / 1000;
   const sha = "a".repeat(64);
+  const captured = now - 2400;
+  const reference =
+    "snapshots/" +
+    new Date(captured * 1000)
+      .toISOString()
+      .replace(/[-:.]/g, "")
+      .replace("Z", "000Z");
   return {
     status: "ok",
     reason: null,
@@ -96,6 +103,20 @@ function savedStatus(): AutonomyStatus {
     pending: ["核对第二组输入的方法依据。"],
     events: [
       { seq: 1, op: "init", at: now - 7200 },
+      {
+        seq: 7,
+        op: "snapshot",
+        at: now - 2400,
+        snapshot: {
+          attempt: "anti",
+          run_id: "run-demo",
+          round_id: "round-demo",
+          snapshot: reference,
+          captured_at: captured,
+          snapshot_sha256: "d".repeat(64),
+          log_sha256: "e".repeat(64),
+        },
+      },
       {
         seq: 8,
         op: "update",
@@ -294,6 +315,18 @@ test("plan submission limits and event reasons are displayed without filling mis
   await page.getByText("最近日志事件", { exact: true }).click();
   await expect(page.locator(".autonomy-events")).toContainText(
     "合成结束理由：本次观察完成。",
+  );
+  await expect(page.locator(".autonomy-events")).toContainText("记录观察快照");
+  const snapshot = page.locator(".autonomy-snapshot");
+  await expect(snapshot).toContainText("anti");
+  await expect(snapshot).toContainText("run-demo");
+  await expect(snapshot).toContainText("snapshots/");
+  await expect(snapshot).toContainText("不是已取回结果或签字证据");
+  await snapshot.getByText("快照与日志哈希", { exact: true }).click();
+  await expect(snapshot).toContainText("d".repeat(64));
+  await expect(snapshot).not.toContainText("token");
+  await expect(page.locator(".autonomy-events").getByRole("link")).toHaveCount(
+    0,
   );
   await expect(page.locator(".autonomy-events")).toContainText(
     "合成事件摘要：已核对输入。",

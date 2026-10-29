@@ -409,7 +409,7 @@ class Actions:
         try:
             if result['exit_code'] != 0 or result['overflow']:
                 raise ValueError('Status unavailable')
-            verified = validate_status(json.loads(result['stdout']))
+            verified = validate_status(result['stdout'])
             reason = manual_block(verified)
             if reason:
                 raise StudyError(reason, 409)
@@ -448,7 +448,7 @@ class Actions:
                 code = process.wait(timeout=max(0, deadline - time.monotonic()))
             process.stdout.close()
             process.stderr.close()
-            return dict(stdout=captured.decode('utf-8', errors='replace'), exit_code=code, overflow=overflow), None
+            return dict(stdout=bytes(captured), exit_code=code, overflow=overflow), None
         except subprocess.TimeoutExpired:
             for stream in (process.stdout, process.stderr):
                 os.set_blocking(stream.fileno(), True)

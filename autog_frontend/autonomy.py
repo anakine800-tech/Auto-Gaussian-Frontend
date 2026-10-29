@@ -26,7 +26,7 @@ PLAN_COUNT_LIMIT = 64
 ATTEMPT_LIMIT = 1000
 COUNTERS = ('attempt', 'remedy', 'cancel', 'reroute')
 EVENTS = {'init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume',
-          'finish', 'end', 'update', 'count', 'recover'}
+          'finish', 'end', 'update', 'count', 'recover', 'snapshot'}
 POLICY_FIELDS = {'templates', 'clusters', 'max_cores_per_job', 'max_walltime',
                  'methods', 'routing_sha256', 'allow_relaxed'}
 GAUSSIAN_METHOD_FIELDS = {'method', 'basis', 'basis_function_type', 'dispersion',
@@ -50,6 +50,9 @@ def _require(condition):
 
 
 def _decode(raw):
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode('utf-8')
+
     def pairs(items):
         out = {}
         for key, value in items:
@@ -70,6 +73,7 @@ def _encode(data):
 
 def _text(value, *, limit=8000, empty=False):
     _require(isinstance(value, str) and len(value) <= limit and (empty or bool(value.strip())))
+    value.encode('utf-8')  # Reject lone surrogates before an HTTP encoder sees them.
     return value
 
 
@@ -169,6 +173,18 @@ def _submission_policy(value):
                 max_cores_per_job=_integer(value['max_cores_per_job'], 1),
                 max_walltime=walltime, methods=public_methods,
                 routing_sha256=_digest(value['routing_sha256']), allow_relaxed=value['allow_relaxed'])
+
+
+def _snapshot_summary(value):
+    """Display capture provenance only; never open the referenced snapshot."""
+    _mapping(value)
+    binding = _mapping(value['binding'])
+    reference = value['snapshot']
+    _require(isinstance(reference, str) and re.fullmatch(r'snapshots/[0-9]{8}T[0-9]{12}Z', reference))
+    return dict(attempt=_identifier(binding['attempt_id']), run_id=_identifier(value['run_id']),
+                round_id=_identifier(value['round_id']), snapshot=reference,
+                captured_at=_number(value['captured_at']),
+                snapshot_sha256=_digest(value['snapshot_sha256']), log_sha256=_digest(value['log_sha256']))
 
 
 def _base(status, reason, at):
@@ -275,6 +291,18 @@ def _project(snapshot, at):
     if phase != 'ended':
         _require(current_plan is not None and current_round is not None)
         _require(plans[current_plan]['confirmation'] is not None)
+    if 'snapshots' in state:
+        saved_snapshots = _mapping(state['snapshots'])
+        projected = []
+        for key, row in saved_snapshots.items():
+            item = _snapshot_summary(row)
+            _require(key == item['attempt'] + '/' + item['snapshot'])
+            item['seq'] = _integer(row['seq'], 1)
+            _require(item['seq'] <= seq and item['captured_at'] <= updated_at)
+            projected.append(item)
+        _require(len({item['seq'] for item in projected}) == len(projected))
+        view['snapshots'] = sorted(projected, key=lambda item: item['seq'])[-DISPLAY_EVENTS:]
+        view['snapshots_truncated'] = len(projected) > DISPLAY_EVENTS
     lease = state['lease']
     if lease is not None:
         _mapping(lease)
@@ -304,6 +332,9 @@ def validate_status(payload, now=None):
     """Whitelist an ag status response; never forward subprocess output blindly."""
     at = time.time() if now is None else now
     try:
+        if isinstance(payload, (bytes, bytearray, str)):
+            _require(len(payload) <= 4 * 1024 * 1024)
+            payload = _decode(payload)
         result = _project(payload, at)
         result['verification'] = 'ag-status'
         return result
@@ -358,6 +389,9 @@ def _journal(raw, snapshot):
             item['reason'] = _text(data['takeover_reason'])
         elif event['op'] == 'update' and 'summary' in data:
             item['summary'] = _text(data['summary'], empty=True)
+        elif event['op'] == 'snapshot':
+            item['snapshot'] = _snapshot_summary(data)
+            _require(item['snapshot']['captured_at'] <= at)
         events.append(item)
         previous_at = at
         previous = sha256(line).hexdigest()

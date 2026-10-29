@@ -247,6 +247,15 @@ export type AutonomyPlan = {
   };
   confirmation: { at: number; quote: string; sha256: string } | null;
 };
+export type AutonomySnapshot = {
+  attempt: string;
+  run_id: string;
+  round_id: string;
+  snapshot: string;
+  captured_at: number;
+  snapshot_sha256: string;
+  log_sha256: string;
+};
 export type AutonomyStatus = {
   status: "absent" | "ok" | "unsupported" | "invalid" | "missing";
   reason: string | null;
@@ -292,8 +301,11 @@ export type AutonomyStatus = {
     at: number;
     reason?: string;
     summary?: string;
+    snapshot?: AutonomySnapshot;
   }[];
   events_truncated: boolean;
+  snapshots?: (AutonomySnapshot & { seq: number })[];
+  snapshots_truncated?: boolean;
   relaxed_inputs: {
     attempt: string;
     mode: "relaxed";

@@ -6,6 +6,7 @@ import type {
   AutonomyStatus,
   AutonomySubmissionPolicy,
   AutonomyGaussianMethod,
+  AutonomySnapshot,
 } from "./api";
 import { routeHash } from "./routing";
 import { EmptyState, ErrorNotice, FactGrid, Panel, StatusBadge } from "./ui";
@@ -36,6 +37,7 @@ const eventLabels: Record<string, string> = {
   finish: "结束唤醒",
   end: "结束轮次",
   update: "更新摘要",
+  snapshot: "记录观察快照",
   count: "记录计数",
   recover: "恢复记录",
 };
@@ -158,6 +160,34 @@ function SubmissionPolicy({ policy }: { policy: AutonomySubmissionPolicy }) {
         </section>
       ))}
     </details>
+  );
+}
+function SnapshotSummary({ value }: { value: AutonomySnapshot }) {
+  return (
+    <div className="autonomy-snapshot">
+      <p className="muted">运行中观察快照，不是已取回结果或签字证据。</p>
+      <FactGrid
+        facts={[
+          { label: "Attempt", value: value.attempt },
+          { label: "唤醒", value: value.run_id },
+          { label: "轮次", value: value.round_id },
+          { label: "采样时间", value: timestamp(value.captured_at) },
+          { label: "保存的快照引用", value: <code>{value.snapshot}</code> },
+        ]}
+      />
+      <details>
+        <summary>快照与日志哈希</summary>
+        <FactGrid
+          facts={[
+            {
+              label: "快照 SHA-256",
+              value: <code>{value.snapshot_sha256}</code>,
+            },
+            { label: "日志 SHA-256", value: <code>{value.log_sha256}</code> },
+          ]}
+        />
+      </details>
+    </div>
   );
 }
 function Plan({
@@ -482,6 +512,9 @@ export function AutonomyView({
                     {event.reason !== undefined && <p>理由：{event.reason}</p>}
                     {event.summary !== undefined && (
                       <p>摘要：{event.summary}</p>
+                    )}
+                    {event.snapshot && (
+                      <SnapshotSummary value={event.snapshot} />
                     )}
                   </li>
                 ))}

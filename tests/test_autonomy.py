@@ -287,6 +287,82 @@ class AutonomyReaderTests(unittest.TestCase):
         write_snapshot(self.study, snapshot)
         self.assertEqual(self.read()['status'], 'invalid')
 
+    def add_snapshot_event(self, snapshot, index=0):
+        path = self.study / 'autonomy/journal.jsonl'
+        seq = snapshot['seq'] + 1
+        reference = f'snapshots/20261029T1200{index:02d}000000Z'
+        record = dict(binding=dict(study_id='butane-demo', attempt_id='anti',
+                                   cluster='private-entry-omitted', scheduler='pbs', job_id='private-job-omitted',
+                                   manifest_sha256='b' * 64, submission_sha256='c' * 64),
+                      run_id='wake-demo', round_id='round-demo', snapshot=reference,
+                      captured_at=NOW - 1, capture_started_at=NOW - 3, capture_finished_at=NOW - 1,
+                      capture_started_seq=1, plan_sha256='d' * 64,
+                      snapshot_sha256='e' * 64, log_sha256='f' * 64,
+                      token_sha256=sha256(FAKE_TOKEN.encode()).hexdigest(), token=FAKE_TOKEN,
+                      versions={'private': FAKE_TOKEN}, raw_details={'private': FAKE_TOKEN})
+        line = encoded(dict(seq=seq, prev_sha256=snapshot['journal_sha256'], op='snapshot',
+                            at=NOW - 1, data=record))
+        path.write_bytes(path.read_bytes() + line)
+        snapshot.update(seq=seq, journal_sha256=sha256(line).hexdigest())
+        # Store mirrors the observation metadata; the viewer still whitelists
+        # fields even if a damaged/forward record contains private additions.
+        saved = deepcopy(record)
+        saved['seq'] = seq
+        snapshot['state'].setdefault('snapshots', {})['anti/' + reference] = saved
+        write_snapshot(self.study, snapshot)
+        return record
+
+    def test_snapshot_event_and_saved_mapping_have_only_safe_provenance(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        self.assertNotIn('snapshots', self.read())
+        record = self.add_snapshot_event(snapshot)
+        safe = dict(attempt='anti', run_id='wake-demo', round_id='round-demo',
+                    snapshot=record['snapshot'], captured_at=NOW - 1,
+                    snapshot_sha256='e' * 64, log_sha256='f' * 64)
+        with patch('subprocess.Popen', side_effect=AssertionError('No subprocess')):
+            data = self.read()
+        self.assertEqual(data['status'], 'ok')
+        self.assertEqual(data['events'][-1], dict(seq=3, op='snapshot', at=NOW-1, snapshot=safe))
+        self.assertEqual(data['snapshots'], [dict(safe, seq=3)])
+        self.assertFalse(data['snapshots_truncated'])
+        self.assertEqual(validate_status(encoded(snapshot), now=NOW)['snapshots'], [dict(safe, seq=3)])
+        self.assertFalse((self.study / 'attempts/anti/snapshots').exists())
+        for forbidden in (FAKE_TOKEN, 'token_sha256', sha256(FAKE_TOKEN.encode()).hexdigest(),
+                          'private-entry-omitted', 'private-job-omitted', 'raw_details', 'versions'):
+            # Plans legitimately contain versions; observation projection does not.
+            text = json.dumps(dict(events=data['events'], snapshots=data['snapshots']))
+            self.assertNotIn(forbidden, text)
+
+    def test_registered_snapshot_display_is_bounded_and_references_never_followed(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        for index in range(DISPLAY_EVENTS + 1):
+            self.add_snapshot_event(snapshot, index)
+        data = self.read()
+        self.assertEqual(data['status'], 'ok')
+        self.assertEqual(len(data['snapshots']), DISPLAY_EVENTS)
+        self.assertTrue(data['snapshots_truncated'])
+        self.assertEqual(data['snapshots'][0]['seq'], 4)
+        # A saved arbitrary path must neither be opened nor presented as a
+        # formal capture. No file at this path is necessary for the test.
+        row = next(iter(snapshot['state']['snapshots'].values()))
+        row['snapshot'] = '../outside/private.json'
+        write_snapshot(self.study, snapshot)
+        self.assertEqual(self.read()['status'], 'invalid')
+
+    def test_status_raw_json_rejects_duplicates_invalid_encoding_and_nonfinite_values(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        raw = encoded(snapshot)
+        for payload in (raw, raw.decode('utf-8')):
+            self.assertEqual(validate_status(payload, now=NOW)['status'], 'ok')
+        bad_values = [raw.replace(b'"seq":2', b'"seq":2,"seq":2'),
+                      b'{"ignored":"\xff",' + raw[1:], raw.decode('utf-8').encode('utf-16'),
+                      b'{"ignored":NaN,' + raw[1:], b'{}' * (2 * 1024 * 1024 + 1)]
+        for payload in bad_values:
+            with self.subTest(prefix=repr(payload[:30])):
+                self.assertEqual(validate_status(payload, now=NOW)['status'], 'invalid')
+        snapshot['state']['summary'] = '\ud800'
+        self.assertEqual(validate_status(json.dumps(snapshot).encode(), now=NOW)['status'], 'invalid')
+
     def test_backend_status_malformed_unknown_and_clock_reversal_refuse(self):
         for value in (None, {}, {'state': []}):
             self.assertEqual(validate_status(value, now=NOW)['status'], 'invalid')
