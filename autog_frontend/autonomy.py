@@ -28,10 +28,15 @@ COUNTERS = ('attempt', 'remedy', 'cancel', 'reroute')
 EVENTS = {'init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume',
           'finish', 'end', 'update', 'count', 'recover', 'snapshot',
           'submission_consume', 'submission_dispatch', 'submission_abort',
-          'submission_boundary_failure', 'waiting', 'manual_takeover'}
+          'submission_boundary_failure', 'waiting', 'manual_takeover',
+          'cancel_consume', 'cancel_result'}
 SUBMISSION_FIELDS = {'attempt_id', 'object_id', 'failure_class', 'ownership_sha256',
                      'round_id', 'run_id', 'plan_sha256', 'rule_sha256', 'max_attempts'}
 WAITING_FIELDS = {'object_id', 'record_sha256', 'round_id', 'run_id', 'plan_sha256'}
+CANCELLATION_FIELDS = {'run_id', 'plan_sha256', 'round_id', 'binding', 'ownership_sha256',
+                       'kind', 'reason', 'evidence_sha256', 'lineage_sha256'}
+CANCELLATION_RESULT_FIELDS = {'attempt_id', 'run_id', 'consumption_sha256', 'outcome',
+                              'reason', 'evidence_sha256'}
 POLICY_FIELDS = {'templates', 'clusters', 'max_cores_per_job', 'max_walltime',
                  'methods', 'routing_sha256', 'allow_relaxed'}
 GAUSSIAN_METHOD_FIELDS = {'method', 'basis', 'basis_function_type', 'dispersion',
@@ -187,18 +192,21 @@ def _optional_fields(value, required, optional=()):
     _require(required <= set(value))
 
 
+def _version_fields(value):
+    _fields(value, {'ag_version', 'git_commit', 'dirty', 'rdkit', 'goodvibes'})
+    _require(type(value['dirty']) is bool and isinstance(value['git_commit'], str)
+             and re.fullmatch(r'[0-9a-f]{40,64}', value['git_commit']))
+    for key in ('ag_version', 'rdkit', 'goodvibes'):
+        _text(value[key], limit=200)
+
+
 def _private_event_fields(value, required, *, versions=True):
     # This path only reads raw journal events; public() sanitizes state, not
     # journal data. Require private evidence fields, validate, then omit them.
     _fields(value, required | {'token_sha256'} | ({'versions'} if versions else set()))
     _digest(value['token_sha256'])
     if versions:
-        version = value['versions']
-        _fields(version, {'ag_version', 'git_commit', 'dirty', 'rdkit', 'goodvibes'})
-        _require(type(version['dirty']) is bool and isinstance(version['git_commit'], str)
-                 and re.fullmatch(r'[0-9a-f]{40,64}', version['git_commit']))
-        for key in ('ag_version', 'rdkit', 'goodvibes'):
-            _text(version[key], limit=200)
+        _version_fields(value['versions'])
 
 
 def _submission_identity(value):
@@ -340,6 +348,119 @@ def _submission_event(op, data):
     return {}
 
 
+def _cancellation_reason(value):
+    value = _text(value)
+    # public() removes the private hash field but leaves reason text intact.
+    # Apply the same narrow free-text rule to raw and public records. Evidence
+    # hashes remain available in their dedicated, typed presentation fields.
+    value = re.sub(r'(?<![A-Za-z0-9_])[0-9a-fA-F]{32}(?:[0-9a-fA-F]{32})?(?![A-Za-z0-9_])',
+                   '[凭据已隐藏]', value)
+    # Reasons remain plain text. Do not publish local paths or turn a saved
+    # reference into a file lookup. Quoted paths may contain spaces; a bare
+    # path may continue across spaces into another path segment or extension.
+    prefix = r'(?:[A-Za-z]:[\\/]|\\\\|/)'
+    atom = r'''[^\s"'<>，。；,;()（）]+'''
+    spaced = r'''[^\r\n"'<>，。；,;()（）]*'''
+    bare = prefix + atom + r'(?:[ \t]+' + spaced + r'(?:[\\/]' + atom + r'|\.[A-Za-z0-9]{1,12}))?'
+    quoted = '"' + prefix + r'''[^"\r\n]*"|''' + "'" + prefix + r"[^'\r\n]*'"
+    paths = '(?:' + quoted + r'|(?<![A-Za-z0-9_/])' + bare + ')'
+    return re.sub(paths, '[路径已隐藏]', value)
+
+
+def _cancellation(value, *, saved):
+    if saved:
+        _optional_fields(value, CANCELLATION_FIELDS | {'versions', 'at', 'seq', 'consumption_sha256'},
+                         {'token_sha256'})
+        _version_fields(value['versions'])
+        if 'token_sha256' in value:
+            _digest(value['token_sha256'])
+    else:
+        _private_event_fields(value, CANCELLATION_FIELDS)
+    binding = value['binding']
+    _fields(binding, {'study_id', 'attempt_id', 'cluster', 'scheduler', 'job_id',
+                      'manifest_sha256', 'submission_sha256'})
+    _identifier(binding['study_id'])
+    _text(binding['cluster'], limit=255)
+    _text(binding['job_id'], limit=255)
+    _require(binding['scheduler'] in ('pbs', 'slurm'))
+    _digest(binding['manifest_sha256'])
+    _digest(binding['submission_sha256'])
+    kind = value['kind']
+    _require(kind in ('no_progress', 'reroute'))
+    lineage = value['lineage_sha256']
+    if kind == 'reroute':
+        _digest(lineage)
+    else:
+        _require(lineage is None)
+    result = dict(attempt_id=_identifier(binding['attempt_id']), run_id=_identifier(value['run_id']),
+                  round_id=_identifier(value['round_id']), kind=kind, lineage_sha256=lineage,
+                  reason=_cancellation_reason(value['reason']))
+    for key in ('plan_sha256', 'ownership_sha256', 'evidence_sha256'):
+        result[key] = _digest(value[key])
+    if saved:
+        result.update(at=_number(value['at']), seq=_integer(value['seq'], 1),
+                      consumption_sha256=_digest(value['consumption_sha256']))
+    return result
+
+
+def _cancellation_result(value, *, saved):
+    if saved:
+        _fields(value, CANCELLATION_RESULT_FIELDS | {'at', 'seq'})
+    else:
+        _private_event_fields(value, CANCELLATION_RESULT_FIELDS, versions=False)
+    _require(value['outcome'] in ('accepted', 'unknown'))
+    result = dict(attempt_id=_identifier(value['attempt_id']), run_id=_identifier(value['run_id']),
+                  outcome=value['outcome'], reason=_cancellation_reason(value['reason']),
+                  consumption_sha256=_digest(value['consumption_sha256']),
+                  evidence_sha256=_digest(value['evidence_sha256']))
+    if saved:
+        result.update(at=_number(value['at']), seq=_integer(value['seq'], 1))
+    return result
+
+
+def _cancellation_views(state, view):
+    """Display saved consumption and receipts, never qualification or stopped jobs."""
+    cancellations = {}
+    positions = set()
+    for field in ('cancellations', 'cancellation_results'):
+        if field not in state:
+            continue
+        values = _mapping(state[field])
+        rows = []
+        for key, value in values.items():
+            if field == 'cancellations':
+                row = _cancellation(value, saved=True)
+                cancellations[key] = row
+            else:
+                original = cancellations.get(key)
+                _require(original is not None)
+                row = _cancellation_result(value, saved=True)
+                _require(row['run_id'] == original['run_id']
+                         and row['consumption_sha256'] == original['consumption_sha256']
+                         and row['seq'] > original['seq'] and row['at'] >= original['at'])
+            _require(key == row['attempt_id'] and row['seq'] <= view['seq']
+                     and row['at'] <= view['updated_at'] and row['seq'] not in positions)
+            positions.add(row['seq'])
+            rows.append(row)
+        view[field] = sorted(rows, key=lambda row: row['seq'])[-DISPLAY_EVENTS:]
+        view[field + '_count'] = len(rows)
+        view[field + '_truncated'] = len(rows) > DISPLAY_EVENTS
+    if 'reroute_lineages' in state:
+        values = _mapping(state['reroute_lineages'])
+        rows = []
+        attempts = set()
+        for key, value in values.items():
+            lineage, attempt = _digest(key), _identifier(value)
+            original = cancellations.get(attempt)
+            _require(original is not None and original['kind'] == 'reroute'
+                     and original['lineage_sha256'] == lineage and attempt not in attempts)
+            attempts.add(attempt)
+            rows.append(dict(lineage_sha256=lineage, attempt_id=attempt))
+        _require(attempts == {key for key, row in cancellations.items() if row['kind'] == 'reroute'})
+        view.update(reroute_lineages=sorted(rows, key=lambda row: row['lineage_sha256'])[:DISPLAY_EVENTS],
+                    reroute_lineages_count=len(rows), reroute_lineages_truncated=len(rows) > DISPLAY_EVENTS)
+
+
 def _snapshot_summary(value):
     """Display capture provenance only; never open the referenced snapshot."""
     _mapping(value)
@@ -457,6 +578,7 @@ def _project(snapshot, at):
         _require(current_plan is not None and current_round is not None)
         _require(plans[current_plan]['confirmation'] is not None)
     _consumption_views(state, view)
+    _cancellation_views(state, view)
     if 'snapshots' in state:
         saved_snapshots = _mapping(state['snapshots'])
         projected = []
@@ -550,6 +672,10 @@ def _journal(raw, snapshot):
         item = dict(seq=seq, op=event['op'], at=at)
         data = event['data']
         item.update(_submission_event(event['op'], data))
+        if event['op'] == 'cancel_consume':
+            item['cancellation'] = _cancellation(data, saved=False)
+        elif event['op'] == 'cancel_result':
+            item['cancellation_result'] = _cancellation_result(data, saved=False)
         if event['op'] in ('pause', 'resume', 'finish', 'end', 'recover') and 'reason' in data:
             item['reason'] = _text(data['reason'])
         elif event['op'] == 'start' and data.get('takeover_reason') is not None:

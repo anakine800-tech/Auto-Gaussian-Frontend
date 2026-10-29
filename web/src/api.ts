@@ -281,6 +281,34 @@ export type AutonomyWaiting = {
   plan_id: string;
   at: number;
 };
+export type AutonomyCancellation = {
+  attempt_id: string;
+  run_id: string;
+  round_id: string;
+  plan_sha256: string;
+  ownership_sha256: string;
+  kind: "no_progress" | "reroute";
+  reason: string;
+  evidence_sha256: string;
+  lineage_sha256: string | null;
+  at: number;
+  seq: number;
+  consumption_sha256: string;
+};
+export type AutonomyCancellationResult = {
+  attempt_id: string;
+  run_id: string;
+  consumption_sha256: string;
+  outcome: "accepted" | "unknown";
+  reason: string;
+  evidence_sha256: string;
+  at: number;
+  seq: number;
+};
+export type AutonomyRerouteLineage = {
+  lineage_sha256: string;
+  attempt_id: string;
+};
 export type AutonomyStatus = {
   status: "absent" | "ok" | "unsupported" | "invalid" | "missing";
   reason: string | null;
@@ -345,6 +373,11 @@ export type AutonomyStatus = {
     object_id?: string;
     record_sha256?: string;
     dispatched?: boolean;
+    cancellation?: Omit<
+      AutonomyCancellation,
+      "at" | "seq" | "consumption_sha256"
+    >;
+    cancellation_result?: Omit<AutonomyCancellationResult, "at" | "seq">;
   }[];
   events_truncated: boolean;
   snapshots?: (AutonomySnapshot & { seq: number })[];
@@ -362,6 +395,15 @@ export type AutonomyStatus = {
   waiting?: AutonomyWaiting[];
   waiting_count?: number;
   waiting_truncated?: boolean;
+  cancellations?: AutonomyCancellation[];
+  cancellations_count?: number;
+  cancellations_truncated?: boolean;
+  cancellation_results?: AutonomyCancellationResult[];
+  cancellation_results_count?: number;
+  cancellation_results_truncated?: boolean;
+  reroute_lineages?: AutonomyRerouteLineage[];
+  reroute_lineages_count?: number;
+  reroute_lineages_truncated?: boolean;
   relaxed_inputs: {
     attempt: string;
     mode: "relaxed";

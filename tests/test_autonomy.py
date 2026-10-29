@@ -569,6 +569,291 @@ class AutonomyReaderTests(unittest.TestCase):
         self.assertTrue(data['current_run']['observe_only'])
         self.assertTrue(data['manual_actions_blocked'])
 
+    def add_cancellation(self, snapshot, index=0, *, kind='reroute', outcome='accepted',
+                         reason='合成取消消耗', result_reason='合成请求回执'):
+        data = dict(run_id='wake-demo', token_sha256=sha256(FAKE_TOKEN.encode()).hexdigest(),
+                    versions=deepcopy(snapshot['state']['plans']['plan-demo']['body']['versions']),
+                    plan_sha256=snapshot['state']['plans']['plan-demo']['sha256'], round_id='round-demo',
+                    binding=dict(study_id='butane-demo', attempt_id=f'cancel-{index}',
+                        cluster='private-cluster-omitted', scheduler='pbs', job_id='123.private-job-omitted',
+                        manifest_sha256='1' * 64, submission_sha256='2' * 64),
+                    ownership_sha256=f'{index + 300:064x}', kind=kind, reason=reason,
+                    evidence_sha256=f'{index + 400:064x}',
+                    lineage_sha256=f'{index + 500:064x}' if kind == 'reroute' else None)
+        self.append_event(snapshot, 'cancel_consume', data)
+        saved = dict(deepcopy(data), at=NOW - 1, seq=snapshot['seq'])
+        saved['consumption_sha256'] = sha256(encoded(saved)).hexdigest()
+        attempt = data['binding']['attempt_id']
+        snapshot['state'].setdefault('cancellations', {})[attempt] = saved
+        if kind == 'reroute':
+            snapshot['state'].setdefault('reroute_lineages', {})[data['lineage_sha256']] = attempt
+        result = None
+        if outcome is not None:
+            receipt = dict(attempt_id=attempt, run_id=data['run_id'], token_sha256=data['token_sha256'],
+                           consumption_sha256=saved['consumption_sha256'], outcome=outcome,
+                           reason=result_reason, evidence_sha256=f'{index + 600:064x}')
+            self.append_event(snapshot, 'cancel_result', receipt)
+            result = dict({key: value for key, value in receipt.items() if key != 'token_sha256'},
+                          at=NOW - 1, seq=snapshot['seq'])
+            snapshot['state'].setdefault('cancellation_results', {})[attempt] = result
+            if outcome == 'unknown':
+                snapshot['state'].update(paused=True, phase='paused')
+        write_snapshot(self.study, snapshot)
+        return saved, result
+
+    def test_cancellation_absence_and_explicit_empty_keep_different_meanings(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        fields = ('cancellations', 'cancellation_results', 'reroute_lineages')
+        for data in (self.read(), validate_status(snapshot, now=NOW)):
+            for field in fields:
+                self.assertNotIn(field, data)
+                self.assertNotIn(field + '_count', data)
+                self.assertNotIn(field + '_truncated', data)
+        snapshot['state'].update({field: {} for field in fields})
+        write_snapshot(self.study, snapshot)
+        for data in (self.read(), validate_status(snapshot, now=NOW)):
+            self.assertEqual(data['status'], 'ok')
+            for field in fields:
+                self.assertEqual(data[field], [])
+                self.assertEqual(data[field + '_count'], 0)
+                self.assertFalse(data[field + '_truncated'])
+
+    def test_cancellation_safe_projection_matches_public_and_preserves_files(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        reason = ('合成核查 /private/secret-dir/item.json，'
+                  r'"C:\Private Folder\item.json"；\\private-server\share\item.json 已保存')
+        first, receipt = self.add_cancellation(snapshot, kind='no_progress', reason=reason)
+        second, _ = self.add_cancellation(snapshot, 1, outcome=None)
+        # T186 consumption and T187 cancellation remain distinct saved tables.
+        submission = self.submission_record(snapshot)
+        snapshot['state']['submissions'] = {submission['attempt_id']: submission}
+        write_snapshot(self.study, snapshot)
+        public = deepcopy(snapshot)
+        public['state']['lease'].pop('token_sha256')
+        for count in public['state']['counts'].values():
+            count.pop('token_sha256')
+        for record in public['state']['cancellations'].values():
+            record.pop('token_sha256')
+        public['state']['submissions']['attempt-0'].pop('owner_token_sha256')
+        public['submission_counts_verified'] = False
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.study.rglob('*') if p.is_file()}
+        with patch('subprocess.Popen', side_effect=AssertionError('No subprocess')):
+            saved, checked = self.read(), validate_status(encoded(public), now=NOW)
+        for data in (saved, checked):
+            self.assertEqual(data['status'], 'ok', data)
+            self.assertEqual(data['phase'], 'running')  # accepted is not a stopped-job observation.
+            self.assertTrue(data['manual_actions_blocked'])
+            self.assertEqual(data['cancellations_count'], 2)
+            self.assertEqual(data['cancellation_results_count'], 1)
+            self.assertEqual(data['reroute_lineages'], [dict(lineage_sha256=second['lineage_sha256'], attempt_id='cancel-1')])
+            self.assertEqual(data['submissions_count'], 1)
+            self.assertEqual(data['cancellation_results'][0]['outcome'], 'accepted')
+            self.assertEqual(data['cancellation_results'][0]['consumption_sha256'], first['consumption_sha256'])
+            self.assertEqual(data['cancellations'][0]['reason'],
+                             '合成核查 [路径已隐藏]，[路径已隐藏]；[路径已隐藏] 已保存')
+            for forbidden in (FAKE_TOKEN, sha256(FAKE_TOKEN.encode()).hexdigest(), 'token_sha256',
+                              'private-cluster-omitted', '123.private-job-omitted', '/private/secret-dir',
+                              'Private Folder', 'private-server', 'cancellation_authorized', 'stopped'):
+                self.assertNotIn(forbidden, json.dumps(data))
+        for field in ('cancellations', 'cancellation_results', 'reroute_lineages', 'submissions'):
+            self.assertEqual(saved[field], checked[field])
+        self.assertEqual(saved['verification'], 'saved-files-only')
+        self.assertEqual(checked['verification'], 'ag-status')
+        self.assertEqual(saved['integration'], 'pending-backend-action-boundary')
+        consumption_event, result_event = saved['events'][2:4]
+        safe = saved['cancellations'][0]
+        self.assertEqual(consumption_event['cancellation'],
+                         {key: value for key, value in safe.items() if key not in ('at', 'seq', 'consumption_sha256')})
+        self.assertEqual(result_event['cancellation_result'],
+                         {key: value for key, value in receipt.items() if key not in ('at', 'seq')})
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
+
+    def test_late_cancellation_result_keeps_original_run_and_round_without_new_rights(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        consumed, result = self.add_cancellation(snapshot, outcome='unknown')
+        state = snapshot['state']
+        state['rounds']['round-demo']['ended_at'] = NOW - 1
+        state['rounds']['round-new'] = dict(state['rounds']['round-demo'], ended_at=None)
+        state['current_round'] = 'round-new'
+        state['runs']['wake-new'] = dict(state['runs']['wake-demo'], round_id='round-new')
+        state['runs']['wake-demo'].update(ended_at=NOW - 1, outcome='finished')
+        state['lease'].update(round_id='round-new', run_id='wake-new')
+        write_snapshot(self.study, snapshot)
+        data = self.read()
+        self.assertEqual(data['status'], 'ok', data)
+        self.assertEqual(data['current_round']['id'], 'round-new')
+        self.assertEqual(data['lease']['run_id'], 'wake-new')
+        self.assertEqual(data['cancellations'][0]['round_id'], 'round-demo')
+        self.assertEqual(data['cancellation_results'][0]['run_id'], 'wake-demo')
+        self.assertEqual(data['cancellation_results'][0]['outcome'], 'unknown')
+        self.assertTrue(data['manual_actions_blocked'])
+        self.assertEqual(data['reroute_lineages_count'], 1)
+        self.assertEqual(consumed['consumption_sha256'], result['consumption_sha256'])
+
+    def test_present_reroute_lineages_must_cover_every_saved_reroute(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        first, _ = self.add_cancellation(snapshot)
+        second, _ = self.add_cancellation(snapshot, 1)
+        complete = deepcopy(snapshot['state']['reroute_lineages'])
+        del snapshot['state']['reroute_lineages']
+        write_snapshot(self.study, snapshot)
+        self.assertEqual(self.read()['status'], 'ok')
+        self.assertNotIn('reroute_lineages', self.read())
+        for incomplete in ({}, {first['lineage_sha256']: 'cancel-0'}, {second['lineage_sha256']: 'cancel-1'}):
+            with self.subTest(lineages=incomplete):
+                snapshot['state']['reroute_lineages'] = incomplete
+                write_snapshot(self.study, snapshot)
+                for data in (self.read(), validate_status(snapshot, now=NOW)):
+                    self.assertEqual(data['status'], 'invalid')
+                    self.assertTrue(data['manual_actions_blocked'])
+        snapshot['state']['reroute_lineages'] = complete
+        write_snapshot(self.study, snapshot)
+        self.assertEqual(self.read()['reroute_lineages_count'], 2)
+
+    def test_cancellation_reason_redaction_is_identical_for_raw_and_public(self):
+        token, token_hash = '0123456789abcdef' * 2, sha256(FAKE_TOKEN.encode()).hexdigest()
+        paths = ['/private/secret folder/item.json', '/private/secret file.json',
+                 r'C:\Private Folder\item.json', r'\\private-server\share folder\item.json',
+                 '"/private/secret folder/file name.json"', "'C:\\Private Folder\\file name.json'",
+                 '路径/synthetic/private.log', r'路径C:\synthetic\private.log']
+        for path in paths:
+            with self.subTest(path=path):
+                snapshot = create_autonomy(self.study, now=NOW)
+                reason = f'读取 {path}，保留原因 token={token} hash={token_hash}'
+                self.add_cancellation(snapshot, reason=reason, result_reason=reason)
+                public = deepcopy(snapshot)
+                public['state']['lease'].pop('token_sha256')
+                for count in public['state']['counts'].values():
+                    count.pop('token_sha256')
+                public['state']['cancellations']['cancel-0'].pop('token_sha256')
+                saved, checked = self.read(), validate_status(encoded(public), now=NOW)
+                prefix = '读取 路径' if path.startswith('路径') else '读取 '
+                expected = prefix + '[路径已隐藏]，保留原因 token=[凭据已隐藏] hash=[凭据已隐藏]'
+                for field in ('cancellations', 'cancellation_results'):
+                    self.assertEqual(saved[field], checked[field])
+                    self.assertEqual(saved[field][0]['reason'], expected)
+                for event in saved['events'][-2:]:
+                    field = 'cancellation' if event['op'] == 'cancel_consume' else 'cancellation_result'
+                    self.assertEqual(event[field]['reason'], expected)
+                for data in (saved, checked):
+                    self.assertNotIn(token, json.dumps(data))
+                    self.assertNotIn(token_hash, json.dumps(data))
+                    self.assertNotIn('secret folder', json.dumps(data))
+                    self.assertNotIn('Private Folder', json.dumps(data))
+
+    def test_cancellation_lists_count_all_rows_and_validate_beyond_display_tail(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        for index in range(DISPLAY_EVENTS + 2):
+            self.add_cancellation(snapshot, index)
+        data = self.read()
+        self.assertEqual(data['status'], 'ok', data)
+        for field in ('cancellations', 'cancellation_results', 'reroute_lineages'):
+            self.assertEqual(data[field + '_count'], DISPLAY_EVENTS + 2)
+            self.assertEqual(len(data[field]), DISPLAY_EVENTS)
+            self.assertTrue(data[field + '_truncated'])
+        self.assertNotIn('cancel-0', [row['attempt_id'] for row in data['cancellations']])
+        snapshot['state']['cancellations']['cancel-0']['binding']['absolute_path'] = '/private/secret-file'
+        write_snapshot(self.study, snapshot)
+        self.assertEqual(self.read()['status'], 'unsupported')
+        self.assertNotIn('secret-file', json.dumps(self.read()))
+
+    def test_malformed_cancellation_records_and_cross_references_fail_closed(self):
+        changes = [
+            ('cancel', 'kind', 'future-kind', 'invalid'), ('cancel', 'lineage_sha256', None, 'invalid'),
+            ('cancel', 'at', NOW + 1, 'invalid'), ('cancel', 'seq', True, 'invalid'),
+            ('cancel', 'token_sha256', None, 'invalid'), ('cancel', 'versions', None, 'invalid'),
+            ('cancel', 'consumption_sha256', 'bad', 'invalid'), ('cancel', 'raw_secret', FAKE_TOKEN, 'unsupported'),
+            ('cancel', 'missing:reason', None, 'invalid'), ('binding', 'attempt_id', '../secret', 'invalid'),
+            ('binding', 'scheduler', 'future', 'invalid'), ('binding', 'job_id', {}, 'invalid'),
+            ('binding', 'absolute_path', '/private/secret-file', 'unsupported'),
+            ('result', 'outcome', 'stopped', 'invalid'), ('result', 'outcome', True, 'invalid'),
+            ('result', 'attempt_id', 'another-attempt', 'invalid'), ('result', 'run_id', 'another-run', 'invalid'),
+            ('result', 'consumption_sha256', 'a' * 64, 'invalid'), ('result', 'at', NOW - 2, 'invalid'),
+            ('result', 'seq', 3, 'invalid'), ('result', 'token_sha256', 'a' * 64, 'unsupported'),
+            ('result', 'reason', 'x' * 8001, 'invalid'), ('result', 'missing:outcome', None, 'invalid'),
+            ('state', 'cancellations', None, 'invalid'), ('state', 'cancellations', [], 'invalid'),
+            ('state', 'cancellation_results', None, 'invalid'), ('state', 'cancellation_results', [], 'invalid'),
+            ('state', 'reroute_lineages', None, 'invalid'), ('state', 'reroute_lineages', [], 'invalid'),
+            ('state', 'reroute_lineages', {'b' * 64: 'cancel-0'}, 'invalid'),
+            ('state', 'reroute_lineages', {'b' * 64: '/private/secret'}, 'invalid'),
+        ]
+        for target, key, value, expected in changes:
+            with self.subTest(target=target, key=key, value=value):
+                snapshot = create_autonomy(self.study, 'paused', lease='none', now=NOW)
+                consumed, result = self.add_cancellation(snapshot)
+                dest = {'cancel': consumed, 'binding': consumed['binding'],
+                        'result': result, 'state': snapshot['state']}[target]
+                if key.startswith('missing:'):
+                    del dest[key.split(':', 1)[1]]
+                else:
+                    dest[key] = value
+                write_snapshot(self.study, snapshot)
+                for data in (self.read(), validate_status(snapshot, now=NOW)):
+                    self.assertEqual(data['status'], expected, data)
+                    self.assertTrue(data['manual_actions_blocked'])
+                    self.assertNotIn(FAKE_TOKEN, json.dumps(data))
+                    self.assertNotIn('/private/secret', json.dumps(data))
+        snapshot = create_autonomy(self.study, now=NOW)
+        consumed, _ = self.add_cancellation(snapshot, kind='no_progress')
+        consumed['lineage_sha256'] = 'a' * 64
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')
+        consumed['lineage_sha256'] = None
+        snapshot['state']['reroute_lineages'] = {'a' * 64: 'cancel-0'}
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')
+
+    def test_duplicate_cancellation_keys_positions_and_orphan_results_are_rejected(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        first, _ = self.add_cancellation(snapshot)
+        second, _ = self.add_cancellation(snapshot, 1)
+        second['seq'] = first['seq']
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')
+        second['seq'] = 5
+        raw = encoded(snapshot)
+        duplicate = raw.replace(b'"cancellations":{', b'"cancellations":{},"cancellations":{', 1)
+        self.assertEqual(validate_status(duplicate, now=NOW)['status'], 'invalid')
+        (self.study / 'autonomy/state.json').write_bytes(duplicate)
+        self.assertEqual(self.read()['status'], 'invalid')
+        del snapshot['state']['cancellations']
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')
+        snapshot['state']['cancellation_results'] = {}
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')  # Orphan lineage remains.
+
+    def test_raw_cancellation_events_require_private_fields_and_hide_paths_and_known_hash(self):
+        seed = create_autonomy(self.study, now=NOW)
+        self.add_cancellation(seed)
+        events = [json.loads(line) for line in (self.study / 'autonomy/journal.jsonl').read_bytes().splitlines()][-2:]
+        for event in events:
+            source, op = event['data'], event['op']
+            for missing in ('token_sha256', 'versions') if op == 'cancel_consume' else ('token_sha256',):
+                with self.subTest(op=op, missing=missing):
+                    snapshot = create_autonomy(self.study, now=NOW)
+                    payload = deepcopy(source)
+                    del payload[missing]
+                    self.append_event(snapshot, op, payload)
+                    self.assertEqual(self.read()['status'], 'invalid')
+            snapshot = create_autonomy(self.study, now=NOW)
+            payload = deepcopy(source)
+            payload['new_permission'] = FAKE_TOKEN
+            self.append_event(snapshot, op, payload)
+            self.assertEqual(self.read()['status'], 'unsupported')
+            self.assertNotIn(FAKE_TOKEN, json.dumps(self.read()))
+            snapshot = create_autonomy(self.study, now=NOW)
+            payload = deepcopy(source)
+            payload['reason'] = '/private/hidden-file ' + payload['token_sha256'] + ' 合成原因'
+            self.append_event(snapshot, op, payload)
+            data = self.read()
+            self.assertEqual(data['status'], 'ok')
+            safe = data['events'][-1]['cancellation' if op == 'cancel_consume' else 'cancellation_result']
+            self.assertEqual(safe['reason'], '[路径已隐藏] [凭据已隐藏] 合成原因')
+        snapshot = create_autonomy(self.study, now=NOW)
+        payload = deepcopy(events[-1]['data'])
+        payload['versions'] = events[0]['data']['versions']
+        self.append_event(snapshot, 'cancel_result', payload)
+        self.assertEqual(self.read()['status'], 'unsupported')
+        snapshot = create_autonomy(self.study, now=NOW)
+        self.append_event(snapshot, 'reroute_qualified', {})
+        self.assertEqual(self.read()['status'], 'unsupported')
+
     def test_known_event_reason_and_summary_are_bounded_and_unknown_event_is_unsupported(self):
         snapshot = create_autonomy(self.study, now=NOW)
         path = self.study / 'autonomy/journal.jsonl'

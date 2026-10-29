@@ -136,9 +136,11 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.autonomy-consumption-record > summary {
+.autonomy-consumption-record > summary,
+.autonomy-cancellation-record > summary {
   overflow-wrap: anywhere;
 }
-.autonomy-consumption-record > summary > * {
+.autonomy-consumption-record > summary > *,
+.autonomy-cancellation-record > summary > * {
   margin-inline-end: var(--space-2);
 }

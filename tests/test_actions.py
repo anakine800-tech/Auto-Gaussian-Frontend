@@ -1496,3 +1496,201 @@ class PairedSubmissionAutonomyTests(unittest.TestCase):
                     self.assertEqual(len(list(registry.glob('*.claim.json'))), 1)
                     self.assertEqual(len(list(registry.glob('*.complete.json'))), 1)
                     self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
+
+
+class PairedCancellationAutonomyTests(unittest.TestCase):
+    def test_actual_t187_cancellation_records_and_http_projection(self):
+        """Exact-module local writers; no cancellation executor or combined-backend proof."""
+        import sys
+        source = os.environ.get('T196_CANCELLATION_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated T187 source for actual cancellation-record pairing')
+        source = Path(source).resolve()
+        original_modules = {name: value for name, value in sys.modules.items()
+                            if name == 'ag' or name.startswith('ag.')}
+        for name in original_modules:
+            sys.modules.pop(name)
+
+        def restore_modules():
+            for name in list(sys.modules):
+                if name == 'ag' or name.startswith('ag.'):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'path', [str(source), *sys.path]):
+            from ag import autonomy as backend, study as backend_study
+            from ag import config as backend_config, transport
+        for module in (backend, backend.disk, backend_study, backend_config, transport):
+            self.assertEqual(Path(module.__file__).resolve(), source.joinpath(*module.__name__.split('.')).with_suffix('.py'))
+        from autog_frontend.autonomy import read_autonomy, validate_status
+        versions = dict(ag_version='synthetic-cancellation-pairing', git_commit='c' * 40, dirty=False,
+                        rdkit='synthetic', goodvibes='synthetic')
+        at = 1800000000
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            synthetic_home = root/'synthetic-home'
+            synthetic_home.mkdir()
+            cfg = dict(local=dict(studies_root=str(root/'studies')))
+            name = 'cancellation-projection-demo'
+            original_directory = backend.disk.directory
+            directory_calls = []
+
+            def isolated_directory(path):
+                path = Path(path).absolute()
+                if not path.is_relative_to(root) or '..' in path.parts:
+                    raise AssertionError('Backend directory access escaped the isolated temporary root')
+                directory_calls.append(path)
+                return original_directory(path)
+
+            def file_image():
+                return {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                        for p in root.rglob('*') if p.is_file()}
+
+            with patch.object(Path, 'home', return_value=synthetic_home), \
+                    patch.object(backend.disk, 'directory', side_effect=isolated_directory), \
+                    patch.object(backend, 'versions', return_value=versions), \
+                    patch.object(backend, 'now', side_effect=lambda: at), \
+                    patch('autog_frontend.autonomy.time.time', side_effect=lambda: at), \
+                    patch.object(backend_config, 'load_config', side_effect=AssertionError('Default config forbidden')), \
+                    patch.object(transport, 'SSHTransport', side_effect=AssertionError('Transport forbidden')), \
+                    patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                    patch('socket.create_connection', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect_ex', side_effect=AssertionError('Network forbidden')):
+                self.assertEqual(Path.home(), synthetic_home)
+                backend_study.init(cfg, name)
+                path = root/'studies'/name
+                fd = backend.disk.directory(path)
+                try:
+                    actual, expected = os.fstat(fd), path.stat()
+                    self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                finally:
+                    os.close(fd)
+                store = Studies(root/'studies')
+                with TestClient(create_app(root/'studies'), base_url='http://localhost',
+                                client=('127.0.0.1', 12345)) as client:
+                    secrets = [str(root), str(source)]
+
+                    def check(phase, consumed=None, results=None, lineages=None):
+                        before = file_image()
+                        public = backend.status(cfg, name)
+                        raw = json.loads((path/'autonomy/state.json').read_text())
+                        saved = read_autonomy(store, name, now=at)
+                        checked = validate_status(public, now=at)
+                        raw_checked = validate_status(raw, now=at)
+                        response = client.get(f'/api/studies/{name}/autonomy')
+                        self.assertEqual(response.status_code, 200, response.text)
+                        http = response.json()
+                        self.assertEqual(file_image(), before)
+                        for value in (saved, checked, raw_checked, http):
+                            self.assertEqual((value['status'], value['phase']), ('ok', phase), value)
+                            self.assertEqual(value['integration'], 'pending-backend-action-boundary')
+                            for field, count in (('cancellations', consumed), ('cancellation_results', results),
+                                                 ('reroute_lineages', lineages)):
+                                if count is None:
+                                    self.assertNotIn(field, value)
+                                    self.assertNotIn(field + '_count', value)
+                                else:
+                                    self.assertEqual(value[field + '_count'], count)
+                                    self.assertEqual(len(value[field]), count)
+                                    self.assertFalse(value[field + '_truncated'])
+                            text = json.dumps(value)
+                            for forbidden in ('token_sha256', 'cancellation_authorized', 'termination_confirmed',
+                                              'reroute_eligible', 'can_reroute', *secrets):
+                                self.assertNotIn(forbidden, text)
+                        for field in ('phase', 'seq', 'journal_sha256', 'current_round', 'current_run', 'lease',
+                                      'totals', 'manual_actions_blocked', 'cancellations', 'cancellations_count',
+                                      'cancellations_truncated', 'cancellation_results', 'cancellation_results_count',
+                                      'cancellation_results_truncated', 'reroute_lineages', 'reroute_lineages_count',
+                                      'reroute_lineages_truncated'):
+                            self.assertEqual(saved.get(field), checked.get(field), field)
+                            self.assertEqual(saved.get(field), raw_checked.get(field), field)
+                            self.assertEqual(saved.get(field), http.get(field), field)
+                        self.assertEqual(saved['events'], http['events'])
+                        return saved
+
+                    backend.initialize(cfg, name)
+                    check('ended')
+                    at += 1
+                    plan = backend.create_plan(cfg, name, dict(goal='Synthetic cancellation projection',
+                        comparison_groups=['synthetic'], method_policy='Synthetic method only',
+                        mechanism_scope='No scientific conclusion',
+                        system_rules=dict(main='Synthetic main', small='Synthetic small'),
+                        estimated_hours=1, attempt_limit=10, valid_until=at + 20000))
+                    backend.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic confirmation')
+                    backend.begin(cfg, name, plan['plan_id'], 'Synthetic first round')
+                    first = backend.start(cfg, name, plan['plan_id'], 'synthetic-first-session')
+                    first_round = first['state']['current_round']
+                    secrets.extend((first['token'], hashlib.sha256(first['token'].encode()).hexdigest()))
+                    backend.change(cfg, name, 'count', first['run_id'], first['token'], kind='cancel',
+                        request_id='cancel-intent', object_id='synthetic-object', failure_class='none',
+                        evidence='Synthetic intent only')
+                    check('running')
+                    receipts = []
+                    for index, kind in enumerate(('no_progress', 'reroute'), 1):
+                        at += 1
+                        # Synthetic identity inputs only. The real backend APIs
+                        # exclusively write the state, hashes, and journal.
+                        binding = dict(study_id=name, attempt_id=f'synthetic-{index:03d}', cluster='synthetic-entry',
+                            scheduler='slurm', job_id=str(100 + index), manifest_sha256='b' * 64,
+                            submission_sha256='c' * 64)
+                        private_reason = (f'Synthetic recorded evidence "{root / "evidence source.log"}"; '
+                                          f'token {first["token"]}; token hash {hashlib.sha256(first["token"].encode()).hexdigest()}')
+                        receipt = backend._consume_cancellation(cfg, name, first['run_id'], first['token'],
+                            plan_sha256=plan['sha256'], binding=binding, ownership_sha256='d' * 64,
+                            kind=kind, reason=private_reason, evidence_sha256='e' * 64,
+                            lineage_sha256='1' * 64 if kind == 'reroute' else None)
+                        self.assertIs(receipt['cancellation_authorized'], False)
+                        self.assertFalse(receipt['duplicate'])
+                        self.assertEqual(receipt['record']['reason'], private_reason)
+                        receipts.append(receipt)
+                        view = check('running', index, lineages=1 if kind == 'reroute' else None)
+                        row = next(row for row in view['cancellations'] if row['attempt_id'] == binding['attempt_id'])
+                        self.assertEqual(row['consumption_sha256'], receipt['record']['consumption_sha256'])
+                        self.assertEqual(row['kind'], kind)
+                        self.assertIn('[路径已隐藏]', row['reason'])
+                        self.assertEqual(view['totals']['cancel'], 1)  # Intents do not become actual consumption.
+                    at += 1
+                    accepted = backend._record_cancellation_result(cfg, name, first['run_id'], first['token'],
+                        attempt_id='synthetic-001', consumption_sha256=receipts[0]['record']['consumption_sha256'],
+                        outcome='accepted', reason=f'Synthetic acceptance, not termination: {root / "receipt.log"}',
+                        evidence_sha256='f' * 64)
+                    self.assertIs(accepted['cancellation_authorized'], False)
+                    accepted_view = check('running', 2, 1, 1)
+                    self.assertEqual(accepted_view['cancellation_results'][0]['outcome'], 'accepted')
+                    self.assertIn('[路径已隐藏]', accepted_view['cancellation_results'][0]['reason'])
+                    self.assertEqual(accepted_view['reroute_lineages'],
+                                     [dict(lineage_sha256='1' * 64, attempt_id='synthetic-002')])
+                    at += 1
+                    backend.change(cfg, name, 'finish', first['run_id'], first['token'], reason='Synthetic wake ended')
+                    backend.change(cfg, name, 'end', None, None, round_id=first_round, reason='Synthetic round ended')
+                    check('ended', 2, 1, 1)
+                    at += 1
+                    backend.begin(cfg, name, plan['plan_id'], 'Synthetic second round')
+                    second = backend.start(cfg, name, plan['plan_id'], 'synthetic-second-session')
+                    secrets.extend((second['token'], hashlib.sha256(second['token'].encode()).hexdigest()))
+                    self.assertNotEqual(second['state']['current_round'], first_round)
+                    check('running', 2, 1, 1)
+                    at += 1
+                    late = dict(attempt_id='synthetic-002', consumption_sha256=receipts[1]['record']['consumption_sha256'],
+                                outcome='unknown', reason='Synthetic late cancellation response unknown', evidence_sha256='2' * 64)
+                    result = backend._record_cancellation_result(cfg, name, first['run_id'], first['token'], **late)
+                    self.assertIs(result['cancellation_authorized'], False)
+                    unknown = check('paused', 2, 2, 1)
+                    self.assertEqual(unknown['current_round']['id'], second['state']['current_round'])
+                    self.assertEqual(unknown['lease']['run_id'], second['run_id'])
+                    self.assertTrue(all(row['round_id'] == first_round for row in unknown['cancellations']))
+                    before = file_image()
+                    repeated = backend._record_cancellation_result(cfg, name, first['run_id'], first['token'], **late)
+                    self.assertTrue(repeated['duplicate'])
+                    self.assertIs(repeated['cancellation_authorized'], False)
+                    self.assertEqual(file_image(), before)
+                    at += 1
+                    backend.change(cfg, name, 'end', second['run_id'], second['token'],
+                                   round_id=second['state']['current_round'], reason='Synthetic final end')
+                    final = check('ended', 2, 2, 1)
+                    self.assertTrue({'cancel_consume', 'cancel_result'} <= {row['op'] for row in final['events']})
+                    self.assertTrue(directory_calls)
+                    self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
+                    self.assertEqual(list(synthetic_home.iterdir()), [])  # Standalone T187 has no global registry.
