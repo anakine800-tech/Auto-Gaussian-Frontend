@@ -282,6 +282,283 @@ class AutonomyReaderTests(unittest.TestCase):
                 self.assertEqual(self.read()['status'], 'invalid')
                 self.assertTrue(self.read()['manual_actions_blocked'])
 
+    def submission_record(self, snapshot, index=0, **changes):
+        record = dict(attempt_id=f'attempt-{index}', object_id=f'object-{index}',
+                      failure_class=None, ownership_sha256=f'{index + 10:064x}',
+                      round_id='round-demo', run_id='wake-demo',
+                      plan_sha256=snapshot['state']['plans']['plan-demo']['sha256'],
+                      rule_sha256='b' * 64, max_attempts=10, plan_id='plan-demo', at=NOW - 20,
+                      owner_token_sha256=sha256(FAKE_TOKEN.encode()).hexdigest(),
+                      dispatch_started=None, aborted_before_dispatch=None)
+        record.update(changes)
+        return record
+
+    def submission_identity(self, record):
+        fields = ('attempt_id', 'object_id', 'failure_class', 'ownership_sha256',
+                  'round_id', 'run_id', 'plan_sha256', 'rule_sha256', 'max_attempts')
+        return {key: record[key] for key in fields}
+
+    def waiting_record(self, snapshot, index=0):
+        return dict(object_id=f'object-{index}', record_sha256=f'{index + 100:064x}',
+                    round_id='round-demo', run_id='wake-demo',
+                    plan_sha256=snapshot['state']['plans']['plan-demo']['sha256'],
+                    plan_id='plan-demo', at=NOW - 10)
+
+    def append_event(self, snapshot, op, data):
+        path = self.study / 'autonomy/journal.jsonl'
+        seq = snapshot['seq'] + 1
+        line = encoded(dict(seq=seq, prev_sha256=snapshot['journal_sha256'], op=op,
+                            at=NOW - 1, data=data))
+        path.write_bytes(path.read_bytes() + line)
+        snapshot.update(seq=seq, journal_sha256=sha256(line).hexdigest())
+        write_snapshot(self.study, snapshot)
+
+    def new_submission_events(self, snapshot):
+        record = self.submission_record(snapshot)
+        private = dict(token_sha256=record['owner_token_sha256'],
+                       versions=deepcopy(snapshot['state']['plans']['plan-demo']['body']['versions']))
+        reference = {key: record[key] for key in (
+            'attempt_id', 'ownership_sha256', 'round_id', 'run_id', 'plan_sha256')}
+        waiting = self.waiting_record(snapshot)
+        previous = dict(run_id='wake-demo', round_id='round-demo', owner=FAKE_TOKEN,
+                        token_sha256=record['owner_token_sha256'], started_at=NOW - 6000,
+                        run_until=NOW - 2400, expires_at=NOW - 600, observe_only=True)
+        return [
+            ('submission_consume', dict(record=self.submission_identity(record), **private)),
+            ('submission_dispatch', dict(reference, **private)),
+            ('submission_abort', dict(reference, reason='合成派发前停止', **private)),
+            ('submission_boundary_failure', dict(attempt_id=record['attempt_id'],
+                ownership_sha256=record['ownership_sha256'], run_id=record['run_id'],
+                token_sha256=private['token_sha256'], dispatched=False, reason='合成迟到失败')),
+            ('waiting', dict({key: waiting[key] for key in (
+                'object_id', 'record_sha256', 'round_id', 'run_id', 'plan_sha256')}, **private)),
+            ('manual_takeover', dict(previous_lease=previous, writer_id='1234567890abcdef' * 2,
+                study_key='f0' * 32, reason='合成过期接管')),
+        ]
+
+    def test_missing_consumption_is_unknown_and_explicit_empty_is_saved_zero(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        for data in (self.read(), validate_status(snapshot, now=NOW)):
+            for key in ('submissions', 'submissions_count', 'current_round_submission_count',
+                        'submissions_truncated', 'submission_pause', 'waiting', 'waiting_count',
+                        'waiting_truncated'):
+                self.assertNotIn(key, data)
+        snapshot['state'].update(submissions={}, waiting=[])
+        write_snapshot(self.study, snapshot)
+        for data in (self.read(), validate_status(snapshot, now=NOW)):
+            self.assertEqual(data['submissions'], [])
+            self.assertEqual(data['submissions_count'], 0)
+            self.assertEqual(data['current_round_submission_count'], 0)
+            self.assertFalse(data['submissions_truncated'])
+            self.assertEqual(data['waiting'], [])
+            self.assertEqual(data['waiting_count'], 0)
+            self.assertFalse(data['waiting_truncated'])
+            self.assertNotIn('submission_pause', data)
+            self.assertNotIn('submission_counts_verified', data)
+            self.assertTrue(data['manual_actions_blocked'])
+        snapshot = create_autonomy(self.study, 'ended', lease='none', now=NOW)
+        snapshot['state'].update(current_round=None, current_plan=None, submissions={})
+        write_snapshot(self.study, snapshot)
+        self.assertIsNone(self.read()['current_round_submission_count'])
+
+    def test_consumption_abort_pause_and_late_failure_are_saved_evidence_only(self):
+        snapshot = create_autonomy(self.study, 'paused', lease='none', now=NOW)
+        aborted = self.submission_record(snapshot, aborted_before_dispatch=dict(at=NOW - 12, reason='先前停止'),
+            boundary_failure=dict(at=NOW - 2, dispatched=False, reason='后来核验失败'))
+        dispatched = self.submission_record(snapshot, 1, dispatch_started=dict(at=NOW - 10),
+            boundary_failure=dict(at=NOW - 1, dispatched=True, reason='响应未明'))
+        old = self.submission_record(snapshot, 2, round_id='round-old', run_id='wake-old')
+        snapshot['state']['rounds']['round-old'] = dict(started_at=NOW - 100, ended_at=NOW - 30,
+            plan_ids=['plan-demo'], totals=dict(attempt=1, remedy=0, cancel=0, reroute=0))
+        snapshot['state']['runs']['wake-old'] = dict(round_id='round-old', plan_id='plan-demo',
+            started_at=NOW - 90, ended_at=NOW - 30, outcome='finished', totals=snapshot['state']['totals'])
+        old.update(at=NOW - 50, boundary_failure=dict(at=NOW - 1, dispatched=False, reason='旧轮次迟到失败'),
+                   aborted_before_dispatch=dict(at=NOW - 1, reason='旧轮次迟到失败'))
+        snapshot['state'].update(submissions={row['attempt_id']: row for row in (aborted, dispatched, old)},
+            waiting=[self.waiting_record(snapshot)],
+            submission_pause=dict(at=NOW - 20, attempt_id=aborted['attempt_id'], round_id='round-demo',
+                                  reason='Actual round submission count reached 90%'))
+        write_snapshot(self.study, snapshot)
+        public = deepcopy(snapshot)
+        for record in public['state']['submissions'].values():
+            del record['owner_token_sha256']
+        public.update(submission_counts_verified=False, integration='not authority')
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.study.rglob('*') if p.is_file()}
+        with patch('subprocess.Popen', side_effect=AssertionError('No subprocess')):
+            saved = self.read()
+            checked = validate_status(encoded(public), now=NOW)
+        for data, verification in ((saved, 'saved-files-only'), (checked, 'ag-status')):
+            self.assertEqual(data['status'], 'ok', data)
+            self.assertEqual(data['verification'], verification)
+            self.assertEqual(data['integration'], 'pending-backend-action-boundary')
+            self.assertEqual(data['submissions_count'], 3)
+            self.assertEqual(data['current_round_submission_count'], 2)
+            self.assertEqual(data['totals']['attempt'], 1)  # Historical intent count stays separate.
+            self.assertEqual(data['submission_pause'], snapshot['state']['submission_pause'])
+            self.assertIsNone(manual_block(data))  # Final writer exclusion stays in ag.
+            rows = {row['attempt_id']: row for row in data['submissions']}
+            self.assertEqual(rows['attempt-0']['aborted_before_dispatch']['reason'], '先前停止')
+            self.assertEqual(rows['attempt-0']['boundary_failure']['reason'], '后来核验失败')
+            self.assertEqual(rows['attempt-2']['round_id'], 'round-old')
+            for forbidden in (FAKE_TOKEN, 'owner_token_sha256', 'token_sha256',
+                              sha256(FAKE_TOKEN.encode()).hexdigest(), 'submission_counts_verified',
+                              'remaining_capacity', 'remaining_attempts'):
+                self.assertNotIn(forbidden, json.dumps(data))
+        for field in ('submissions', 'submissions_count', 'current_round_submission_count',
+                      'submission_pause', 'waiting'):
+            self.assertEqual(saved[field], checked[field])
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
+
+    def test_consumption_and_waiting_rows_are_bounded_but_count_and_validate_all(self):
+        snapshot = create_autonomy(self.study, now=NOW)
+        records = [self.submission_record(snapshot, index) for index in range(DISPLAY_EVENTS + 3)]
+        snapshot['state'].update(submissions={row['attempt_id']: row for row in records},
+            waiting=[self.waiting_record(snapshot, index) for index in range(DISPLAY_EVENTS + 3)])
+        write_snapshot(self.study, snapshot)
+        data = self.read()
+        self.assertEqual(data['status'], 'ok')
+        for field in ('submissions', 'waiting'):
+            self.assertEqual(len(data[field]), DISPLAY_EVENTS)
+            self.assertEqual(data[field + '_count'], DISPLAY_EVENTS + 3)
+            self.assertTrue(data[field + '_truncated'])
+        self.assertEqual(data['current_round_submission_count'], DISPLAY_EVENTS + 3)
+        # Validation covers rows outside the displayed tail too.
+        self.assertNotIn('object-0', [row['object_id'] for row in data['waiting']])
+        snapshot['state']['waiting'][0]['record_sha256'] = 'bad'
+        write_snapshot(self.study, snapshot)
+        self.assertEqual(self.read()['status'], 'invalid')
+        snapshot['state']['waiting'][0]['record_sha256'] = 'c' * 64
+        snapshot['state']['submissions']['attempt-0']['owner_token_sha256'] = 'bad'
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')
+        snapshot['state']['submissions'] = {}
+        snapshot['state']['waiting'] = [self.waiting_record(snapshot)] * 10001
+        self.assertEqual(validate_status(snapshot, now=NOW)['status'], 'invalid')
+
+    def test_contradictory_saved_submission_outcomes_fail_closed(self):
+        dispatch = dict(at=NOW - 10)
+        abort = dict(at=NOW - 10, reason='合成停止')
+        failure = dict(at=NOW - 1, dispatched=False, reason='合成迟到失败')
+        for outcomes in (
+                dict(dispatch_started=dispatch, aborted_before_dispatch=abort),
+                dict(dispatch_started=dispatch, boundary_failure=failure),
+                dict(aborted_before_dispatch=abort, boundary_failure=dict(failure, dispatched=True)),
+                dict(boundary_failure=dict(failure, dispatched=True)),
+                dict(boundary_failure=failure)):
+            with self.subTest(outcomes=outcomes):
+                snapshot = create_autonomy(self.study, 'paused', lease='none', now=NOW)
+                record = self.submission_record(snapshot, **outcomes)
+                snapshot['state']['submissions'] = {record['attempt_id']: record}
+                write_snapshot(self.study, snapshot)
+                for data in (self.read(), validate_status(snapshot, now=NOW)):
+                    self.assertEqual(data['status'], 'invalid', data)
+                    self.assertTrue(data['manual_actions_blocked'])
+
+    def test_malformed_new_saved_records_fail_closed_and_never_echo_unknown_fields(self):
+        variants = []
+        for field, values in (
+                ('max_attempts', [0, True, None]), ('failure_class', ['', ' spaced ']),
+                ('owner_token_sha256', [None, 'bad']), ('at', [NOW + 1]),
+                ('dispatch_started', [{}, {'at': NOW + 1}]),
+                ('aborted_before_dispatch', [{'at': NOW - 10, 'reason': ''}]),
+                ('boundary_failure', [None, {'at': NOW - 10, 'dispatched': 0, 'reason': 'failure'}])):
+            for value in values:
+                variants.append(('record', field, value, 'invalid'))
+        variants.extend([
+            ('record', 'raw_secret', FAKE_TOKEN, 'unsupported'),
+            ('record', 'missing:max_attempts', None, 'invalid'),
+            ('state', 'submissions', None, 'invalid'), ('state', 'submissions', [], 'invalid'),
+            ('state', 'submissions', {'attempt-0': None}, 'invalid'),
+            ('state', 'submission_pause', None, 'invalid'),
+            ('state', 'submission_pause', {'at': NOW - 1, 'attempt_id': 'attempt-0',
+                'round_id': 'round-demo', 'reason': 'saved', 'token': FAKE_TOKEN}, 'unsupported'),
+            ('state', 'waiting', None, 'invalid'), ('state', 'waiting', {}, 'invalid'),
+            ('waiting', 'raw_secret', FAKE_TOKEN, 'unsupported'),
+            ('waiting', 'missing:record_sha256', None, 'invalid'),
+            ('waiting', 'at', NOW + 1, 'invalid'),
+        ])
+        for target, field, value, status in variants:
+            with self.subTest(target=target, field=field, value=value):
+                snapshot = create_autonomy(self.study, 'paused', lease='none', now=NOW)
+                record = self.submission_record(snapshot)
+                waiting = self.waiting_record(snapshot)
+                snapshot['state'].update(submissions={record['attempt_id']: record}, waiting=[waiting])
+                dest = {'record': record, 'waiting': waiting, 'state': snapshot['state']}[target]
+                if field.startswith('missing:'):
+                    del dest[field.split(':', 1)[1]]
+                else:
+                    dest[field] = value
+                write_snapshot(self.study, snapshot)
+                for data in (self.read(), validate_status(snapshot, now=NOW)):
+                    self.assertEqual(data['status'], status, data)
+                    self.assertTrue(data['manual_actions_blocked'])
+                    self.assertNotIn(FAKE_TOKEN, json.dumps(data))
+                    self.assertNotIn('raw_secret', json.dumps(data))
+
+    def test_new_event_projection_preserves_only_safe_identity_and_saved_reason(self):
+        snapshot = create_autonomy(self.study, 'paused', lease='none', now=NOW)
+        events = self.new_submission_events(snapshot)
+        for op, payload in events:
+            self.append_event(snapshot, op, payload)
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.study.rglob('*') if p.is_file()}
+        with patch('subprocess.Popen', side_effect=AssertionError('No subprocess')):
+            data = self.read()
+        self.assertEqual(data['status'], 'ok', data)
+        projected = data['events'][-6:]
+        expected = [dict(submission=events[0][1]['record']),
+                    dict(attempt_id='attempt-0', round_id='round-demo', run_id='wake-demo'),
+                    dict(attempt_id='attempt-0', round_id='round-demo', run_id='wake-demo', reason='合成派发前停止'),
+                    dict(attempt_id='attempt-0', run_id='wake-demo', dispatched=False, reason='合成迟到失败'),
+                    dict(object_id='object-0', round_id='round-demo', run_id='wake-demo', record_sha256=f'{100:064x}'),
+                    dict(reason='合成过期接管')]
+        for seq, (row, (op, _), safe) in enumerate(zip(projected, events, expected), 3):
+            self.assertEqual(row, dict(seq=seq, op=op, at=NOW - 1, **safe))
+        self.assertEqual(data['phase'], 'paused')
+        self.assertIsNone(data['lease'])
+        self.assertIsNone(manual_block(data))
+        text = json.dumps(projected)
+        for forbidden in (FAKE_TOKEN, sha256(FAKE_TOKEN.encode()).hexdigest(), 'token_sha256',
+                          'versions', 'writer_id', 'study_key', 'previous_lease',
+                          '1234567890abcdef' * 2, 'f0' * 32):
+            self.assertNotIn(forbidden, text)
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
+
+    def test_raw_submission_events_require_private_evidence_and_known_exact_fields(self):
+        seed = create_autonomy(self.study, now=NOW)
+        cases = []
+        for op, source in self.new_submission_events(seed):
+            unknown = deepcopy(source)
+            unknown['future_constraint'] = FAKE_TOKEN
+            cases.append((op, unknown, 'unsupported'))
+            if op == 'manual_takeover':
+                missing = deepcopy(source)
+                del missing['previous_lease']['token_sha256']
+                cases.append((op, missing, 'invalid'))
+                bad = deepcopy(source)
+                bad['previous_lease']['token_sha256'] = None
+                cases.append((op, bad, 'invalid'))
+                continue
+            for field in ('token_sha256', 'versions'):
+                if field in source:
+                    missing = deepcopy(source)
+                    del missing[field]
+                    cases.append((op, missing, 'invalid'))
+                    bad = deepcopy(source)
+                    bad[field] = None
+                    cases.append((op, bad, 'invalid'))
+            if op == 'submission_boundary_failure':
+                extra = deepcopy(source)
+                extra['versions'] = seed['state']['plans']['plan-demo']['body']['versions']
+                cases.append((op, extra, 'unsupported'))
+        for op, payload, expected in cases:
+            with self.subTest(op=op, fields=list(payload), expected=expected):
+                snapshot = create_autonomy(self.study, 'paused', lease='none', now=NOW)
+                self.append_event(snapshot, op, payload)
+                data = self.read()
+                self.assertEqual(data['status'], expected, data)
+                self.assertTrue(data['manual_actions_blocked'])
+                self.assertNotIn(FAKE_TOKEN, json.dumps(data))
+                self.assertNotIn('future_constraint', json.dumps(data))
+
     def test_observe_only_lease_is_shown_without_changing_manual_refusal(self):
         snapshot = create_autonomy(self.study, now=NOW)
         snapshot['state']['lease']['observe_only'] = True

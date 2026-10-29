@@ -256,6 +256,31 @@ export type AutonomySnapshot = {
   snapshot_sha256: string;
   log_sha256: string;
 };
+export type AutonomySubmission = {
+  attempt_id: string;
+  object_id: string;
+  failure_class: string | null;
+  ownership_sha256: string;
+  round_id: string;
+  run_id: string;
+  plan_sha256: string;
+  rule_sha256: string;
+  max_attempts: number;
+  plan_id: string;
+  at: number;
+  dispatch_started: { at: number } | null;
+  aborted_before_dispatch: { at: number; reason: string } | null;
+  boundary_failure?: { at: number; dispatched: boolean; reason: string };
+};
+export type AutonomyWaiting = {
+  object_id: string;
+  record_sha256: string;
+  round_id: string;
+  run_id: string;
+  plan_sha256: string;
+  plan_id: string;
+  at: number;
+};
 export type AutonomyStatus = {
   status: "absent" | "ok" | "unsupported" | "invalid" | "missing";
   reason: string | null;
@@ -302,10 +327,41 @@ export type AutonomyStatus = {
     reason?: string;
     summary?: string;
     snapshot?: AutonomySnapshot;
+    submission?: Pick<
+      AutonomySubmission,
+      | "attempt_id"
+      | "object_id"
+      | "failure_class"
+      | "ownership_sha256"
+      | "round_id"
+      | "run_id"
+      | "plan_sha256"
+      | "rule_sha256"
+      | "max_attempts"
+    >;
+    attempt_id?: string;
+    run_id?: string;
+    round_id?: string;
+    object_id?: string;
+    record_sha256?: string;
+    dispatched?: boolean;
   }[];
   events_truncated: boolean;
   snapshots?: (AutonomySnapshot & { seq: number })[];
   snapshots_truncated?: boolean;
+  submissions?: AutonomySubmission[];
+  submissions_count?: number;
+  current_round_submission_count?: number | null;
+  submissions_truncated?: boolean;
+  submission_pause?: {
+    at: number;
+    attempt_id: string;
+    round_id: string;
+    reason: string;
+  };
+  waiting?: AutonomyWaiting[];
+  waiting_count?: number;
+  waiting_truncated?: boolean;
   relaxed_inputs: {
     attempt: string;
     mode: "relaxed";

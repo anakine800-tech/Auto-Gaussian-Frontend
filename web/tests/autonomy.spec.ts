@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import type { AutonomyStatus } from "../src/api";
+import type { AutonomyStatus, AutonomySubmission } from "../src/api";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -156,6 +156,158 @@ function savedStatus(): AutonomyStatus {
     ],
     relaxed_inputs_warning: null,
   };
+}
+
+function consumptionStatus(): AutonomyStatus {
+  const data = savedStatus(),
+    at = Date.now() / 1000;
+  const dispatched: AutonomySubmission = {
+    attempt_id: "dispatched-demo",
+    object_id: "object-demo",
+    failure_class: null,
+    ownership_sha256: "1".repeat(64),
+    round_id: "round-demo",
+    run_id: "run-demo",
+    plan_sha256: "a".repeat(64),
+    rule_sha256: "2".repeat(64),
+    max_attempts: 2,
+    plan_id: "plan-demo",
+    at: at - 120,
+    dispatch_started: { at: at - 119 },
+    aborted_before_dispatch: null,
+    boundary_failure: {
+      at: at - 118,
+      dispatched: true,
+      reason: "Synthetic response was uncertain",
+    },
+  };
+  const aborted: AutonomySubmission = {
+    ...dispatched,
+    attempt_id: "aborted-demo",
+    ownership_sha256: "3".repeat(64),
+    at: at - 60,
+    dispatch_started: null,
+    aborted_before_dispatch: {
+      at: at - 59,
+      reason: "Synthetic pause before dispatch",
+    },
+    boundary_failure: {
+      at: at - 58,
+      dispatched: false,
+      reason: "Synthetic boundary stopped",
+    },
+  };
+  return {
+    ...data,
+    phase: "paused",
+    manual_block_reason: "合成记录：轮次已暂停，请核对保存原因。",
+    submissions: [dispatched, aborted],
+    submissions_count: 2,
+    current_round_submission_count: 2,
+    submissions_truncated: false,
+    submission_pause: {
+      at: at - 60,
+      attempt_id: "aborted-demo",
+      round_id: "round-demo",
+      reason: "Actual round submission count reached 90%",
+    },
+    waiting: [
+      {
+        object_id: "waiting-demo",
+        record_sha256: "4".repeat(64),
+        round_id: "round-demo",
+        run_id: "run-demo",
+        plan_sha256: "a".repeat(64),
+        plan_id: "plan-demo",
+        at: at - 180,
+      },
+    ],
+    waiting_count: 1,
+    waiting_truncated: false,
+    events: [
+      ...data.events,
+      {
+        seq: 10,
+        op: "submission_consume",
+        at: at - 120,
+        submission: {
+          attempt_id: dispatched.attempt_id,
+          object_id: dispatched.object_id,
+          failure_class: null,
+          ownership_sha256: dispatched.ownership_sha256,
+          round_id: dispatched.round_id,
+          run_id: dispatched.run_id,
+          plan_sha256: dispatched.plan_sha256,
+          rule_sha256: dispatched.rule_sha256,
+          max_attempts: dispatched.max_attempts,
+        },
+      },
+      {
+        seq: 11,
+        op: "submission_dispatch",
+        at: at - 119,
+        attempt_id: "dispatched-demo",
+        run_id: "run-demo",
+        round_id: "round-demo",
+      },
+      {
+        seq: 12,
+        op: "submission_abort",
+        at: at - 59,
+        attempt_id: "aborted-demo",
+        run_id: "run-demo",
+        round_id: "round-demo",
+        reason: "Synthetic pause before dispatch",
+      },
+      {
+        seq: 13,
+        op: "submission_boundary_failure",
+        at: at - 58,
+        attempt_id: "aborted-demo",
+        run_id: "run-demo",
+        dispatched: false,
+        reason: "Synthetic boundary stopped",
+      },
+      {
+        seq: 14,
+        op: "waiting",
+        at: at - 50,
+        object_id: "waiting-demo",
+        run_id: "run-demo",
+        round_id: "round-demo",
+        record_sha256: "4".repeat(64),
+      },
+      {
+        seq: 15,
+        op: "manual_takeover",
+        at: at - 40,
+        reason: "Synthetic expired-lease takeover",
+      },
+    ],
+  };
+}
+async function screenshotPanel(page: Page, label: string, path: string) {
+  await page.getByRole("region", { name: label, exact: true }).evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        const top = [".app-header", ".context-bar"].reduce(
+          (sum, selector) =>
+            sum +
+            (document.querySelector(selector)?.getBoundingClientRect().height ??
+              0),
+          0,
+        );
+        window.scrollTo(
+          0,
+          Math.max(
+            0,
+            element.getBoundingClientRect().top + window.scrollY - top - 12,
+          ),
+        );
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await page.screenshot({ path, fullPage: false });
 }
 
 test("saved autonomy page distinguishes a round from wakeups and stays read only", async ({
@@ -406,6 +558,204 @@ test("failed status read does not imply autonomy is disabled", async ({
   await expect(page.getByRole("alert")).toContainText(
     "不能据此认定自主运行未启用",
   );
+});
+
+test("persisted consumption stays separate from intentions and keeps aborted reservations", async ({
+  page,
+}, info) => {
+  const data = consumptionStatus();
+  // Unknown/private properties must never become a generic JSON display.
+  Object.assign(data.submissions![0], {
+    owner_token_sha256: "PRIVATE_CONSUMPTION_SENTINEL",
+    writer_id: "PRIVATE_WRITER_SENTINEL",
+    raw_payload: "PRIVATE_PAYLOAD_SENTINEL",
+  });
+  Object.assign(data.waiting![0], {
+    token: "PRIVATE_WAITING_SENTINEL",
+    study_key: "PRIVATE_STUDY_KEY_SENTINEL",
+  });
+  Object.assign(data.events.at(-1)!, {
+    previous_lease: { token_sha256: "PRIVATE_LEASE_SENTINEL" },
+  });
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD"].includes(request.method())) writes.push(request.url());
+  });
+  await page.route("**/api/studies/*/autonomy", (route) =>
+    route.fulfill({ json: data }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "自主运行", exact: true }).click();
+  const intent = page.getByRole("region", { name: "累计记录", exact: true }),
+    consumption = page.getByRole("region", {
+      name: "已保存提交消耗",
+      exact: true,
+    });
+  await expect(
+    intent
+      .locator(".autonomy-counts>div")
+      .filter({ hasText: "Attempt 意图" })
+      .locator("strong"),
+  ).toHaveText("3");
+  await expect(
+    consumption.locator(".FactGrid").first().locator("dd").nth(1),
+  ).toHaveText("2");
+  await expect(consumption).toContainText("不证明调度器提交成功");
+  await expect(consumption).toContainText("不证明全局提交台账已核验");
+  await consumption.getByText("最近提交消耗（2 条）", { exact: true }).click();
+  const aborted = consumption.getByRole("article", {
+    name: "提交消耗 aborted-demo",
+  });
+  await aborted.locator(".autonomy-consumption-record>summary").click();
+  await expect(aborted).toContainText("调用前已中止（仍计入消耗）");
+  await expect(aborted).toContainText("Synthetic pause before dispatch");
+  await expect(aborted).toContainText("未进入提交调用");
+  await aborted.locator(".autonomy-consumption-record>summary").click();
+  const dispatched = consumption.getByRole("article", {
+    name: "提交消耗 dispatched-demo",
+  });
+  await dispatched.locator(".autonomy-consumption-record>summary").click();
+  await expect(dispatched).toContainText("已进入提交调用");
+  await expect(dispatched).toContainText("Synthetic response was uncertain");
+  await dispatched.locator(".autonomy-consumption-record>summary").click();
+  await expect(
+    page.getByRole("region", { name: "保存的提交暂停记录", exact: true }),
+  ).toContainText("Actual round submission count reached 90%");
+  const waiting = page.getByRole("region", {
+    name: "等待可选资源记录",
+    exact: true,
+  });
+  await expect(waiting).toContainText("不表示调度器已排队");
+  await expect(waiting).toContainText("历史记录不代表当前全局容量");
+  await waiting.getByText("最近等待记录（1 条）", { exact: true }).click();
+  await expect(waiting).toContainText("waiting-demo");
+  await page.getByText("最近日志事件", { exact: true }).click();
+  for (const label of [
+    "记录提交消耗",
+    "进入调度调用边界",
+    "调用前中止（保留消耗）",
+    "提交边界失败",
+    "记录无可用提交位置",
+    "人工接管已过期租约",
+  ]) {
+    await expect(page.locator(".autonomy-events")).toContainText(label);
+  }
+  await expect(
+    page.getByRole("region", { name: "自主运行状态" }),
+  ).not.toContainText("PRIVATE_");
+  expect(writes).toEqual([]);
+  await screenshotPanel(
+    page,
+    "已保存提交消耗",
+    info.outputPath("autonomy-consumption-desktop.png"),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await screenshotPanel(
+    page,
+    "已保存提交消耗",
+    info.outputPath("autonomy-consumption-mobile.png"),
+  );
+});
+
+for (const explicit of [false, true])
+  test(`submission and waiting fields distinguish ${explicit ? "explicit empty records" : "legacy unknown fields"}`, async ({
+    page,
+  }) => {
+    const data = savedStatus();
+    if (explicit)
+      Object.assign(data, {
+        submissions: [],
+        submissions_count: 0,
+        current_round_submission_count: 0,
+        submissions_truncated: false,
+        waiting: [],
+        waiting_count: 0,
+        waiting_truncated: false,
+      });
+    await page.route("**/api/studies/*/autonomy", (route) =>
+      route.fulfill({ json: data }),
+    );
+    await page.goto("/");
+    await page.getByRole("button", { name: "自主运行", exact: true }).click();
+    const consumption = page.getByRole("region", {
+        name: "已保存提交消耗",
+        exact: true,
+      }),
+      waiting = page.getByRole("region", {
+        name: "等待可选资源记录",
+        exact: true,
+      });
+    if (explicit) {
+      await expect(consumption).toContainText("保存的提交消耗清单为空");
+      await expect(
+        consumption.locator(".FactGrid").first().locator("dd").nth(1),
+      ).toHaveText("0");
+      await expect(waiting).toContainText("保存的等待记录清单为空");
+      await expect(waiting.locator("dd").first()).toHaveText("0");
+    } else {
+      await expect(consumption).toContainText("提交消耗清单未知");
+      await expect(
+        consumption.locator(".FactGrid").first().locator("dd").nth(1),
+      ).toHaveText("未知（记录未提供）");
+      await expect(waiting).toContainText("等待记录未知");
+      await expect(waiting.locator("dd").first()).toHaveText(
+        "未知（记录未提供）",
+      );
+    }
+    await expect(consumption).toContainText("提交暂停记录未知");
+    await expect(consumption).not.toContainText("90%");
+  });
+
+test("truncated persisted rows retain server counts and do not invent a current round", async ({
+  page,
+}) => {
+  const data = consumptionStatus();
+  data.phase = "ended";
+  data.current_round = null;
+  data.current_plan = null;
+  data.manual_actions_blocked = false;
+  data.manual_block_reason = null;
+  data.submissions = Array.from({ length: 30 }, (_, index) => ({
+    ...data.submissions![0],
+    attempt_id: `consumed-${index}`,
+  }));
+  data.submissions_count = 31;
+  data.current_round_submission_count = null;
+  data.submissions_truncated = true;
+  data.waiting = Array.from({ length: 30 }, (_, index) => ({
+    ...data.waiting![0],
+    object_id: `waiting-${index}`,
+  }));
+  data.waiting_count = 32;
+  data.waiting_truncated = true;
+  delete data.submission_pause;
+  await page.route("**/api/studies/*/autonomy", (route) =>
+    route.fulfill({ json: data }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "自主运行", exact: true }).click();
+  const consumption = page.getByRole("region", {
+      name: "已保存提交消耗",
+      exact: true,
+    }),
+    waiting = page.getByRole("region", {
+      name: "等待可选资源记录",
+      exact: true,
+    });
+  await expect(
+    consumption.locator(".FactGrid").first().locator("dd").nth(0),
+  ).toHaveText("31");
+  await expect(
+    consumption.locator(".FactGrid").first().locator("dd").nth(1),
+  ).toHaveText("未知（没有当前轮次）");
+  await expect(consumption).toContainText("最近提交消耗（30 条）");
+  await expect(consumption).toContainText("提交消耗清单已截断");
+  await expect(waiting.locator("dd").first()).toHaveText("32");
+  await expect(waiting).toContainText("最近等待记录（30 条）");
+  await expect(waiting).toContainText("等待记录清单已截断");
 });
 
 test.describe("manual action guard", () => {

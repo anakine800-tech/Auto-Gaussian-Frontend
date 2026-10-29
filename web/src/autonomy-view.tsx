@@ -7,6 +7,8 @@ import type {
   AutonomySubmissionPolicy,
   AutonomyGaussianMethod,
   AutonomySnapshot,
+  AutonomySubmission,
+  AutonomyWaiting,
 } from "./api";
 import { routeHash } from "./routing";
 import { EmptyState, ErrorNotice, FactGrid, Panel, StatusBadge } from "./ui";
@@ -40,6 +42,12 @@ const eventLabels: Record<string, string> = {
   snapshot: "记录观察快照",
   count: "记录计数",
   recover: "恢复记录",
+  submission_consume: "记录提交消耗",
+  submission_dispatch: "进入调度调用边界",
+  submission_abort: "调用前中止（保留消耗）",
+  submission_boundary_failure: "提交边界失败",
+  waiting: "记录无可用提交位置",
+  manual_takeover: "人工接管已过期租约",
 };
 function timestamp(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value))
@@ -188,6 +196,219 @@ function SnapshotSummary({ value }: { value: AutonomySnapshot }) {
         />
       </details>
     </div>
+  );
+}
+const savedCount = (value: number | null | undefined) =>
+  value === undefined
+    ? "未知（记录未提供）"
+    : value === null
+      ? "未知（没有当前轮次）"
+      : value;
+function SubmissionRecord({ record }: { record: AutonomySubmission }) {
+  return (
+    <article
+      className="autonomy-record"
+      aria-label={`提交消耗 ${record.attempt_id}`}
+    >
+      <details className="autonomy-consumption-record">
+        <summary>
+          <strong>{record.attempt_id}</strong>{" "}
+          <StatusBadge>已记录消耗</StatusBadge>{" "}
+          <span>
+            {record.aborted_before_dispatch
+              ? "调用前中止 · 保留消耗"
+              : record.dispatch_started
+                ? "已记录调用边界"
+                : "未记录调用或中止"}
+          </span>
+          {record.boundary_failure && (
+            <StatusBadge tone="warn">边界失败</StatusBadge>
+          )}
+        </summary>
+        <FactGrid
+          facts={[
+            { label: "对象", value: record.object_id },
+            { label: "轮次", value: record.round_id },
+            { label: "唤醒", value: record.run_id },
+            { label: "计划", value: record.plan_id },
+            { label: "记录时间", value: timestamp(record.at) },
+            {
+              label: "该规则最多提交次数",
+              value: record.max_attempts,
+            },
+            { label: "失败类别", value: record.failure_class ?? "无保存类别" },
+          ]}
+        />
+        {record.dispatch_started ? (
+          <p>
+            已记录进入调度调用边界：{timestamp(record.dispatch_started.at)}
+            。此记录不证明调度器提交成功。
+          </p>
+        ) : (
+          <p>没有保存的调度调用边界记录。</p>
+        )}
+        {record.aborted_before_dispatch && (
+          <p className="notice">
+            调用前已中止（仍计入消耗）：
+            {timestamp(record.aborted_before_dispatch.at)} ·{" "}
+            {record.aborted_before_dispatch.reason}
+          </p>
+        )}
+        {record.boundary_failure && (
+          <p className="notice">
+            提交边界失败：{timestamp(record.boundary_failure.at)} ·{" "}
+            {record.boundary_failure.dispatched
+              ? "已进入提交调用"
+              : "未进入提交调用"}{" "}
+            · {record.boundary_failure.reason}
+          </p>
+        )}
+        <details>
+          <summary>提交消耗绑定哈希</summary>
+          <FactGrid
+            facts={[
+              {
+                label: "归属记录 SHA-256",
+                value: <code>{record.ownership_sha256}</code>,
+              },
+              {
+                label: "计划 SHA-256",
+                value: <code>{record.plan_sha256}</code>,
+              },
+              {
+                label: "规则 SHA-256",
+                value: <code>{record.rule_sha256}</code>,
+              },
+            ]}
+          />
+        </details>
+      </details>
+    </article>
+  );
+}
+function WaitingRecord({ record }: { record: AutonomyWaiting }) {
+  return (
+    <article
+      className="autonomy-record"
+      aria-label={`等待记录 ${record.object_id}`}
+    >
+      <h4>{record.object_id}</h4>
+      <FactGrid
+        facts={[
+          { label: "轮次", value: record.round_id },
+          { label: "唤醒", value: record.run_id },
+          { label: "计划", value: record.plan_id },
+          { label: "观察时间", value: timestamp(record.at) },
+        ]}
+      />
+      <details>
+        <summary>等待记录绑定哈希</summary>
+        <FactGrid
+          facts={[
+            {
+              label: "选择记录 SHA-256",
+              value: <code>{record.record_sha256}</code>,
+            },
+            { label: "计划 SHA-256", value: <code>{record.plan_sha256}</code> },
+          ]}
+        />
+      </details>
+    </article>
+  );
+}
+function SubmissionRecords({ data }: { data: AutonomyStatus }) {
+  return (
+    <>
+      <Panel title="已保存提交消耗">
+        <p className="muted">
+          只汇总本研究已保存的消耗记录，与本地意图计数分开。调用前中止仍保留消耗；进入调用边界不证明调度器提交成功，也不证明全局提交台账已核验。
+        </p>
+        <FactGrid
+          facts={[
+            {
+              label: "本研究全部轮次已记录消耗",
+              value: savedCount(data.submissions_count),
+            },
+            {
+              label: "当前轮次已记录消耗",
+              value: savedCount(data.current_round_submission_count),
+            },
+          ]}
+        />
+        {data.submissions === undefined ? (
+          <EmptyState>
+            提交消耗清单未知：记录未提供该字段，不能按零次处理。
+          </EmptyState>
+        ) : data.submissions.length === 0 ? (
+          <EmptyState>保存的提交消耗清单为空。</EmptyState>
+        ) : (
+          <details className="autonomy-records">
+            <summary>最近提交消耗（{data.submissions.length} 条）</summary>
+            {data.submissions.map((record) => (
+              <SubmissionRecord key={record.attempt_id} record={record} />
+            ))}
+          </details>
+        )}
+        {data.submissions_truncated && (
+          <p className="notice">
+            提交消耗清单已截断；上方数量来自完整记录，不能用当前展示条数替代。
+          </p>
+        )}
+        {data.submission_pause ? (
+          <section aria-label="保存的提交暂停记录">
+            <h3>保存的提交暂停记录</h3>
+            <FactGrid
+              facts={[
+                { label: "时间", value: timestamp(data.submission_pause.at) },
+                { label: "Attempt", value: data.submission_pause.attempt_id },
+                { label: "轮次", value: data.submission_pause.round_id },
+              ]}
+            />
+            <p className="autonomy-prose">{data.submission_pause.reason}</p>
+            <p className="muted">
+              仅显示保存的暂停原因，不据此重算比例、剩余额度或当前容量。
+            </p>
+          </section>
+        ) : (
+          <p className="muted">提交暂停记录未知：未提供该字段。</p>
+        )}
+      </Panel>
+      <Panel title="等待可选资源记录">
+        <p className="muted">
+          等待资源记录表示当次选择未找到可用提交位置，不表示调度器已排队；历史记录不代表当前全局容量。
+        </p>
+        <FactGrid
+          facts={[
+            {
+              label: "已保存等待记录数",
+              value: savedCount(data.waiting_count),
+            },
+          ]}
+        />
+        {data.waiting === undefined ? (
+          <EmptyState>
+            等待记录未知：记录未提供该字段，不能按零次处理。
+          </EmptyState>
+        ) : data.waiting.length === 0 ? (
+          <EmptyState>保存的等待记录清单为空。</EmptyState>
+        ) : (
+          <details className="autonomy-records">
+            <summary>最近等待记录（{data.waiting.length} 条）</summary>
+            {data.waiting.map((record, index) => (
+              <WaitingRecord
+                key={`${record.run_id}/${record.object_id}/${index}`}
+                record={record}
+              />
+            ))}
+          </details>
+        )}
+        {data.waiting_truncated && (
+          <p className="notice">
+            等待记录清单已截断；上方数量来自完整记录，不能用当前展示条数替代。
+          </p>
+        )}
+      </Panel>
+    </>
   );
 }
 function Plan({
@@ -477,9 +698,10 @@ export function AutonomyView({
           <Panel title="累计记录">
             <Counts value={data.totals} label="累计计数" />
             <p className="muted">
-              计数来自本地意图记录，未核实实际提交次数；计划用时和计数不能推导剩余预算或科学通过。
+              计数来自本地意图记录，与已保存提交消耗分开；不能作为调度器成功提交次数，也不能推导剩余预算或科学通过。
             </p>
           </Panel>
+          <SubmissionRecords data={data} />
           <div className="autonomy-columns">
             <Panel title="日志摘要">
               <p className="autonomy-prose">
@@ -515,6 +737,51 @@ export function AutonomyView({
                     )}
                     {event.snapshot && (
                       <SnapshotSummary value={event.snapshot} />
+                    )}
+                    {event.submission && (
+                      <FactGrid
+                        facts={[
+                          {
+                            label: "Attempt",
+                            value: event.submission.attempt_id,
+                          },
+                          { label: "对象", value: event.submission.object_id },
+                          { label: "轮次", value: event.submission.round_id },
+                          { label: "唤醒", value: event.submission.run_id },
+                          {
+                            label: "该规则最多提交次数",
+                            value: event.submission.max_attempts,
+                          },
+                          {
+                            label: "失败类别",
+                            value:
+                              event.submission.failure_class ?? "无保存类别",
+                          },
+                        ]}
+                      />
+                    )}
+                    {!event.submission && event.attempt_id && (
+                      <p>Attempt：{event.attempt_id}</p>
+                    )}
+                    {event.object_id && <p>对象：{event.object_id}</p>}
+                    {!event.submission && event.run_id && (
+                      <p>唤醒：{event.run_id}</p>
+                    )}
+                    {!event.submission && event.round_id && (
+                      <p>轮次：{event.round_id}</p>
+                    )}
+                    {event.dispatched !== undefined && (
+                      <p>
+                        已保存提交调用记录：
+                        {event.dispatched ? "已进入提交调用" : "未进入提交调用"}
+                        ；不表示调度器成功提交。
+                      </p>
+                    )}
+                    {event.record_sha256 && (
+                      <details>
+                        <summary>选择记录哈希</summary>
+                        <code>{event.record_sha256}</code>
+                      </details>
                     )}
                   </li>
                 ))}

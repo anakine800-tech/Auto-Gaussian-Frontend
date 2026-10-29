@@ -1289,3 +1289,210 @@ class PairedAutonomyTests(unittest.TestCase):
                 self.assertEqual(ended['current_round']['totals']['attempt'], 1)
                 self.assertIsNone(ended['lease'])
                 self.assertIsNone(ended['current_run'])
+
+
+class PairedSubmissionAutonomyTests(unittest.TestCase):
+    def test_actual_t186_events_and_http_projection_are_readonly(self):
+        """Real local event writers, not a CLI/remote or ownership-reconciliation test."""
+        import sys
+        source = os.environ.get('T196_SUBMISSION_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated T186 source for actual-event projection pairing')
+        source = Path(source).resolve()
+        original_modules = {name: value for name, value in sys.modules.items()
+                            if name == 'ag' or name.startswith('ag.')}
+        for name in original_modules:
+            sys.modules.pop(name)
+
+        def restore_modules():
+            for name in list(sys.modules):
+                if name == 'ag' or name.startswith('ag.'):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'path', [str(source), *sys.path]):
+            from ag import autonomy as backend, autonomy_submission as submission
+            from ag import study as backend_study, config as backend_config, transport
+        for module in (backend, backend.disk, submission, backend_study, backend_config, transport):
+            self.assertEqual(Path(module.__file__).resolve(), source.joinpath(*module.__name__.split('.')).with_suffix('.py'))
+        from autog_frontend.autonomy import read_autonomy, validate_status
+        versions = dict(ag_version='synthetic-event-pairing', git_commit='b' * 40, dirty=False,
+                        rdkit='synthetic', goodvibes='synthetic')
+        at = 1800000000
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            synthetic_home = root/'synthetic-home'
+            synthetic_home.mkdir()
+            cfg = dict(local=dict(studies_root=str(root/'studies')))
+            name = 'submission-projection-demo'
+            directory_calls = []
+            original_directory = backend.disk.directory
+
+            def isolated_directory(path):
+                path = Path(path).absolute()
+                if not path.is_relative_to(root) or '..' in path.parts:
+                    raise AssertionError('Backend directory access escaped the isolated temporary root')
+                directory_calls.append(path)
+                return original_directory(path)
+
+            def file_image():
+                # Include the complete study and isolated machine registry.
+                return {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                        for p in root.rglob('*') if p.is_file()}
+
+            with patch.object(Path, 'home', return_value=synthetic_home), \
+                    patch.object(backend.disk, 'directory', side_effect=isolated_directory), \
+                    patch.object(backend, 'versions', return_value=versions), \
+                    patch.object(backend, 'now', side_effect=lambda: at), \
+                    patch('autog_frontend.autonomy.time.time', side_effect=lambda: at), \
+                    patch.object(backend_config, 'load_config', side_effect=AssertionError('Default config forbidden')), \
+                    patch.object(transport, 'SSHTransport', side_effect=AssertionError('Transport forbidden')), \
+                    patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                    patch('socket.create_connection', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect_ex', side_effect=AssertionError('Network forbidden')):
+                # Exercise the actual fixed-root helper before any study event
+                # write. Path.home and the directory guard isolate all machine
+                # registries, including manual-writers, without changing HOME.
+                self.assertEqual(Path.home(), synthetic_home)
+                with submission._machine_directory(create=True) as registry:
+                    actual = os.fstat(registry.fd)
+                    expected = (synthetic_home/'.config/ag').stat()
+                    self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                backend_study.init(cfg, name)
+                path = root/'studies'/name
+                identity = submission.study_identity(path)
+                with submission.machine_lock(), backend.disk.manual_writers(identity['study_key'], create=True) as writers:
+                    actual = os.fstat(writers.fd)
+                    expected = (synthetic_home/'.config/ag/manual-writers'/identity['study_key']).stat()
+                    self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                self.assertTrue(directory_calls)
+                self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
+                store = Studies(root/'studies')
+                with TestClient(create_app(root/'studies'), base_url='http://localhost',
+                                client=('127.0.0.1', 12345)) as client:
+                    secrets = []
+
+                    def check(phase, consumed=None):
+                        before = file_image()
+                        public = backend.status(cfg, name)
+                        self.assertIs(public['submission_counts_verified'], False)
+                        raw = json.loads((path/'autonomy/state.json').read_text())
+                        saved = read_autonomy(store, name, now=at)
+                        projected = validate_status(public, now=at)
+                        raw_projected = validate_status(raw, now=at)
+                        response = client.get(f'/api/studies/{name}/autonomy')
+                        self.assertEqual(response.status_code, 200, response.text)
+                        http = response.json()
+                        self.assertEqual(file_image(), before)
+                        for value in (saved, projected, raw_projected, http):
+                            self.assertEqual((value['status'], value['phase']), ('ok', phase), value)
+                            self.assertEqual(value['integration'], 'pending-backend-action-boundary')
+                            if consumed is None:
+                                self.assertNotIn('submissions', value)
+                                self.assertNotIn('submissions_count', value)
+                            else:
+                                self.assertEqual(value['submissions_count'], consumed)
+                                self.assertEqual(value['current_round_submission_count'], consumed)
+                                self.assertEqual(len(value['submissions']), consumed)
+                            text = json.dumps(value)
+                            for forbidden in ('token_sha256', 'owner_token_sha256', 'previous_lease',
+                                              'writer_id', 'study_key', 'submission_counts_verified', *secrets):
+                                self.assertNotIn(forbidden, text)
+                        fields = ('phase', 'seq', 'journal_sha256', 'current_plan', 'current_round', 'current_run',
+                                  'lease', 'totals', 'manual_actions_blocked', 'submissions', 'submissions_count',
+                                  'current_round_submission_count', 'submissions_truncated', 'submission_pause',
+                                  'waiting', 'waiting_count', 'waiting_truncated')
+                        for field in fields:
+                            self.assertEqual(saved.get(field), projected.get(field), field)
+                            self.assertEqual(saved.get(field), raw_projected.get(field), field)
+                            self.assertEqual(saved.get(field), http.get(field), field)
+                        self.assertEqual(saved['events'], http['events'])
+                        return saved
+
+                    backend.initialize(cfg, name)
+                    check('ended')
+                    at += 1
+                    plan = backend.create_plan(cfg, name, dict(goal='Synthetic submission projection',
+                        comparison_groups=['synthetic'], method_policy='Synthetic method only',
+                        mechanism_scope='No scientific conclusion',
+                        system_rules=dict(main='Synthetic main', small='Synthetic small'),
+                        estimated_hours=1, attempt_limit=10, valid_until=at + 20000))
+                    backend.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic confirmation')
+                    backend.begin(cfg, name, plan['plan_id'], 'Synthetic round authorization')
+                    run = backend.start(cfg, name, plan['plan_id'], 'synthetic-session')
+                    round_id = run['state']['current_round']
+                    secrets.extend((run['token'], hashlib.sha256(run['token'].encode()).hexdigest()))
+                    check('running')
+                    at += 1
+                    backend.change(cfg, name, 'count', run['run_id'], run['token'], kind='attempt',
+                        request_id='intent-one', object_id='synthetic-object', failure_class='none',
+                        evidence='Synthetic intent only')
+
+                    def record(index):
+                        attempt_id = f'synthetic-{index:03d}'
+                        return dict(attempt_id=attempt_id, object_id=f'object-{index}', failure_class=None,
+                            ownership_sha256=hashlib.sha256(attempt_id.encode()).hexdigest(), round_id=round_id,
+                            run_id=run['run_id'], plan_sha256=plan['sha256'], rule_sha256='c' * 64, max_attempts=10)
+
+                    # Synthetic API input records; every persisted state and
+                    # journal byte is produced by the actual backend writers.
+                    for index in range(1, 9):
+                        at += 1
+                        with submission.machine_lock(), backend.submission_guard(cfg, name, run['run_id'], run['token'],
+                                                                                 plan_sha256=plan['sha256']) as guard:
+                            guard.consume(record(index))
+                            if index == 1:
+                                guard.dispatch_started(record(index)['attempt_id'])
+                            elif index == 2:
+                                guard.abort_before_dispatch(record(index)['attempt_id'], 'Synthetic early abort')
+                        check('running', index)
+                    at += 1
+                    with submission.machine_lock(), backend.submission_guard(cfg, name, run['run_id'], run['token'],
+                                                                             plan_sha256=plan['sha256']) as guard:
+                        guard.waiting('waiting-object', 'd' * 64)
+                    self.assertEqual(check('running', 8)['waiting_count'], 1)
+                    at += 1
+                    with submission.machine_lock(), backend.submission_guard(cfg, name, run['run_id'], run['token'],
+                                                                             plan_sha256=plan['sha256']) as guard:
+                        guard.consume(record(9))
+                        self.assertEqual(guard.snapshot['phase'], 'paused')
+                        with self.assertRaisesRegex(ValueError, 'paused'):
+                            guard.dispatch_started(record(9)['attempt_id'])
+                        guard.abort_before_dispatch(record(9)['attempt_id'], 'Synthetic threshold abort')
+                    paused = check('paused', 9)
+                    self.assertEqual(paused['totals']['attempt'], 1)
+                    self.assertIn('90%', paused['submission_pause']['reason'])
+                    self.assertTrue(paused['manual_actions_blocked'])
+                    at += backend.LEASE_SECONDS + 1
+                    for index, dispatched in ((1, True), (2, False)):
+                        with submission.machine_lock():
+                            backend.boundary_failure(cfg, name, record(index)['attempt_id'], record(index)['ownership_sha256'],
+                                run_id=run['run_id'], token=run['token'], dispatched=dispatched,
+                                reason='Synthetic late boundary failure')
+                    failed = check('paused', 9)
+                    rows = {row['attempt_id']: row for row in failed['submissions']}
+                    self.assertTrue(rows['synthetic-001']['boundary_failure']['dispatched'])
+                    self.assertIsNone(rows['synthetic-001']['aborted_before_dispatch'])
+                    self.assertEqual(rows['synthetic-002']['aborted_before_dispatch']['reason'], 'Synthetic early abort')
+                    self.assertEqual(rows['synthetic-002']['boundary_failure']['reason'], 'Synthetic late boundary failure')
+                    self.assertEqual(failed['lease']['status'], 'expired')
+                    at += 1
+                    with backend.manual_write_guard(cfg, name, action='prepare') as writer:
+                        self.assertTrue(writer['manual_takeover'])
+                        secrets.extend((writer['writer_id'], writer['study_key']))
+                        taken = check('paused', 9)
+                        self.assertIsNone(taken['lease'])
+                        self.assertEqual(taken['current_round']['id'], round_id)
+                        self.assertEqual(taken['totals']['attempt'], 1)
+                        self.assertFalse(taken['manual_actions_blocked'])  # Local projection is not writer permission.
+                    final = check('paused', 9)
+                    event_kinds = {row['op'] for row in final['events']}
+                    self.assertTrue({'submission_consume', 'submission_dispatch', 'submission_abort',
+                                     'submission_boundary_failure', 'waiting', 'manual_takeover'} <= event_kinds)
+                    self.assertTrue((synthetic_home/'.config/ag/autonomy-submit.lock').is_file())
+                    registry = synthetic_home/'.config/ag/manual-writers'/identity['study_key']
+                    self.assertEqual(len(list(registry.glob('*.claim.json'))), 1)
+                    self.assertEqual(len(list(registry.glob('*.complete.json'))), 1)
+                    self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))

@@ -26,7 +26,12 @@ PLAN_COUNT_LIMIT = 64
 ATTEMPT_LIMIT = 1000
 COUNTERS = ('attempt', 'remedy', 'cancel', 'reroute')
 EVENTS = {'init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume',
-          'finish', 'end', 'update', 'count', 'recover', 'snapshot'}
+          'finish', 'end', 'update', 'count', 'recover', 'snapshot',
+          'submission_consume', 'submission_dispatch', 'submission_abort',
+          'submission_boundary_failure', 'waiting', 'manual_takeover'}
+SUBMISSION_FIELDS = {'attempt_id', 'object_id', 'failure_class', 'ownership_sha256',
+                     'round_id', 'run_id', 'plan_sha256', 'rule_sha256', 'max_attempts'}
+WAITING_FIELDS = {'object_id', 'record_sha256', 'round_id', 'run_id', 'plan_sha256'}
 POLICY_FIELDS = {'templates', 'clusters', 'max_cores_per_job', 'max_walltime',
                  'methods', 'routing_sha256', 'allow_relaxed'}
 GAUSSIAN_METHOD_FIELDS = {'method', 'basis', 'basis_function_type', 'dispersion',
@@ -175,6 +180,166 @@ def _submission_policy(value):
                 routing_sha256=_digest(value['routing_sha256']), allow_relaxed=value['allow_relaxed'])
 
 
+def _optional_fields(value, required, optional=()):
+    _mapping(value)
+    if set(value) - required - set(optional):
+        raise UnsupportedAutonomy('Unknown autonomy record field')
+    _require(required <= set(value))
+
+
+def _private_event_fields(value, required, *, versions=True):
+    # This path only reads raw journal events; public() sanitizes state, not
+    # journal data. Require private evidence fields, validate, then omit them.
+    _fields(value, required | {'token_sha256'} | ({'versions'} if versions else set()))
+    _digest(value['token_sha256'])
+    if versions:
+        version = value['versions']
+        _fields(version, {'ag_version', 'git_commit', 'dirty', 'rdkit', 'goodvibes'})
+        _require(type(version['dirty']) is bool and isinstance(version['git_commit'], str)
+                 and re.fullmatch(r'[0-9a-f]{40,64}', version['git_commit']))
+        for key in ('ag_version', 'rdkit', 'goodvibes'):
+            _text(version[key], limit=200)
+
+
+def _submission_identity(value):
+    result = {key: _identifier(value[key]) for key in ('attempt_id', 'object_id', 'round_id', 'run_id')}
+    result.update({key: _digest(value[key]) for key in ('ownership_sha256', 'plan_sha256', 'rule_sha256')})
+    failure = value['failure_class']
+    if failure is not None:
+        _text(failure)
+        _require(failure == failure.strip())
+    result.update(failure_class=failure, max_attempts=_integer(value['max_attempts'], 1))
+    return result
+
+
+def _outcome(value, fields):
+    if value is None:
+        return None
+    _fields(value, fields)
+    result = dict(at=_number(value['at']))
+    if 'reason' in fields:
+        result['reason'] = _text(value['reason'])
+    if 'dispatched' in fields:
+        _require(type(value['dispatched']) is bool)
+        result['dispatched'] = value['dispatched']
+    return result
+
+
+def _submission(value):
+    _optional_fields(value, SUBMISSION_FIELDS | {'plan_id', 'at', 'dispatch_started', 'aborted_before_dispatch'},
+                     {'owner_token_sha256', 'boundary_failure'})
+    if 'owner_token_sha256' in value:
+        _digest(value['owner_token_sha256'])
+    result = _submission_identity(value)
+    result.update(plan_id=_identifier(value['plan_id']), at=_number(value['at']),
+                  dispatch_started=_outcome(value['dispatch_started'], {'at'}),
+                  aborted_before_dispatch=_outcome(value['aborted_before_dispatch'], {'at', 'reason'}))
+    dispatched = result['dispatch_started'] is not None
+    aborted = result['aborted_before_dispatch'] is not None
+    _require(not (dispatched and aborted))
+    if 'boundary_failure' in value:
+        _require(value['boundary_failure'] is not None)
+        result['boundary_failure'] = _outcome(value['boundary_failure'], {'at', 'dispatched', 'reason'})
+        _require(result['boundary_failure']['dispatched'] == dispatched)
+        _require(dispatched or aborted)
+    return result
+
+
+def _waiting(value, *, saved):
+    _fields(value, WAITING_FIELDS | ({'plan_id', 'at'} if saved else set()))
+    result = {key: _identifier(value[key]) for key in ('object_id', 'round_id', 'run_id')}
+    result.update({key: _digest(value[key]) for key in ('record_sha256', 'plan_sha256')})
+    if saved:
+        result.update(plan_id=_identifier(value['plan_id']), at=_number(value['at']))
+    return result
+
+
+def _consumption_views(state, view):
+    """Count only structurally valid saved rows, not successes or free capacity.
+
+    Missing fields remain missing for old records. Cross-store reconciliation,
+    reservation consumption and action eligibility belong exclusively to ag.
+    """
+    if 'submissions' in state:
+        records = _mapping(state['submissions'])
+        projected = []
+        for key, value in records.items():
+            row = _submission(value)
+            _require(key == row['attempt_id'] and row['at'] <= view['updated_at'])
+            for field in ('dispatch_started', 'aborted_before_dispatch', 'boundary_failure'):
+                item = row.get(field)
+                if item is not None:
+                    _require(row['at'] <= item['at'] <= view['updated_at'])
+            projected.append(row)
+        current_round = state['current_round']
+        view.update(submissions=sorted(projected, key=lambda row: (row['at'], row['attempt_id']))[-DISPLAY_EVENTS:],
+                    submissions_count=len(projected),
+                    current_round_submission_count=(sum(row['round_id'] == current_round for row in projected)
+                                                    if current_round is not None else None),
+                    submissions_truncated=len(projected) > DISPLAY_EVENTS)
+    if 'submission_pause' in state:
+        value = state['submission_pause']
+        _fields(value, {'at', 'attempt_id', 'round_id', 'reason'})
+        pause = dict(at=_number(value['at']), attempt_id=_identifier(value['attempt_id']),
+                     round_id=_identifier(value['round_id']), reason=_text(value['reason']))
+        _require(pause['at'] <= view['updated_at'])
+        view['submission_pause'] = pause
+    if 'waiting' in state:
+        values = state['waiting']
+        _require(isinstance(values, list) and len(values) <= ENTRY_LIMIT)
+        projected = [_waiting(value, saved=True) for value in values]
+        _require(all(row['at'] <= view['updated_at'] for row in projected))
+        view.update(waiting=sorted(projected, key=lambda row: row['at'])[-DISPLAY_EVENTS:],
+                    waiting_count=len(projected), waiting_truncated=len(projected) > DISPLAY_EVENTS)
+
+
+def _submission_event(op, data):
+    if op == 'submission_consume':
+        _private_event_fields(data, {'record'})
+        _fields(data['record'], SUBMISSION_FIELDS)
+        return dict(submission=_submission_identity(data['record']))
+    if op in ('submission_dispatch', 'submission_abort'):
+        required = {'attempt_id', 'ownership_sha256', 'round_id', 'run_id', 'plan_sha256'}
+        if op == 'submission_abort':
+            required.add('reason')
+        _private_event_fields(data, required)
+        _digest(data['ownership_sha256'])
+        _digest(data['plan_sha256'])
+        result = {key: _identifier(data[key]) for key in ('attempt_id', 'round_id', 'run_id')}
+        if op == 'submission_abort':
+            result['reason'] = _text(data['reason'])
+        return result
+    if op == 'submission_boundary_failure':
+        _private_event_fields(data, {'attempt_id', 'ownership_sha256', 'run_id', 'dispatched', 'reason'},
+                              versions=False)
+        _digest(data['ownership_sha256'])
+        _require(type(data['dispatched']) is bool)
+        return dict(attempt_id=_identifier(data['attempt_id']), run_id=_identifier(data['run_id']),
+                    dispatched=data['dispatched'], reason=_text(data['reason']))
+    if op == 'waiting':
+        _private_event_fields(data, WAITING_FIELDS)
+        row = _waiting({key: data[key] for key in WAITING_FIELDS}, saved=False)
+        return {key: row[key] for key in ('object_id', 'round_id', 'run_id', 'record_sha256')}
+    if op == 'manual_takeover':
+        _fields(data, {'previous_lease', 'writer_id', 'study_key', 'reason'})
+        previous = data['previous_lease']
+        _optional_fields(previous, {'run_id', 'round_id', 'owner', 'token_sha256',
+                                    'started_at', 'run_until', 'expires_at'}, {'observe_only'})
+        _digest(previous['token_sha256'])
+        _identifier(previous['run_id'])
+        _identifier(previous['round_id'])
+        _text(previous['owner'])
+        started, run_until, expires = [_number(previous[key])
+                                       for key in ('started_at', 'run_until', 'expires_at')]
+        _require(started <= run_until <= expires)
+        if 'observe_only' in previous:
+            _require(type(previous['observe_only']) is bool)
+        _require(isinstance(data['writer_id'], str) and re.fullmatch('[0-9a-f]{32}', data['writer_id']))
+        _digest(data['study_key'])
+        return dict(reason=_text(data['reason']))
+    return {}
+
+
 def _snapshot_summary(value):
     """Display capture provenance only; never open the referenced snapshot."""
     _mapping(value)
@@ -291,6 +456,7 @@ def _project(snapshot, at):
     if phase != 'ended':
         _require(current_plan is not None and current_round is not None)
         _require(plans[current_plan]['confirmation'] is not None)
+    _consumption_views(state, view)
     if 'snapshots' in state:
         saved_snapshots = _mapping(state['snapshots'])
         projected = []
@@ -383,6 +549,7 @@ def _journal(raw, snapshot):
             _require(event['op'] != 'init')
         item = dict(seq=seq, op=event['op'], at=at)
         data = event['data']
+        item.update(_submission_event(event['op'], data))
         if event['op'] in ('pause', 'resume', 'finish', 'end', 'recover') and 'reason' in data:
             item['reason'] = _text(data['reason'])
         elif event['op'] == 'start' and data.get('takeover_reason') is not None:
