@@ -85,3 +85,36 @@ class TSLabelsTest(unittest.TestCase):
         listing=self.client.get(self.url).json()
         self.assertNotIn('SYNTHETIC_BODY',json.dumps(listing))
         self.assertEqual(self.client.get(self.url+'/reports/ts-labels/synthetic/labels.json').json()['data']['attempts'],self.body['attempts'])
+
+
+class SavedProfileTest(unittest.TestCase):
+    def test_saved_profile_routes_preserve_values_sources_and_files_without_ag(self):
+        from tests.analysis_fixture import saved_profile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            study = create_studies(root)
+            value = saved_profile()
+            path = study/'analyses/profile-demo.json'
+            path.write_text(json.dumps(value), encoding='utf-8')
+            before = {str(p.relative_to(root)): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest())
+                      for p in root.rglob('*') if p.is_file()}
+            client = TestClient(create_app(root), base_url='http://localhost', client=('localhost', 50000))
+            base = '/api/studies/butane-demo'
+            with patch('subprocess.Popen', side_effect=AssertionError('saved profile must not invoke ag')):
+                for suffix in ('/reports/profile-demo.json', '/files/analyses/profile-demo.json?document=true'):
+                    response = client.get(base + suffix)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json()['data'], value)
+                    self.assertIsNone(response.json()['error'])
+                # Existing facts differ from the saved profile and cannot replace its values.
+                self.assertEqual(value['states'][1]['relative_G_kcal'], 12.3456789)
+                self.assertNotEqual(value['states'][1]['G_kcal'] - value['states'][0]['G_kcal'], 12.3456789)
+                self.assertEqual([row['attempt_id'] for row in value['species']['substrate']['conformers']],
+                                 ['anti', 'gauche'])
+                self.assertEqual(value['species']['substrate']['conformers'][0]['spc_attempt_id'], 'opt-demo')
+                self.assertNotIn('relative_G_kcal', value['states'][3])
+                self.assertEqual(value['states'][4]['relative_G_kcal'], 'Infinity')
+            after = {str(p.relative_to(root)): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest())
+                     for p in root.rglob('*') if p.is_file()}
+            self.assertEqual(before, after)
