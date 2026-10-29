@@ -32,8 +32,7 @@ pnpm --dir web build
 ```
 
 Set `AG_STUDIES_ROOT` to the existing parent of your study directories. Alternatively,
-omit `--studies-root` and use the environment variable alone. `--port` defaults to
-8765. Open the loopback URL printed by the process. Use canonical paths without
+omit `--studies-root` and use the environment variable alone. `--port` defaults to 8765. Open the loopback URL printed by the process. Use canonical paths without
 symbolic links (on macOS, system aliases such as `/tmp` may themselves be links).
 A missing root is an error; the viewer never creates it.
 
@@ -111,20 +110,20 @@ CREST 输出逐帧查看；浏览器后退恢复集合候选。TS Attempt 中点
 - **证据**：`#/s/<study>/evidence/library` 为文件库，`/evidence/lineage` 为单对象来源关系，`/evidence/document` 为研究说明。
 - **使用说明**：`#/help`，口径表与进展页共用常量，说明各页用途、来源与操作边界。
 
-| 旧链接 | 新位置 |
-| --- | --- |
-| `#server`、`#/jobs` | `#/servers` |
-| `#/<study>`、`#/s/<study>` | `#/s/<study>/research/progress` |
-| `#/s/<study>/attempts` | `#/s/<study>/research/attempts` |
-| `#/<study>/<attempt>`、`#/s/<study>/a/<attempt>` | `#/s/<study>/research/a/<attempt>` |
-| `#/s/<study>/analysis/...` | `#/s/<study>/results/...` |
-| `#/s/<study>/files/...` | 按 T122 对应表跳到文件库、来源关系或研究说明 |
-| `#/<study>/ensembles/<report>` | `#/s/<study>/results/ensemble/<report>` |
-| `#/<study>/irc-reviews/<report>` | `#/s/<study>/results/irc/<report>` |
-| `#/<study>/analyses/<file>` | `results/file/<file>`（XYZ 保持证据结构查看） |
-| `#/<study>/file/…`（T118 本地文件查看） | 保持原路径，不参与旧链接迁移 |
-| 旧 `tab=overview/graph/structures` | 证据的 `document/lineage/library` 视图 |
-| 旧 `tab=attempts` / `tab=analyses/ensembles/irc-reviews` | 全部 Attempt / 结果 |
+| 旧链接                                                   | 新位置                                        |
+| -------------------------------------------------------- | --------------------------------------------- |
+| `#server`、`#/jobs`                                      | `#/servers`                                   |
+| `#/<study>`、`#/s/<study>`                               | `#/s/<study>/research/progress`               |
+| `#/s/<study>/attempts`                                   | `#/s/<study>/research/attempts`               |
+| `#/<study>/<attempt>`、`#/s/<study>/a/<attempt>`         | `#/s/<study>/research/a/<attempt>`            |
+| `#/s/<study>/analysis/...`                               | `#/s/<study>/results/...`                     |
+| `#/s/<study>/files/...`                                  | 按 T122 对应表跳到文件库、来源关系或研究说明  |
+| `#/<study>/ensembles/<report>`                           | `#/s/<study>/results/ensemble/<report>`       |
+| `#/<study>/irc-reviews/<report>`                         | `#/s/<study>/results/irc/<report>`            |
+| `#/<study>/analyses/<file>`                              | `results/file/<file>`（XYZ 保持证据结构查看） |
+| `#/<study>/file/…`（T118 本地文件查看）                  | 保持原路径，不参与旧链接迁移                  |
+| 旧 `tab=overview/graph/structures`                       | 证据的 `document/lineage/library` 视图        |
+| 旧 `tab=attempts` / `tab=analyses/ensembles/irc-reviews` | 全部 Attempt / 结果                           |
 
 旧 hash 用 `replaceState` 转换，不增加历史记录。精确文件参数、候选、IRC 方向与路径点、
 旧集合筛选参数保留；返回列表恢复来源页面的筛选、排序和滚动。
@@ -169,11 +168,11 @@ T94–T98a 均已合并：统一框架与组件、Study 概览与 Attempt 表、
 
 **前端现场换算，正式数值以报告和登记为准。** 仅已登记、已采用对象参与：
 
-| 口径 | Hartree 数值 |
-|---|---|
-| E | `scf_h`（已采用 SP） |
-| E+ZPE | `scf_h + zpe_h` |
-| G | `scf_h + (g_h - freq_scf_h)` |
+| 口径  | Hartree 数值                 |
+| ----- | ---------------------------- |
+| E     | `scf_h`（已采用 SP）         |
+| E+ZPE | `scf_h + zpe_h`              |
+| G     | `scf_h + (g_h - freq_scf_h)` |
 
 默认读取 study.md 初始 front matter 的 `energy_basis: E|E+ZPE|G`，没有有效值时为 E+ZPE。
 任一所需值缺失时留空，不从其他作业补值。参照默认为当前口径最低能的已采用对象，也可手选；
@@ -249,7 +248,6 @@ CSV 每个状态/物种/构象一行，保留单位、条件、警告、来源�
   `crest_ensemble.xyz` 可逐帧查看，沿用上述 XYZ 限制。注释中首个可解析的浮点数
   按 Hartree 显示，无数值则未知；相对最低已知帧按 627.5094740631 换算 kcal/mol。
   仅供显示，以 facts 和后端分析为准；缺失文件明确报错。
-
 
 ```text
 <studies_root>/<study_id>/
@@ -423,6 +421,18 @@ Attempt 页“解析振动位移”读取所选 Gaussian log，选择模式后�
 不合规报告单独显示错误，仍可播放可用模式；截断或不支持的位移表显示不可用原因，
 原始日志和其他文件仍可读。页面不保存报告或科学签字，虚频动画与距离一致均不等于
 TS 验收；科学判断仍需振动方向审阅、双向 IRC 与端点识别。
+
+### 振动模式完整性（T194）
+
+Attempt 的“关键事实”同时显示虚频数与振动模式的已读 / 预期数。
+计数仅取 `n_vibrational_modes`、`expected_vibrational_modes`；完整 / 不完整 / 未知
+仅取 `vibrational_modes_complete`，不按原子数推算，也不由计数替代保存的标志。
+`false` 保留为不完整，`0` 保留为零；null、缺字段、旧 facts、部分计数与无 facts
+均明确说明。计数与标志不一致时保留原值并提示核对，缺少的不可用原因不猜测。
+
+展开模式摘要可查看字段说明与 `frequency_unavailable_reason`，旁边“来源”打开
+原始 facts。已有虚频、不可用原因、模式动画与方向审阅保留；解析日志中的动画模式
+不会补齐或改写 facts 计数。完整性标签只描述记录，不代表 TS 或科学验收通过。
 
 ## Results, optimization, and server snapshots (T7c)
 
@@ -884,7 +894,6 @@ T115 已用服务器卡片和按入口切换的详情替换 T110 容量总览；
 前端不选择集群、不提交作业；调度器运行限额注明“由调度器执行，ag 未核实”。
 动作令牌不匹配时明确提示“前端已重启，请刷新页面”，不自动刷新令牌或重试操作。
 
-
 ## T122：比较与证据库
 
 比较页标题为“比较（前端现场计算，非正式结果）”。Opt、SP、Freq 逐层列出方法、基组、
@@ -911,7 +920,7 @@ G 使用同一套 Freq 温压核对：缺省 298.15 K、1 atm；显式无效值�
 
 `GET /api/studies/{study}/evidence` 只读列出每份普通文件的类型、大小、修改时间、
 关联对象/Attempt 和被谁引用。类型分面为报告、表格、JSON、图片、HTML、结构、审阅意见、
-签字记录（含 analyses/review-manifest-*.json）、输入与日志。文件每页 60 项，预览复用现有文件、结构、输入和分页日志读取器。
+签字记录（含 analyses/review-manifest-\*.json）、输入与日志。文件每页 60 项，预览复用现有文件、结构、输入和分页日志读取器。
 未知格式仍可查看元数据，不扩大文件读取类型白名单。
 
 遍历使用逐级目录描述符和 `O_NOFOLLOW`，不跟随符号链接、不打开特殊文件。
@@ -929,15 +938,15 @@ mtime、ctime、大小变化时重新完整安全打开，不因目录 mtime 未
 合成截图已入库：[比较与证据截图](tests/fixtures/compare-evidence/README.md)。
 监控格式已同步 T123 的可选 `job_summary_error` 和 `mem_source`，见 [格式说明](docs/ag-monitor-1.md)。
 
-| 旧入口 | T122 位置（replaceState，不新增历史记录） |
-| --- | --- |
-| Attempt 表的快速比较 / 结构对比、比较篮“打开比较” | `#/<study>/compare?cmp=<ids>` |
-| `#/s/<study>/files`、`#/s/<study>/evidence` | `#/s/<study>/evidence/library` |
-| 旧 files/evidence 下 graph 或 `tab=graph` | `#/s/<study>/evidence/lineage` |
-| 旧 structures / analyses 标签 | `#/s/<study>/evidence/library` |
-| 旧 structures/analyses 的具体文件 | 文件库 `?file=<study-relative-path>`，保留其他查询参数 |
-| 旧 document / `tab=overview` | `#/s/<study>/evidence/document` |
-| T118 `#/<study>/file/<path>` | 保留原文件阅读链接 |
+| 旧入口                                            | T122 位置（replaceState，不新增历史记录）              |
+| ------------------------------------------------- | ------------------------------------------------------ |
+| Attempt 表的快速比较 / 结构对比、比较篮“打开比较” | `#/<study>/compare?cmp=<ids>`                          |
+| `#/s/<study>/files`、`#/s/<study>/evidence`       | `#/s/<study>/evidence/library`                         |
+| 旧 files/evidence 下 graph 或 `tab=graph`         | `#/s/<study>/evidence/lineage`                         |
+| 旧 structures / analyses 标签                     | `#/s/<study>/evidence/library`                         |
+| 旧 structures/analyses 的具体文件                 | 文件库 `?file=<study-relative-path>`，保留其他查询参数 |
+| 旧 document / `tab=overview`                      | `#/s/<study>/evidence/document`                        |
+| T118 `#/<study>/file/<path>`                      | 保留原文件阅读链接                                     |
 
 ## 启用提交前扫描
 
