@@ -406,6 +406,11 @@ test("saved autonomy page distinguishes a round from wakeups and stays read only
   await expect(page).toHaveURL(/#\/s\/[^/]+\/research\/autonomy$/);
   const view = page.getByRole("region", { name: "自主运行状态" });
   await expect(view).toContainText("运行中");
+  await expect(view).toContainText("前端预检不构成动作授权。");
+  await expect(view).toContainText(
+    "具体操作仍须通过当前 ag 的授权和资源核验。",
+  );
+  await expect(view).not.toContainText("后端最终动作边界尚待组合验证");
   await expect(
     page.getByRole("region", { name: "当前自主轮次" }),
   ).toContainText("round-demo");

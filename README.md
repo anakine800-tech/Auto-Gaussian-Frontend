@@ -1084,7 +1084,8 @@ queue／unknown 均可本地准备，以及精确内存导致仅某一比例不�
 前端检查不能消除检查之后的跨进程竞争，不能替代后端最终副作用边界。
 已对固定的 T185/T186/T187/T188 冻结组合完成实际 API 的离线前端配对，
 来源和范围见 [T196 验证记录](docs/redesign-tasks/T196-autonomy-view-action-guard.md#最终冻结组合的离线配对2026-10-29)。
-页面保留“后端动作边界待组合验证”的保守提示；离线配对不替代最终独立验收或真实环境授权。
+页面说明前端预检不构成动作授权，具体操作仍须通过当前 ag 的授权和资源核验。
+最终冻结组合的离线配对已经通过；真实运行尚未授权，也未进行部署或启用。
 
 可选实际事件配对使用隔离后端源码：
 `T196_SUBMISSION_BACKEND_SOURCE='<EXPORTED_T186>/ag/src' .venv/bin/python -B -m unittest tests.test_actions.PairedSubmissionAutonomyTests -v`。
@@ -1102,7 +1103,7 @@ queue／unknown 均可本地准备，以及精确内存导致仅某一比例不�
 `T196_COMBINED_BACKEND_ROOT='<FROZEN_COMBINATION>/ag' .venv/bin/python -B -m unittest tests.test_actions.PairedCombinedAutonomyTests -v`。
 通过实际 API 及假调度器完成提交、取消、停止核验和改投后继，逐阶段核对安全投影与读取不变性。
 停止证明保存在 Attempt 的独立文件，本页不读取它，也不从 accepted 或链路消费推断停止与资格。
-生产代码未因该配对变更；未重复本地整套浏览器测试。
+配对后仅更新上述用户提示，不改变生产功能；补充定向浏览器断言与格式检查，未重复本地整套浏览器测试。
 
 具名节点能力受控兼容旧 `['1/2','1/4']` 和新增整节点 `1` 的三比例集合，
 默认仍为 `1/2`。整节点选项显示实际核数和调度内存，仍须命中当前后端候选、

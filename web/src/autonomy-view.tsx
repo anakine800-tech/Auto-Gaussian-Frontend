@@ -771,7 +771,7 @@ export function AutonomyView({
       )}
       <p className="muted">
         暂停、恢复和结束轮次由负责人在对话中通过正式 ag
-        操作。前端预检不构成动作授权；后端最终动作边界尚待组合验证。
+        操作。前端预检不构成动作授权。具体操作仍须通过当前 ag 的授权和资源核验。
       </p>
       <p className="muted">
         读取时间：{timestamp(data.checked_at)}；记录更新时间：
