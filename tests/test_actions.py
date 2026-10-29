@@ -1694,3 +1694,203 @@ class PairedCancellationAutonomyTests(unittest.TestCase):
                     self.assertTrue(directory_calls)
                     self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
                     self.assertEqual(list(synthetic_home.iterdir()), [])  # Standalone T187 has no global registry.
+
+
+class PairedCombinedAutonomyTests(unittest.TestCase):
+    def test_actual_combined_submit_cancel_stop_and_successor_projection(self):
+        """Frozen full-module fixture, fake external IO, and real local API writers."""
+        import sys
+        backend_root = os.environ.get('T196_COMBINED_BACKEND_ROOT')
+        if not backend_root:
+            self.skipTest('Supply the isolated full ag combination and its source-provenance.json')
+        backend_root = Path(backend_root).resolve()
+        source, fixtures = backend_root/'src', backend_root/'tests'
+        provenance = json.loads((backend_root.parent/'source-provenance.json').read_text())
+
+        def source_image():
+            return {f'ag/{p.relative_to(backend_root)}': (hashlib.sha256(p.read_bytes()).hexdigest(),
+                                                        p.stat().st_mtime_ns)
+                    for p in backend_root.rglob('*') if p.is_file()}
+
+        source_before = source_image()
+        self.assertEqual({name: value[0] for name, value in source_before.items()}, provenance['all_ag_files'])
+        self.addCleanup(lambda: self.assertEqual(source_image(), source_before))
+        selected = lambda name: name == 'ag' or name.startswith(('ag.', 'test_'))
+        original_modules = {name: value for name, value in sys.modules.items() if selected(name)}
+        for name in original_modules:
+            sys.modules.pop(name)
+
+        def restore_modules():
+            for name in list(sys.modules):
+                if selected(name):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'dont_write_bytecode', True), \
+                patch.object(sys, 'path', [str(source), str(fixtures), *sys.path]):
+            import pytest
+            import test_autonomy_cancel as upstream
+            from ag import autonomy as backend, autonomy_submission as ownership
+            from ag import config as backend_config, transport
+            from autog_frontend.autonomy import read_autonomy, validate_status
+            for name, module in list(sys.modules.items()):
+                if selected(name):
+                    expected = source if name == 'ag' or name.startswith('ag.') else fixtures
+                    self.assertTrue(Path(module.__file__).resolve().is_relative_to(expected), name)
+            self.assertEqual(Path(upstream.__file__).resolve(), fixtures/'test_autonomy_cancel.py')
+            with tempfile.TemporaryDirectory() as folder, pytest.MonkeyPatch.context() as monkeypatch:
+                root = Path(folder).resolve()
+                directory_calls, config_calls = [], []
+                original_directory, original_config = backend.disk.directory, backend_config.load_config
+
+                def isolated_path(path):
+                    path = Path(path).absolute()
+                    if ('..' in path.parts or not path.is_relative_to(root)
+                            or not path.resolve().is_relative_to(root)):
+                        raise AssertionError('Backend access escaped the isolated temporary root')
+                    return path
+
+                def isolated_directory(path):
+                    path = isolated_path(path)
+                    directory_calls.append(path)
+                    return original_directory(path)
+
+                def isolated_config(path=None, **options):
+                    if path is None:
+                        raise AssertionError('Default configuration is forbidden')
+                    path = isolated_path(path)
+                    config_calls.append(path)
+                    return original_config(path, **options)
+
+                def file_image():
+                    return {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mtime_ns)
+                            for p in root.rglob('*') if p.is_file()}
+
+                with patch.object(backend.disk, 'directory', side_effect=isolated_directory), \
+                        patch.object(backend_config, 'load_config', side_effect=isolated_config), \
+                        patch.object(transport.SSHTransport, '__init__', side_effect=AssertionError('Real SSH forbidden')), \
+                        patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                        patch('socket.create_connection', side_effect=AssertionError('Network forbidden')), \
+                        patch('socket.socket.connect', side_effect=AssertionError('Network forbidden')), \
+                        patch('socket.socket.connect_ex', side_effect=AssertionError('Network forbidden')), \
+                        patch('socket.socket.bind', side_effect=AssertionError('Network listeners forbidden')):
+                    # Import and invoke the complete upstream fixtures. Only
+                    # their synthetic inputs/fake transport are reused; state
+                    # and journal bytes are written exclusively by real APIs.
+                    cfg = upstream.cfg.__wrapped__(root)
+                    env = upstream.real_autonomous_cancel_pipeline.__wrapped__(cfg, root, monkeypatch)
+                    home = root/'isolated-integration-home'
+                    self.assertEqual(Path.home(), home)
+                    # Prove both fixed global-helper paths are isolated before
+                    # the first study, prepare, or autonomy event is written.
+                    with ownership._machine_directory(create=True) as registry:
+                        actual, expected = os.fstat(registry.fd), (home/'.config/ag').stat()
+                        self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                    with backend.disk.manual_writers('0' * 64, create=True) as writers:
+                        actual = os.fstat(writers.fd)
+                        expected = (home/'.config/ag/manual-writers'/('0' * 64)).stat()
+                        self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                    owner = env.owner()
+                    path, name = owner.path.parent.parent, owner.path.parent.parent.name
+                    store = Studies(root/'studies')
+                    secrets = [str(root), str(source)]
+                    observed_events = set()
+
+                    def remember_run():
+                        secrets.extend((owner.run['token'], hashlib.sha256(owner.run['token'].encode()).hexdigest()))
+
+                    remember_run()
+                    with patch('autog_frontend.autonomy.time.time', side_effect=lambda: env.clock[0]), \
+                            TestClient(create_app(root/'studies'), base_url='http://localhost',
+                                       client=('127.0.0.1', 12345)) as client:
+
+                        def check(submissions, cancellations=None):
+                            before = file_image()
+                            public = backend.status(env.cfg, name)
+                            self.assertIs(public['submission_counts_verified'], False)
+                            raw = json.loads((path/'autonomy/state.json').read_text())
+                            saved = read_autonomy(store, name, now=env.clock[0])
+                            views = (saved, validate_status(public, now=env.clock[0]),
+                                     validate_status(raw, now=env.clock[0]))
+                            response = client.get(f'/api/studies/{name}/autonomy')
+                            self.assertEqual(response.status_code, 200, response.text)
+                            http = response.json()
+                            self.assertEqual(file_image(), before)
+                            for value in (*views, http):
+                                self.assertEqual((value['status'], value['phase']), ('ok', 'running'), value)
+                                self.assertEqual(value['submissions_count'], submissions)
+                                self.assertEqual(value['current_round_submission_count'], submissions)
+                                self.assertFalse(value['submissions_truncated'])
+                                for field in ('cancellations', 'cancellation_results', 'reroute_lineages'):
+                                    if cancellations is None:
+                                        self.assertNotIn(field, value)
+                                        self.assertNotIn(field + '_count', value)
+                                    else:
+                                        self.assertEqual(value[field + '_count'], cancellations)
+                                        self.assertEqual(len(value[field]), cancellations)
+                                        self.assertFalse(value[field + '_truncated'])
+                                text = json.dumps(value)
+                                for forbidden in ('token_sha256', 'owner_token_sha256', 'study_key',
+                                                  'termination_confirmed', 'reroute_eligible', 'can_reroute',
+                                                  'autonomy-cancel-stopped.json', *secrets):
+                                    self.assertNotIn(forbidden, text)
+                            fields = ('phase', 'seq', 'journal_sha256', 'current_round', 'current_run',
+                                      'lease', 'totals', 'manual_actions_blocked', 'submissions',
+                                      'submissions_count', 'current_round_submission_count',
+                                      'cancellations', 'cancellation_results', 'reroute_lineages')
+                            for field in fields:
+                                for value in (*views[1:], http):
+                                    self.assertEqual(saved.get(field), value.get(field), field)
+                            self.assertEqual(saved['events'], http['events'])
+                            observed_events.update(row['op'] for row in saved['events'])
+                            return saved, raw
+
+                        submitted, _ = check(1)
+                        self.assertIsNotNone(submitted['submissions'][0]['dispatch_started'])
+                        env.next_wake(owner)
+                        remember_run()
+                        check(1)
+                        accepted = env.cancel_owned(owner)
+                        self.assertEqual(accepted['outcome'], 'accepted')
+                        accepted_view, _ = check(1, 1)
+                        result = accepted_view['cancellation_results'][0]
+                        consumed = accepted_view['cancellations'][0]
+                        self.assertEqual(result['outcome'], 'accepted')
+                        self.assertEqual(result['consumption_sha256'], consumed['consumption_sha256'])
+                        self.assertEqual(consumed['kind'], 'reroute')
+                        self.assertFalse((owner.path/'autonomy-cancel-stopped.json').exists())
+                        placement = next(p for p in env.placements() if p['attempt_id'] == owner.path.name)
+                        self.assertNotEqual(placement['state'], 'finished')  # Acceptance retains occupation.
+                        attempts_before = set(owner.path.parent.iterdir())
+                        with self.assertRaises((ValueError, FileNotFoundError)):
+                            env.successor(owner)
+                        self.assertEqual(set(owner.path.parent.iterdir()), attempts_before)
+                        stopped = env.stopped(owner)
+                        self.assertIs(stopped['stopped'], True)
+                        stop_bytes = (owner.path/'autonomy-cancel-stopped.json').read_bytes()
+                        self.assertEqual(hashlib.sha256(stop_bytes).hexdigest(), stopped['evidence_sha256'])
+                        stopped_view, _ = check(1, 1)
+                        self.assertEqual(stopped_view['cancellation_results'], accepted_view['cancellation_results'])
+                        self.assertEqual(stopped_view['cancellations'], accepted_view['cancellations'])
+                        placement = next(p for p in env.placements() if p['attempt_id'] == owner.path.name)
+                        self.assertEqual(placement['state'], 'finished')
+                        successor = env.successor(owner)
+                        final, raw = check(2, 1)
+                        self.assertEqual((owner.manifest['cluster'], successor.manifest['cluster']), ('batch', 'default'))
+                        self.assertEqual(successor.manifest['reroute_source']['attempt_id'], owner.path.name)
+                        owner_hash = raw['state']['submissions'][owner.path.name]['ownership_sha256']
+                        self.assertEqual(final['reroute_lineages'],
+                                         [dict(lineage_sha256=owner_hash, attempt_id=owner.path.name)])
+                        self.assertEqual({row['attempt_id'] for row in final['submissions']},
+                                         {owner.path.name, successor.path.name})
+                        self.assertTrue(all(row['round_id'] == final['current_round']['id']
+                                            for row in final['submissions']))
+                        self.assertEqual(owner.fake.cancel_calls, 1)
+                        self.assertEqual(sum(call.operation == 'submit' for call in owner.fake.calls), 1)
+                        self.assertEqual(sum(call.operation == 'submit' for call in successor.fake.calls), 1)
+                        self.assertEqual((owner.path/'autonomy-cancel-stopped.json').read_bytes(), stop_bytes)
+                        self.assertTrue({'submission_consume', 'submission_dispatch', 'cancel_consume',
+                                         'cancel_result'} <= observed_events)
+                    self.assertTrue(directory_calls and config_calls)
+                    self.assertTrue(all(p.is_relative_to(root) for p in directory_calls + config_calls))

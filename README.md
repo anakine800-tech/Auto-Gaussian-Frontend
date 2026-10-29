@@ -1082,20 +1082,27 @@ queue／unknown 均可本地准备，以及精确内存导致仅某一比例不�
 操作锁保留到该进程退出。普通状态观察和只读证据查看可继续。
 
 前端检查不能消除检查之后的跨进程竞争，不能替代后端最终副作用边界。
-T186 的最终单写者接口与 T185/T188 组合验证仍待绑定最终提交完成，
-页面明确显示“后端动作边界待组合验证”；离线通过不表示可部署自主运行。
+已对固定的 T185/T186/T187/T188 冻结组合完成实际 API 的离线前端配对，
+来源和范围见 [T196 验证记录](docs/redesign-tasks/T196-autonomy-view-action-guard.md#最终冻结组合的离线配对2026-10-29)。
+页面保留“后端动作边界待组合验证”的保守提示；离线配对不替代最终独立验收或真实环境授权。
 
 可选实际事件配对使用隔离后端源码：
 `T196_SUBMISSION_BACKEND_SOURCE='<EXPORTED_T186>/ag/src' .venv/bin/python -B -m unittest tests.test_actions.PairedSubmissionAutonomyTests -v`。
 测试通过正式模块 API 生成消费、调用边界、中止、失败、等待资源和手动接管的 state/journal，
 核对前端 GET、保存文件与公开状态的投影一致，以及读取前后文件清单、字节和修改时间不变。
 全机登记和 writer 路径均置于临时目录，禁止网络、子进程和真实配置读取；
-此项不验证远端提交或全机归属对账，最终仍须绑定已提交的后端组合源码。
+此项只验证本地保存格式；后端完整执行链路使用下面的最终冻结组合测试。
 
 取消与改投配对使用
 `T196_CANCELLATION_BACKEND_SOURCE='<EXPORTED_T187>/ag/src' .venv/bin/python -B -m unittest tests.test_actions.PairedCancellationAutonomyTests -v`。
 它从完整 T187 模块的实际 API 生成保存消费与回执，核对 raw/public/HTTP GET 投影和文件不变性；
-与 T186 配对分别运行，不将两个独立模块的通过宣称为最终后端组合验收。
+此历史配对与 T186 分别运行，不作为最终后端组合证明。
+
+最终组合配对使用完整 `ag` 副本及其来源清单，测试环境另需 `pytest==9.1.1`：
+`T196_COMBINED_BACKEND_ROOT='<FROZEN_COMBINATION>/ag' .venv/bin/python -B -m unittest tests.test_actions.PairedCombinedAutonomyTests -v`。
+通过实际 API 及假调度器完成提交、取消、停止核验和改投后继，逐阶段核对安全投影与读取不变性。
+停止证明保存在 Attempt 的独立文件，本页不读取它，也不从 accepted 或链路消费推断停止与资格。
+生产代码未因该配对变更；未重复本地整套浏览器测试。
 
 具名节点能力受控兼容旧 `['1/2','1/4']` 和新增整节点 `1` 的三比例集合，
 默认仍为 `1/2`。整节点选项显示实际核数和调度内存，仍须命中当前后端候选、
