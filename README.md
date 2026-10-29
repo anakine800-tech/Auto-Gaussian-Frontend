@@ -704,6 +704,10 @@ no API responses are mocked in these integration tests.
 ## Release status
 
 V4.7.0 is release preparation for the already merged T158 (#49) and T160 (#50).
+It also includes T179 ([#52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)),
+merged as `8ceda045b1aa007c9dba882f287b11b4df12b840`, pinning setuptools to 84.1.0
+for builds and CI. This dependency update does not change runtime dependencies or
+prove Windows-specific exploit validation; the GitHub alert status is checked separately.
 T158 uses each selected entry's explicit default tier for a new Gaussian Attempt,
 shows cores, scheduler memory and Gaussian input memory separately, and displays
 local single-node capacity with its time and source. Manual choices survive capacity
@@ -780,7 +784,7 @@ establish the current deployed version or acceptance status of either machine.
 
 ## 版本历史
 
-- **v4.7.0（发布准备）**：T158 新 Attempt 默认资源、单节点容量与可选节点比例；T160 CREST 诊断摘要和可核验来源；目标配套 ag 4.7.0，最终 T178 合并源码配套待验收。[发布说明](CHANGELOG.md#v470)
+- **v4.7.0（发布准备）**：T158 新 Attempt 默认资源、单节点容量与可选节点比例；T160 CREST 诊断摘要和可核验来源；T179 构建依赖 setuptools 84.1.0；目标配套 ag 4.7.0，最终 T178 合并源码配套待验收。[发布说明](CHANGELOG.md#v470)
 - **v4.6.3（发布准备）**：T147 监控资源与重试显示修补、T151 请求终态与重启未确认反馈；三处版本统一，清理已完成待办，配合 ag 4.6.3。[发布说明](CHANGELOG.md#v463)
 - **v4.6.2**：T145 显式 PBS 节点选择、原优先级分组与顺序、半数/四分之一及资源摘要；旧入口不显示不适用控件，配合 ag 4.6.2。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T143 PBS 节点分配明细、四/五卡响应式布局、可选四/六档与单作业时限显示；配合 ag 4.6.1，复用快照并明确未知及非实时状态。[发布说明](CHANGELOG.md#v461)

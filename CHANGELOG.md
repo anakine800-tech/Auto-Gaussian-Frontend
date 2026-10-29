@@ -9,9 +9,12 @@
 - **新 Attempt 资源与容量（T158）。** 目标入口显式配置的默认档位优先，核数、调度内存和 Gaussian 输入内存分别显示；例如 48 核 / 96 GB 对应 76800 MB 输入内存。无默认值保留原继承／回退，手动选择不会被容量刷新覆盖。本地容量附采样时间和来源，未知不当作空闲，不保证立即启动。[#49](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/49)
 - **具名节点及比例（T158）。** 保留原分组和顺序，按后端明确的 selectable 显示可选占用节点及 1/2、1/4 选项；不可用比例保留提示，须由用户明确换选，不自动降档或换节点。旧响应沿用已有兼容路径；能力按字段和命令判断，不以版本号推断。默认档位与资源只用于新草稿及新 Attempt，不改旧 Attempt、源输入或绑定。
 - **CREST 诊断来源（T160）。** 展示已有 facts 中的错误证据、原因未明确、未发现匹配错误和错误输出不可用；旧 facts 保留 error_hint。展开来源才核对固定文件、完整 SHA-256 和行范围并读取有界片段，不匹配时拒绝展示命中正文，全文复用分页器。新增固定 job.slurm.err 文本入口，CREST／调度器日志不进入 Gaussian 解析。[#50](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/50)
+- **构建依赖安全更新（T179）。** setuptools 固定为 84.1.0，覆盖 pyproject 的构建要求、CI 两处安装及 README 当前两处说明；requirements.lock.txt 无 setuptools，不新增运行依赖。此更新对应低等级 [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w)，不声称已在 Windows 复现或 GitHub 告警已关闭。[#52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)
 - **版本与文档（T177）。** Python 包元数据、运行时与网页包统一 4.7.0，仅更新发布文档和任务状态；不改功能源码、依赖、锁文件、测试、CI 或历史版本段落。
 
 按 `git log v4.6.3..fa48ab1a0c0d669233a189bb5457b143d07dd798 --first-parent` 核对，本仓功能增量仅 T158（合并 `d09868c43a6131cb8ea6452cb132a0e5a6d34d04`）与 T160（合并 `fa48ab1a0c0d669233a189bb5457b143d07dd798`）。
+
+T179 已于 2026-10-29 合并，真实合并提交为 `8ceda045b1aa007c9dba882f287b11b4df12b840`；T177 从该固定提交 rebase 整合。原 setuptools 83.0.0 全量验证记录保留，新 84.1.0 安装／构建／版本核验另记，不把旧结果改写为新环境结果。
 
 ### 验证与兼容边界
 
