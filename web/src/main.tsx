@@ -1,53 +1,54 @@
-import { ChainsView } from './chains-view';
-import { AnalysisLibrary } from './analysis-panels';
-import './ui/analysis.css';
-import { useEffect, useState } from 'react';
-import { ActionOutput, actionToken } from './actions';
-import type { ActionResult } from './actions';
-import { createRoot } from 'react-dom/client';
-import { endpoint, get } from './api';
-import { ComparePage } from './compare-page';
-import { EvidencePage } from './evidence-page';
-import { IRCPage } from './irc-panels';
-import { EnsemblePage } from './ensemble-panels';
-import { routeHash, studyHash } from './routing';
-import type { Study } from './api';
-import { ServerMonitor } from './server-monitor';
-import { Analyses } from './study-panels';
-import { AttemptView } from './attempt-view';
-import { ErrorNotice, StatusBadge, readPreference, savePreference } from './ui';
-import { GlobalSearch } from './ui/search';
-import { StudySwitcher } from './study-switcher';
-import type { StudyOption } from './study-switcher';
-import { CompareTray } from './compare-tray';
-import { HelpPage } from './help-page';
+import { AutonomyView } from "./autonomy-view";
+import { ChainsView } from "./chains-view";
+import { AnalysisLibrary } from "./analysis-panels";
+import "./ui/analysis.css";
+import { useEffect, useState } from "react";
+import { ActionOutput, actionToken } from "./actions";
+import type { ActionResult } from "./actions";
+import { createRoot } from "react-dom/client";
+import { endpoint, get } from "./api";
+import { ComparePage } from "./compare-page";
+import { EvidencePage } from "./evidence-page";
+import { IRCPage } from "./irc-panels";
+import { EnsemblePage } from "./ensemble-panels";
+import { routeHash, studyHash } from "./routing";
+import type { Study } from "./api";
+import { ServerMonitor } from "./server-monitor";
+import { Analyses } from "./study-panels";
+import { AttemptView } from "./attempt-view";
+import { ErrorNotice, StatusBadge, readPreference, savePreference } from "./ui";
+import { GlobalSearch } from "./ui/search";
+import { StudySwitcher } from "./study-switcher";
+import type { StudyOption } from "./study-switcher";
+import { CompareTray } from "./compare-tray";
+import { HelpPage } from "./help-page";
 import {
   goBackToList,
   locationChanged,
   returnLocation,
   useHistoryRoute,
   useScrollRestore,
-} from './navigation';
-import './ui/tokens.css';
-import './style.css';
-import './molecule-layout.css';
-import './ui/shell.css';
-import './ui/overview.css';
-import './ui/attempt.css';
-import { StudyOverview } from './overview';
-import { AttemptTable } from './attempt-table';
+} from "./navigation";
+import "./ui/tokens.css";
+import "./style.css";
+import "./molecule-layout.css";
+import "./ui/shell.css";
+import "./ui/overview.css";
+import "./ui/attempt.css";
+import { StudyOverview } from "./overview";
+import { AttemptTable } from "./attempt-table";
 
 const ignoreAttemptLoaded = () => {};
 function App() {
   useEffect(() => {
-    const bars = ['.app-header', '.context-bar'].map((s) =>
+    const bars = [".app-header", ".context-bar"].map((s) =>
       document.querySelector<HTMLElement>(s),
     );
     const observer = new ResizeObserver(() =>
       bars.forEach((bar, i) => {
         if (bar)
           document.documentElement.style.setProperty(
-            i ? '--context-height' : '--header-height',
+            i ? "--context-height" : "--header-height",
             `${bar.getBoundingClientRect().height}px`,
           );
       }),
@@ -64,31 +65,31 @@ function App() {
     issues: { path: string; error: string }[];
   } | null>(null);
   const [data, setData] = useState<Study | null>(null),
-    [error, setError] = useState('');
-  const recent = readPreference('last-study', '');
+    [error, setError] = useState("");
+  const recent = readPreference("last-study", "");
   const study =
       route.study ||
       list?.studies.find((s) => s.id === recent)?.id ||
       list?.studies[0]?.id ||
-      '',
-    view = route.view ?? 'overview';
+      "",
+    view = route.view ?? "overview";
 
   useEffect(() => {
     if (route.error) return;
     const c = new AbortController();
-    setError('');
-    get<NonNullable<typeof list>>('/api/studies', c.signal)
+    setError("");
+    get<NonNullable<typeof list>>("/api/studies", c.signal)
       .then((v) => {
         if (c.signal.aborted) return;
         setList(v);
         if (!route.study && !route.server && !route.help) {
-          const recent = readPreference('last-study', '');
+          const recent = readPreference("last-study", "");
           const id =
             v.studies.find((s) => s.id === recent)?.id ?? v.studies[0]?.id;
           if (id) {
             window.history.replaceState(
               window.history.state,
-              '',
+              "",
               window.location.pathname + window.location.search + studyHash(id),
             );
             locationChanged();
@@ -104,12 +105,12 @@ function App() {
     if (route.server || route.help || route.error || !route.study) return;
     const c = new AbortController();
     setData(null);
-    setError('');
+    setError("");
     get<Study>(endpoint(route.study), c.signal)
       .then((v) => {
         if (!c.signal.aborted) {
           setData(v);
-          savePreference('last-study', v.id);
+          savePreference("last-study", v.id);
         }
       })
       .catch((e) => {
@@ -137,31 +138,31 @@ function App() {
     if (result.new_attempt) choose(result.new_attempt);
   };
   const top = route.help
-    ? 'help'
+    ? "help"
     : route.server
-      ? 'jobs'
-      : view === 'analysis' || view === 'compare'
-        ? 'analysis'
-        : view === 'files'
-          ? 'files'
-          : 'study';
+      ? "jobs"
+      : view === "analysis" || view === "compare"
+        ? "analysis"
+        : view === "files"
+          ? "files"
+          : "study";
   const attempt = route.attempt;
-  const fileTab = route.fileTab ?? 'library';
+  const fileTab = route.fileTab ?? "library";
   const detail =
     route.attempt ??
-    route.ensemble?.join('/') ??
-    route.irc?.join('/') ??
-    route.structure?.join('/') ??
+    route.ensemble?.join("/") ??
+    route.irc?.join("/") ??
+    route.structure?.join("/") ??
     route.report;
   const back = route.attempt
-    ? studyHash(study, 'attempts')
-    : view === 'analysis'
-      ? studyHash(study, 'analysis')
-      : studyHash(study, 'files', fileTab);
+    ? studyHash(study, "attempts")
+    : view === "analysis"
+      ? studyHash(study, "analysis")
+      : studyHash(study, "files", fileTab);
   return (
     <>
       <header className="app-header">
-        <a className="brand" href={study ? studyHash(study) : '#/'}>
+        <a className="brand" href={study ? studyHash(study) : "#/"}>
           <span className="brand-mark" aria-hidden="true">
             Ag
           </span>
@@ -169,25 +170,25 @@ function App() {
         </a>
         <nav aria-label="顶部导航">
           {[
-            ['jobs', '服务器'],
-            ['study', '研究'],
-            ['analysis', '结果'],
-            ['files', '证据'],
+            ["jobs", "服务器"],
+            ["study", "研究"],
+            ["analysis", "结果"],
+            ["files", "证据"],
           ].map(([id, label]) => (
             <button
               key={id}
-              aria-current={top === id ? 'page' : undefined}
-              disabled={id !== 'jobs' && !study}
+              aria-current={top === id ? "page" : undefined}
+              disabled={id !== "jobs" && !study}
               onClick={() =>
                 navigate(
-                  id === 'jobs'
-                    ? '#/servers'
+                  id === "jobs"
+                    ? "#/servers"
                     : studyHash(
                         study,
-                        ...(id === 'analysis'
-                          ? ['analysis']
-                          : id === 'files'
-                            ? ['files']
+                        ...(id === "analysis"
+                          ? ["analysis"]
+                          : id === "files"
+                            ? ["files"]
                             : []),
                       ),
                 )
@@ -206,12 +207,12 @@ function App() {
         />
         <a
           className="help-link"
-          aria-current={route.help ? 'page' : undefined}
+          aria-current={route.help ? "page" : undefined}
           href="#/help"
         >
           使用说明
         </a>
-        <StatusBadge>{actionToken ? '可操作（经 ag）' : '只读'}</StatusBadge>
+        <StatusBadge>{actionToken ? "可操作（经 ag）" : "只读"}</StatusBadge>
         <button className="refresh" onClick={() => setRevision((r) => r + 1)}>
           刷新
         </button>
@@ -276,64 +277,72 @@ function App() {
                   <div className="study-heading">
                     <div>
                       <span className="eyebrow">
-                        {top === 'study'
-                          ? 'STUDY WORKSPACE'
-                          : top === 'analysis'
-                            ? 'ANALYSIS LIBRARY'
-                            : 'STUDY FILES'}
+                        {top === "study"
+                          ? "STUDY WORKSPACE"
+                          : top === "analysis"
+                            ? "ANALYSIS LIBRARY"
+                            : "STUDY FILES"}
                       </span>
                       <h2>
-                        {top === 'study'
+                        {top === "study"
                           ? data.id
-                          : top === 'analysis'
-                            ? view === 'compare'
-                              ? '结果 · 比较'
-                              : '报告'
-                            : '研究证据'}
+                          : top === "analysis"
+                            ? view === "compare"
+                              ? "结果 · 比较"
+                              : "报告"
+                            : "研究证据"}
                       </h2>
                     </div>
                     <StatusBadge>{data.attempts.length} Attempts</StatusBadge>
-                    {top === 'analysis' && (
+                    {top === "analysis" && (
                       <nav aria-label="结果内容">
-                        <a href={studyHash(study, 'analysis')}>报告</a> ·{' '}
-                        <a href={routeHash([study, 'compare'])}>比较</a>
+                        <a href={studyHash(study, "analysis")}>报告</a> ·{" "}
+                        <a href={routeHash([study, "compare"])}>比较</a>
                       </nav>
                     )}
                   </div>
                 )}
-                {top === 'study' && (
+                {top === "study" && (
                   <nav className="section-nav" aria-label="Study 内容">
                     <button
-                      aria-current={view === 'overview' ? 'page' : undefined}
+                      aria-current={view === "overview" ? "page" : undefined}
                       onClick={() => navigate(studyHash(study))}
                     >
                       进展
                     </button>
                     <button
-                      aria-current={view === 'chains' ? 'page' : undefined}
-                      onClick={() => navigate(studyHash(study, 'chains'))}
+                      aria-current={view === "chains" ? "page" : undefined}
+                      onClick={() => navigate(studyHash(study, "chains"))}
                     >
                       计算链
                     </button>
                     <button
-                      aria-current={view === 'attempts' ? 'page' : undefined}
-                      onClick={() => navigate(studyHash(study, 'attempts'))}
+                      aria-current={view === "attempts" ? "page" : undefined}
+                      onClick={() => navigate(studyHash(study, "attempts"))}
                     >
                       全部 Attempt
                     </button>
+                    <button
+                      aria-current={view === "autonomy" ? "page" : undefined}
+                      onClick={() =>
+                        navigate(studyHash(study, "research", "autonomy"))
+                      }
+                    >
+                      自主运行
+                    </button>
                   </nav>
                 )}
-                {top === 'files' && (
+                {top === "files" && (
                   <nav className="section-nav" aria-label="文件内容">
                     {[
-                      ['library', '文件库'],
-                      ['lineage', '来源关系'],
-                      ['document', '研究说明'],
+                      ["library", "文件库"],
+                      ["lineage", "来源关系"],
+                      ["document", "研究说明"],
                     ].map(([id, label]) => (
                       <button
                         key={id}
-                        aria-current={fileTab === id ? 'page' : undefined}
-                        onClick={() => navigate(studyHash(study, 'files', id))}
+                        aria-current={fileTab === id ? "page" : undefined}
+                        onClick={() => navigate(studyHash(study, "files", id))}
                       >
                         {label}
                       </button>
@@ -345,17 +354,20 @@ function App() {
                     {x.path}：{x.error}
                   </p>
                 ))}
-                {view === 'chains' && <ChainsView key={study} data={data} />}
-                {view === 'overview' && (
+                {view === "chains" && <ChainsView key={study} data={data} />}
+                {view === "overview" && (
                   <StudyOverview key={study} data={data} />
                 )}
-                {view === 'analysis' &&
+                {view === "autonomy" && (
+                  <AutonomyView key={study} study={study} revision={revision} />
+                )}
+                {view === "analysis" &&
                   (route.irc ? (
                     <IRCPage
-                      key={study + route.irc.join('/')}
+                      key={study + route.irc.join("/")}
                       study={study}
                       parts={route.irc}
-                      direction={route.direction ?? 'forward'}
+                      direction={route.direction ?? "forward"}
                       point={route.point ?? 0}
                       revision={revision}
                     />
@@ -381,7 +393,7 @@ function App() {
                   ) : (
                     <AnalysisLibrary data={data} />
                   ))}
-                {view === 'attempts' &&
+                {view === "attempts" &&
                   (attempt ? (
                     <AttemptView
                       key={study + attempt}
@@ -398,10 +410,10 @@ function App() {
                   ) : (
                     <AttemptTable key={study} data={data} />
                   ))}
-                {view === 'compare' && (
+                {view === "compare" && (
                   <ComparePage key={study} data={data} revision={revision} />
                 )}
-                {view === 'files' && (
+                {view === "files" && (
                   <EvidencePage
                     key={study}
                     data={data}
@@ -418,15 +430,15 @@ function App() {
       {data?.id === study &&
         !route.help &&
         !route.server &&
-        top !== 'files' && <CompareTray key={study} study={study} />}
+        top !== "files" && <CompareTray key={study} study={study} />}
       <ActionOutput result={actionResult} />
       <footer>
         {actionToken
-          ? 'study.md 中的计划和结论仍由 Codex 更新。'
-          : 'Study 文件保持原样。'}
+          ? "study.md 中的计划和结论仍由 Codex 更新。"
+          : "Study 文件保持原样。"}
         状态与解析数字不自动构成科学结论。
       </footer>
     </>
   );
 }
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById("root")!).render(<App />);

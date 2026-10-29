@@ -13,6 +13,7 @@ from .studies import Studies, StudyError, decode_document
 from .static_ui import load_ui
 from .search_index import SearchIndex
 from .study_summary import study_type
+from .autonomy import read_autonomy
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
@@ -162,6 +163,10 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
     @app.get("/api/studies/{study}/evidence")
     def evidence(study: str):
         return store.evidence(study)
+
+    @app.get("/api/studies/{study}/autonomy")
+    def autonomy(study: str):
+        return read_autonomy(store, study)
 
     @app.get("/api/studies/{study}/files/{path:path}")
     def file(study: str, path: str, document: bool = False):

@@ -11,16 +11,36 @@ import os
 from pathlib import Path
 import re
 import secrets
+import selectors
 import shutil
 import subprocess
 import threading
+import time
 
 from .studies import StudyError, component
 from .monitor import retry_timestamp
+from .autonomy import read_autonomy, manual_block, validate_status
 
 MAX_BODY = 1024 * 1024
 TIMEOUT = 420
+AUTONOMY_TIMEOUT = 15
+AUTONOMY_OUTPUT_LIMIT = 4 * 1024 * 1024
 RESOURCE_TIERS = ('mini', 'simple', 'general', 'complex', 'max', 'ultra')
+LEGACY_NODE_FRACTIONS = ('1/2', '1/4')
+
+
+def node_fractions(capability):
+    """Accept only the two published capability sets, retaining ag's order."""
+    if (not isinstance(capability, dict) or set(capability) != {'default_fraction', 'fractions'}
+            or capability['default_fraction'] != '1/2'
+            or not isinstance(capability['fractions'], list)
+            or any(not isinstance(value, str) for value in capability['fractions'])):
+        raise ValueError('Invalid node targeting capability')
+    values = capability['fractions']
+    if (len(values) != len(set(values))
+            or set(values) not in (set(LEGACY_NODE_FRACTIONS), {'1/2', '1/4', '1'})):
+        raise ValueError('Invalid node targeting capability')
+    return tuple(values)
 
 
 def walltime_seconds(value):
@@ -41,7 +61,10 @@ def resource_input(text, tier):
 
 
 
-def validate_targets(data, cluster, tiers):
+def validate_targets(data, cluster, tiers, fractions=LEGACY_NODE_FRACTIONS):
+    # Existing callers default to legacy capabilities; production passes the
+    # startup-selected ag's advertised set. A candidate cannot add capabilities.
+    allowed = node_fractions(dict(default_fraction='1/2', fractions=list(fractions)))
     statuses = {'available', 'occupied', 'insufficient', 'stale', 'restricted', 'forbidden', 'unknown'}
     if (not isinstance(data, dict) or data.get('schema') != 'ag-node-targets/1'
             or data.get('cluster') != cluster or type(data.get('fresh')) is not bool
@@ -64,14 +87,14 @@ def validate_targets(data, cluster, tiers):
                     (type(row['priority_group']) is not int or row['priority_group'] < 1))
                 or row.get('status') not in statuses or not isinstance(row.get('reason'), str)
                 or len(row['reason']) > 400 or not isinstance(row.get('options'), list)
-                or len(row['options']) > 2):
+                or len(row['options']) > len(allowed)):
             raise ValueError('Invalid node candidate row')
         names.add(row['name']); fractions = set()
         if 'selectable' in row and (type(row['selectable']) is not bool or
                 (row['selectable'] and row['status'] in ('forbidden', 'restricted'))):
             raise ValueError('Invalid node selectability')
         for option in row['options']:
-            if (not isinstance(option, dict) or option.get('fraction') not in ('1/2', '1/4')
+            if (not isinstance(option, dict) or option.get('fraction') not in allowed
                     or option['fraction'] in fractions or type(option.get('cores')) is not int
                     or option['cores'] < 1 or type(option.get('mem_gb')) is not int
                     or option['mem_gb'] != option['cores'] * 2):
@@ -204,8 +227,9 @@ class Actions:
                         raise ValueError('Invalid default resource tier')
                     clusters[name]['default_tier'] = default
                 if 'node_targeting' in row:
-                    if row['scheduler'] != 'pbs' or row['node_targeting'] != {'default_fraction':'1/2', 'fractions':['1/2','1/4']}:
+                    if row['scheduler'] != 'pbs':
                         raise ValueError('Invalid node targeting capability')
+                    node_fractions(row['node_targeting'])
                     clusters[name]['node_targeting'] = row['node_targeting']
                 if 'max_walltime' in resources:
                     walltime_seconds(resources['max_walltime'])
@@ -328,7 +352,8 @@ class Actions:
                                           shell=False, capture_output=True, timeout=15, check=False)
                 if response.returncode:
                     raise ValueError('Cannot read node candidates')
-                result[name] = validate_targets(json.loads(response.stdout), name, cluster['tiers'])
+                result[name] = validate_targets(json.loads(response.stdout), name, cluster['tiers'],
+                                               node_fractions(cluster['node_targeting']))
             except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
                 result[name] = dict(fresh=False, nodes=[], error='节点候选不可用，请刷新状态核对；不会自动重试。')
         return result
@@ -358,7 +383,109 @@ class Actions:
                 # A damaged input disables editing, not status/fetch/cancel.
                 pass
         return dict(state=status.get('state'), can_cancel=status.get('state') in ('submitted', 'running') or residue,
-                    source=source, clusters=self.clusters, manifest=manifest, node_targets=self.node_targets())
+                    source=source, clusters=self.clusters, manifest=manifest, node_targets=self.node_targets(),
+                    autonomy=read_autonomy(self.store, study, include_relaxed=False))
+
+    def autonomy_preflight(self, study):
+        """A fresh preflight, never an authorization or a replacement for ag's guard.
+
+        No directory preserves old-backend compatibility. Existing state must be
+        verified by the selected ag's journal replay; failed/unsupported commands
+        never mean disabled. Raw status output is private and never reaches HTTP.
+        """
+        local = read_autonomy(self.store, study, include_relaxed=False)
+        reason = manual_block(local)
+        if reason:
+            raise StudyError(reason, 409)
+        if local['status'] == 'absent':
+            return local, None, None
+        result, pending = self.autonomy_status([self.executable, 'autonomy', 'status', '--study',
+                                                str(self.store.root / study), '--json'])
+        if pending is not None:
+            # Keep the same operation lock until this ag exits, with no kill or
+            # retry. Its stdout may contain private bookkeeping; do not echo it.
+            return local, dict(stdout='', stderr='', exit_code=None, timed_out=True,
+                               notice='自主状态核验仍在运行；未启动手动操作，请等待当前 ag 退出后重新核对。'), pending
+        try:
+            if result['exit_code'] != 0 or result['overflow']:
+                raise ValueError('Status unavailable')
+            verified = validate_status(result['stdout'])
+            reason = manual_block(verified)
+            if reason:
+                raise StudyError(reason, 409)
+            self.autonomy_unchanged(study, verified)
+            if any(local.get(key) != verified.get(key) for key in ('status', 'seq', 'journal_sha256')):
+                raise ValueError('State changed during verification')
+        except (ValueError, TypeError, KeyError, RecursionError):
+            raise StudyError('无法核验已有自主状态；后端能力缺失、记录异常或状态已变化。请在对话中核对，未启动手动操作。', 409) from None
+        return local, None, None
+
+    def autonomy_status(self, argv):
+        """Bound private stdout while draining both pipes; never kill a slow ag."""
+        try:
+            process = subprocess.Popen(argv, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError:
+            return dict(stdout='', exit_code=None, overflow=False), None
+        captured, overflow = bytearray(), False
+        deadline = time.monotonic() + AUTONOMY_TIMEOUT
+        try:
+            with selectors.DefaultSelector() as selector:
+                for stream in (process.stdout, process.stderr):
+                    os.set_blocking(stream.fileno(), False)
+                    selector.register(stream, selectors.EVENT_READ)
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(argv, AUTONOMY_TIMEOUT)
+                    for key, _ in selector.select(remaining):
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                        elif key.fileobj is process.stdout:
+                            room = AUTONOMY_OUTPUT_LIMIT - len(captured)
+                            captured.extend(chunk[:room])
+                            overflow = overflow or len(chunk) > room
+                code = process.wait(timeout=max(0, deadline - time.monotonic()))
+            process.stdout.close()
+            process.stderr.close()
+            return dict(stdout=bytes(captured), exit_code=code, overflow=overflow), None
+        except subprocess.TimeoutExpired:
+            for stream in (process.stdout, process.stderr):
+                os.set_blocking(stream.fileno(), True)
+            return dict(stdout='', exit_code=None, overflow=overflow), process
+        except BaseException:
+            for stream in (process.stdout, process.stderr):
+                os.set_blocking(stream.fileno(), True)
+            self.drain_private_status(process)
+            raise
+
+    @staticmethod
+    def drain_private_status(process):
+        # Even after an HTTP timeout, private status output is discarded in
+        # bounded chunks instead of communicate() collecting it in memory.
+        try:
+            with selectors.DefaultSelector() as selector:
+                for stream in (process.stdout, process.stderr):
+                    os.set_blocking(stream.fileno(), False)
+                    selector.register(stream, selectors.EVENT_READ)
+                while selector.get_map():
+                    for key, _ in selector.select():
+                        if not os.read(key.fileobj.fileno(), 65536):
+                            selector.unregister(key.fileobj)
+        finally:
+            process.wait()
+            process.stdout.close()
+            process.stderr.close()
+
+    def autonomy_unchanged(self, study, expected):
+        # Re-open at dispatch, including after preparing a draft. A transition
+        # after this check must still be fenced atomically by ag (T186).
+        current = read_autonomy(self.store, study, include_relaxed=False)
+        reason = manual_block(current)
+        if reason:
+            raise StudyError(reason, 409)
+        if any(current.get(key) != expected.get(key) for key in ('status', 'seq', 'journal_sha256')):
+            raise StudyError('自主状态在操作前发生变化，请重新核对；未启动手动操作。', 409)
 
     def draft(self, study, label, text):
         name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '-' + label + '.gjf'
@@ -394,11 +521,18 @@ class Actions:
         if not self.lock.acquire(blocking=False):
             raise StudyError('Another ag operation is still running', 409)
         pending = None
+        private_pending = False
         try:
             if self.settings() != self.clusters:
                 raise StudyError('ag resource settings changed; restart the viewer', 409)
             study, attempt = payload['study'], payload['attempt']
             context = self.context(study, attempt)
+            autonomy = None
+            if action != 'status':
+                autonomy, waiting, pending = self.autonomy_preflight(study)
+                if waiting is not None:
+                    private_pending = True
+                    return waiting
             if action == 'submit' and context['state'] != 'prepared':
                 raise StudyError('Only prepared Attempts can be submitted', 409)
             if action == 'cancel' and not context['can_cancel']:
@@ -423,6 +557,8 @@ class Actions:
                     raise StudyError('walltime exceeds configured cluster maximum; ag remains the final resource guard', 400)
                 target_args = []
                 if 'node_targeting' in cluster:
+                    if payload['node_fraction'] not in node_fractions(cluster['node_targeting']):
+                        raise StudyError('Selected node fraction is not supported by ag', 400)
                     candidates = context['node_targets'][payload['cluster']]
                     row = next((r for r in candidates['nodes'] if r['name'] == payload['target_node']), None)
                     if not targets_fresh(candidates) or row is None or not node_selectable(row):
@@ -441,6 +577,8 @@ class Actions:
                         '--relation', relation, '--method-basis', payload['method_basis']] + target_args
             else:
                 argv = [self.executable, action, '--json', attempt]
+            if autonomy is not None:
+                self.autonomy_unchanged(study, autonomy)
             result, pending = self.run(argv)
             if action == 'prepare' and result['exit_code'] == 0:
                 # Interpret only ag's JSON. Never infer an ID from human output.
@@ -460,12 +598,12 @@ class Actions:
                 # Do not terminate a possible in-flight qsub or release its lock
                 # just because the HTTP wait expired. Drain both pipes so ag can
                 # finish even if it produces more output than a pipe can hold.
-                waiter = threading.Thread(target=self.finish, args=(pending,), daemon=False)
+                waiter = threading.Thread(target=self.finish, args=(pending, private_pending), daemon=False)
                 try:
                     waiter.start()
                 except RuntimeError:
                     # If a thread cannot start, keep waiting in this request.
-                    self.finish(pending)
+                    self.finish(pending, private_pending)
 
     @staticmethod
     def drain(process):
@@ -474,9 +612,12 @@ class Actions:
         finally:
             process.wait()
 
-    def finish(self, process):
+    def finish(self, process, private_status=False):
         try:
-            self.drain(process)
+            if private_status:
+                self.drain_private_status(process)
+            else:
+                self.drain(process)
         finally:
             self.lock.release()
 

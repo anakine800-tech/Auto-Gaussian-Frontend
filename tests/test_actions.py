@@ -80,6 +80,75 @@ class ActionsTests(unittest.TestCase):
         bad=json.loads(json.dumps(targets));bad['nodes'][0]['options'][0]['cores']=999
         with self.assertRaises(ValueError):validate_targets(bad,'default',actions.clusters['default']['tiers'])
 
+    def test_old_and_whole_node_capabilities_start_and_bind_current_candidates(self):
+        """Both CLI generations start; whole-node selection needs its capability."""
+        for whole in (False, True):
+            with self.subTest(whole=whole):
+                _, targets = self.node_setup()
+                config = settings(self.studies)
+                row = config['clusters'][0]
+                fractions = ['1/2', '1/4', '1'] if whole else ['1/2', '1/4']
+                row['node_targeting'] = dict(default_fraction='1/2', fractions=fractions)
+                row['resources']['tiers'].update(mini=dict(cores=12, mem_gb=24),
+                    general=dict(cores=24, mem_gb=48), max=dict(cores=48, mem_gb=96))
+                targets['nodes'][0]['options'] += [dict(fraction='1/4', cores=12, mem_gb=24, tier='mini')]
+                if whole:
+                    targets['nodes'][0]['options'] += [dict(fraction='1', cores=48, mem_gb=96, tier='max')]
+                self.control(clusters_response=config, nodes_response=targets)
+                actions = Actions(Studies(self.studies), self.fake)
+                self.assertEqual(actions.clusters['default']['node_targeting'], row['node_targeting'])
+                self.assertEqual(actions.node_targets()['default'], targets)
+                payload = dict(action='prepare', study='butane-demo', attempt='prepared', cluster='default',
+                    input=gjf(), tier='max', walltime='01:00:00', label='whole', relation='derived_from',
+                    method_basis='Synthetic only', target_node='compute-a', node_fraction='1')
+                if not whole:
+                    with self.assertRaisesRegex(StudyError, 'not supported'):
+                        actions.execute(payload)
+                    self.assertFalse((self.study/'drafts').exists())
+                else:
+                    result = actions.execute(payload)
+                    self.assertEqual(result['exit_code'], 0, result)
+                    manifest = json.loads(result['stdout'])
+                    self.assertEqual((manifest['cores'], manifest['mem_gb'], manifest['tier']), (48, 96, 'max'))
+                    prepare = [args for args in self.calls() if args[0] == 'prepare']
+                    self.assertEqual(len(prepare), 1)
+                    self.assertEqual(prepare[0][-4:], ['--target-node', 'compute-a', '--node-fraction', '1'])
+                    self.assertFalse(any(args[0] in ('submit', 'cancel', 'fetch') for args in self.calls()))
+
+    def test_node_capability_rejects_unknown_missing_duplicate_or_changed_defaults(self):
+        invalid = [None, {}, {'fractions': ['1/2', '1/4']},
+                   dict(default_fraction='1', fractions=['1/2', '1/4', '1']),
+                   dict(default_fraction='1/2', fractions=['1/2']),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4', '1/8']),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4', '1', '1']),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4', 1]),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4'], arbitrary=True)]
+        for capability in invalid:
+            with self.subTest(capability=capability):
+                config = settings(self.studies)
+                config['clusters'][0]['node_targeting'] = capability
+                self.control(clusters_response=config)
+                with self.assertRaisesRegex(ValueError, 'node targeting capability'):
+                    Actions(Studies(self.studies), self.fake)
+
+    def test_whole_node_candidates_cannot_expand_capabilities_or_resources(self):
+        actions, targets = self.node_setup()
+        tiers = actions.clusters['default']['tiers'] | {'max': dict(cores=48, mem_gb=96, mem_mb=76800)}
+        targets['nodes'][0]['options'] = [dict(fraction='1', cores=48, mem_gb=96, tier='max')]
+        with self.assertRaises(ValueError):
+            validate_targets(targets, 'default', tiers)
+        supported = ('1/2', '1/4', '1')
+        self.assertEqual(validate_targets(targets, 'default', tiers, supported), targets)
+        for options in ([dict(fraction='1/8', cores=48, mem_gb=96, tier='max')],
+                        targets['nodes'][0]['options'] * 2,
+                        [dict(fraction='1', cores=47, mem_gb=94, tier='max')],
+                        [dict(fraction='1', cores=48, mem_gb=96, tier='missing')],
+                        targets['nodes'][0]['options'] * 4):
+            bad = json.loads(json.dumps(targets))
+            bad['nodes'][0]['options'] = options
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                validate_targets(bad, 'default', tiers, supported)
+
     def test_node_priority_groups_and_order_contract(self):
         actions,targets=self.node_setup()
         prototype=targets['nodes'][0]
@@ -923,3 +992,905 @@ with patch.object(cli, 'load_config', return_value=cfg), patch.object(capacity, 
             self.assertEqual(source_input.read_bytes(), original_input)
             self.assertEqual(source_input.stat().st_mtime_ns, original_mtime)
             self.assertFalse((root/'remote').exists())
+
+
+class AutonomyActionTests(unittest.TestCase):
+    setUp = ActionsTests.setUp
+    client_for = ActionsTests.client_for
+    post = ActionsTests.post
+    prepare = ActionsTests.prepare
+    calls = ActionsTests.calls
+    control = ActionsTests.control
+
+    def saved(self, phase='running', lease='active'):
+        from tests.autonomy_fixture import create_autonomy
+        snapshot = create_autonomy(self.study, phase, lease=lease)
+        self.control(autonomy_response=snapshot)
+        return snapshot
+
+    def write_calls(self):
+        return [row for row in self.calls() if row[0] in ('prepare', 'submit', 'cancel', 'fetch')]
+
+    def all_writes_refused(self):
+        for action in ('prepare', 'submit', 'cancel', 'fetch'):
+            response = self.prepare() if action == 'prepare' else self.post(action)
+            self.assertEqual(response.status_code, 409, (action, response.text))
+        self.assertEqual(self.write_calls(), [])
+        self.assertFalse((self.study/'drafts').exists())
+
+    def test_running_including_wakeup_gaps_and_expired_lease_refuses_direct_http(self):
+        for lease in ('active', 'none', 'expired'):
+            with self.subTest(lease=lease):
+                self.saved(lease=lease)
+                context = self.client.get('/api/actions/butane-demo/prepared').json()
+                self.assertTrue(context['autonomy']['manual_actions_blocked'])
+                self.all_writes_refused()
+                self.assertEqual(self.post('status').status_code, 200)
+        self.assertFalse(any(row[0] == 'autonomy' for row in self.calls()))
+
+    def test_paused_lease_blocks_then_released_and_ended_use_normal_rules(self):
+        self.saved('paused')
+        self.all_writes_refused()
+        for phase in ('paused', 'ended'):
+            self.saved(phase, lease='none')
+            response = self.post('fetch')
+            self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row[0] for row in self.write_calls()], ['fetch', 'fetch'])
+        queries = [row for row in self.calls() if row[0] == 'autonomy']
+        self.assertEqual(queries, [['autonomy', 'status', '--study', str(self.study), '--json']] * 2)
+
+    def test_old_backend_absent_works_but_existing_unverifiable_state_refuses(self):
+        self.control(autonomy_code=2, autonomy_stderr='unsupported command')
+        self.assertEqual(self.post('fetch').status_code, 200)
+        self.assertFalse(any(row[0] == 'autonomy' for row in self.calls()))
+        self.saved('ended', lease='none')
+        self.control(autonomy_code=2, autonomy_stderr='private backend error')
+        response = self.post('fetch')
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn('private backend error', response.text)
+        self.assertEqual(len(self.write_calls()), 1)
+
+    def test_unknown_missing_and_corrupt_state_refuse_all_four_actions(self):
+        from tests.autonomy_fixture import write_snapshot
+        snapshot = self.saved('ended', lease='none')
+        for variant in ('missing', 'truncated', 'unsupported', 'bad-hash'):
+            path = self.study/'autonomy/state.json'
+            write_snapshot(self.study, snapshot)
+            if variant == 'missing':
+                path.unlink()
+            elif variant == 'truncated':
+                path.write_text('{')
+            else:
+                changed = json.loads(json.dumps(snapshot))
+                if variant == 'unsupported':
+                    changed['state']['schema'] = 'ag-autonomy/999'
+                else:
+                    changed['journal_sha256'] = 'f' * 64
+                write_snapshot(self.study, changed)
+            with self.subTest(variant=variant):
+                self.all_writes_refused()
+
+    def test_stale_page_and_repeated_clicks_recheck_current_state(self):
+        context = self.client.get('/api/actions/butane-demo/prepared').json()
+        self.assertFalse(context['autonomy']['manual_actions_blocked'])
+        self.saved()
+        self.all_writes_refused()
+        self.all_writes_refused()
+
+    def test_change_during_draft_rejected_at_dispatch(self):
+        from tests.autonomy_fixture import create_autonomy
+        actions = Actions(Studies(self.studies), self.fake)
+        original = actions.draft
+        def changing_draft(*args):
+            result = original(*args)
+            create_autonomy(self.study, lease='none')
+            return result
+        payload = dict(action='prepare', study='butane-demo', attempt='prepared',
+                       cluster='default', input=gjf(), tier='general', walltime='02:00:00',
+                       label='changed', relation='derived_from', method_basis='Synthetic')
+        with patch.object(actions, 'draft', side_effect=changing_draft), patch.object(actions, 'run') as run:
+            with self.assertRaisesRegex(StudyError, '自主轮次仍在运行'):
+                actions.execute(payload)
+            run.assert_not_called()
+        self.assertEqual(self.write_calls(), [])
+
+    def test_backend_status_cannot_disagree_with_local_or_change_during_query(self):
+        from tests.autonomy_fixture import create_autonomy
+        actions = Actions(Studies(self.studies), self.fake)
+        snapshot = self.saved('ended', lease='none')
+        old_query = actions.autonomy_status
+        def changing_query(argv):
+            result = old_query(argv)
+            create_autonomy(self.study, lease='none')
+            return result
+        with patch.object(actions, 'autonomy_status', side_effect=changing_query), patch.object(actions, 'run') as run:
+            with self.assertRaises(StudyError):
+                actions.execute(dict(action='fetch', study='butane-demo', attempt='prepared'))
+            run.assert_not_called()
+        self.saved('ended', lease='none')
+        # A selected backend returning a different journal is not this snapshot.
+        snapshot['journal_sha256'] = 'f' * 64
+        self.control(autonomy_response=snapshot)
+        self.assertEqual(self.post('fetch').status_code, 409)
+        self.assertEqual(self.write_calls(), [])
+
+    def test_private_records_and_status_errors_never_reach_http(self):
+        from tests.autonomy_fixture import FAKE_TOKEN
+        self.saved('ended', lease='none')
+        for path in ('autonomy/state.json', 'Autonomy/state.json', 'AUTONOMY/state.json',
+                     'autonomy/plan-plan-demo.json', 'autonomy/journal.jsonl'):
+            response = self.client.get('/api/studies/butane-demo/files/' + path)
+            self.assertEqual(response.status_code, 403)
+        evidence = self.client.get('/api/studies/butane-demo/evidence').json()
+        self.assertFalse(any(row['path'].startswith('autonomy/') for row in evidence['files']))
+        for url in ('/api/studies/butane-demo/autonomy', '/api/actions/butane-demo/prepared'):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(FAKE_TOKEN, response.text)
+            self.assertNotIn('token_sha256', response.text)
+        self.control(autonomy_stdout=FAKE_TOKEN, autonomy_stderr=FAKE_TOKEN)
+        response = self.post('fetch')
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn(FAKE_TOKEN, response.text)
+        self.assertEqual(self.write_calls(), [])
+
+    def test_private_status_output_limit_and_timeout_preserve_operation_lock(self):
+        from tests.autonomy_fixture import FAKE_TOKEN
+        self.saved('ended', lease='none')
+        self.control(autonomy_stdout='x' * 2048, autonomy_stderr=FAKE_TOKEN)
+        with patch('autog_frontend.actions.AUTONOMY_OUTPUT_LIMIT', 1024):
+            self.assertEqual(self.post('fetch').status_code, 409)
+        self.control(autonomy_wait_for_release=True, autonomy_stdout=FAKE_TOKEN + 'x' * (3 * 1024 * 1024),
+                     autonomy_stderr=FAKE_TOKEN + 'e' * (3 * 1024 * 1024))
+        with patch.object(Actions, 'drain', side_effect=AssertionError('Private output must use bounded discard')) as drain:
+            try:
+                with patch('autog_frontend.actions.AUTONOMY_TIMEOUT', .05):
+                    response = self.post('fetch')
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()['timed_out'])
+                self.assertNotIn(FAKE_TOKEN, response.text)
+                self.assertEqual((response.json()['stdout'], response.json()['stderr']), ('', ''))
+                self.assertEqual(self.post('status').status_code, 409)
+                self.assertEqual(self.write_calls(), [])
+            finally:
+                (self.root/'release').touch()
+            deadline = time.monotonic() + 3
+            while self.post('status').status_code == 409 and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertEqual(self.post('status').status_code, 200)
+            drain.assert_not_called()
+
+    def test_readonly_endpoint_never_invokes_ag_or_mutates_records(self):
+        self.saved()
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.study.rglob('*') if p.is_file()}
+        with patch('subprocess.Popen', side_effect=AssertionError('read-only must not invoke ag')):
+            client = self.client_for(create_app(self.studies))
+            self.assertEqual(client.get('/api/studies/butane-demo/autonomy').status_code, 200)
+            self.assertEqual(client.post('/api/actions').status_code, 405)
+        self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
+
+
+class PairedAutonomyTests(unittest.TestCase):
+    def test_saved_t184_records_and_status_projection(self):
+        """Real local bookkeeping only, not T186 action-boundary or CLI proof."""
+        import sys
+        source = os.environ.get('T196_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated T184 backend source for the paired run')
+        source = Path(source).resolve()
+        original_modules = {name: value for name, value in sys.modules.items()
+                            if name == 'ag' or name.startswith('ag.')}
+        def restore_modules():
+            for name in list(sys.modules):
+                if name == 'ag' or name.startswith('ag.'):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'path', [str(source), *sys.path]):
+            from ag import autonomy as backend, study as backend_study
+        self.assertEqual(Path(backend.__file__).resolve(), source/'ag/autonomy.py')
+        self.assertEqual(Path(backend.disk.__file__).resolve(), source/'ag/_autonomy_store.py')
+        from autog_frontend.autonomy import read_autonomy, validate_status
+        at = 1800000000
+        versions = dict(ag_version='synthetic-pairing', git_commit='a' * 40, dirty=False,
+                        rdkit='synthetic', goodvibes='synthetic')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            cfg = dict(local=dict(studies_root=str(root/'studies')))
+            name = 'autonomy-pairing-demo'
+            with patch.object(backend, 'versions', return_value=versions), \
+                    patch.object(backend, 'now', side_effect=lambda: at), \
+                    patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                    patch('socket.socket', side_effect=AssertionError('Network forbidden')):
+                backend_study.init(cfg, name)
+                path = root/'studies'/name
+                store = Studies(root/'studies')
+
+                def check(phase, blocked, lease_status=None):
+                    before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                              for p in path.rglob('*') if p.is_file()}
+                    saved = read_autonomy(store, name, now=at)
+                    public = validate_status(backend.status(cfg, name), now=at)
+                    self.assertEqual((saved['status'], public['status']), ('ok', 'ok'))
+                    self.assertEqual((saved['phase'], saved['manual_actions_blocked']), (phase, blocked))
+                    self.assertEqual(saved['lease']['status'] if saved['lease'] else None, lease_status)
+                    for key in ('phase', 'seq', 'journal_sha256', 'current_plan', 'current_round',
+                                'current_run', 'lease', 'totals', 'summary', 'pending', 'plans'):
+                        self.assertEqual(saved[key], public[key], key)
+                    self.assertEqual(public['verification'], 'ag-status')
+                    self.assertEqual(saved['integration'], 'pending-backend-action-boundary')
+                    self.assertNotIn('token', json.dumps(saved))
+                    self.assertNotIn('token', json.dumps(public))
+                    self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
+                    return saved
+
+                backend.initialize(cfg, name)
+                initial = check('ended', False)
+                self.assertIsNone(initial['current_plan'])
+                self.assertIsNone(initial['current_round'])
+                at += 1
+                plan = backend.create_plan(cfg, name, dict(goal='Synthetic local projection check',
+                    comparison_groups=['synthetic'], method_policy='Synthetic method only',
+                    mechanism_scope='No scientific conclusion',
+                    system_rules=dict(main='Synthetic main', small='Synthetic small'),
+                    estimated_hours=1, attempt_limit=3, valid_until=at + 20000))
+                self.assertIsNone(check('ended', False)['plans'][0]['confirmation'])
+                at += 1
+                backend.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic confirmation')
+                self.assertEqual(check('ended', False)['plans'][0]['confirmation']['sha256'], plan['sha256'])
+                at += 1
+                backend.begin(cfg, name, plan['plan_id'], 'Synthetic authorization round')
+                running = check('running', True)
+                round_id = running['current_round']['id']
+                self.assertIsNone(running['current_run'])
+                at += 1
+                first = backend.start(cfg, name, plan['plan_id'], 'synthetic-session')
+                awake = check('running', True, 'active')
+                self.assertEqual(awake['current_run']['id'], first['run_id'])
+                expired = read_autonomy(store, name, now=at + backend.LEASE_SECONDS + 1)
+                self.assertEqual(expired['lease']['status'], 'expired')
+                self.assertTrue(expired['manual_actions_blocked'])
+                at += 1
+                backend.change(cfg, name, 'count', first['run_id'], first['token'],
+                    kind='attempt', request_id='synthetic-intent', object_id='synthetic-object',
+                    failure_class='none', evidence='Synthetic intent only')
+                at += 1
+                backend.change(cfg, name, 'update', first['run_id'], first['token'],
+                    summary='Synthetic saved summary', pending=['Synthetic pending decision'], objects={})
+                counted = check('running', True, 'active')
+                self.assertEqual(counted['totals']['attempt'], 1)
+                self.assertEqual(counted['current_round']['totals']['attempt'], 1)
+                self.assertEqual(counted['current_run']['totals']['attempt'], 1)
+                self.assertEqual(counted['pending'], ['Synthetic pending decision'])
+                at += 1
+                backend.change(cfg, name, 'finish', first['run_id'], first['token'], reason='Synthetic wake finished')
+                gap = check('running', True)
+                self.assertEqual(gap['current_round']['id'], round_id)
+                self.assertIsNone(gap['current_run'])
+                at += 1
+                second = backend.start(cfg, name, plan['plan_id'], 'synthetic-next-session')
+                next_wake = check('running', True, 'active')
+                self.assertEqual(next_wake['current_round']['id'], round_id)
+                self.assertNotEqual(second['run_id'], first['run_id'])
+                self.assertEqual(next_wake['current_run']['totals']['attempt'], 0)
+                self.assertEqual(next_wake['current_round']['totals']['attempt'], 1)
+                at += 1
+                backend.pause(cfg, name, 'Synthetic pause')
+                check('paused', True, 'active')
+                at += 1
+                backend.change(cfg, name, 'finish', second['run_id'], second['token'], reason='Synthetic lease release')
+                check('paused', False)
+                at += 1
+                backend.change(cfg, name, 'end', None, None, round_id=round_id, reason='Synthetic round ended')
+                ended = check('ended', False)
+                self.assertEqual(ended['current_plan'], plan['plan_id'])
+                self.assertEqual(ended['current_round']['id'], round_id)
+                self.assertEqual(ended['current_round']['ended_at'], at)
+                self.assertEqual(ended['current_round']['totals']['attempt'], 1)
+                self.assertIsNone(ended['lease'])
+                self.assertIsNone(ended['current_run'])
+
+
+class PairedSubmissionAutonomyTests(unittest.TestCase):
+    def test_actual_t186_events_and_http_projection_are_readonly(self):
+        """Real local event writers, not a CLI/remote or ownership-reconciliation test."""
+        import sys
+        source = os.environ.get('T196_SUBMISSION_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated T186 source for actual-event projection pairing')
+        source = Path(source).resolve()
+        original_modules = {name: value for name, value in sys.modules.items()
+                            if name == 'ag' or name.startswith('ag.')}
+        for name in original_modules:
+            sys.modules.pop(name)
+
+        def restore_modules():
+            for name in list(sys.modules):
+                if name == 'ag' or name.startswith('ag.'):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'path', [str(source), *sys.path]):
+            from ag import autonomy as backend, autonomy_submission as submission
+            from ag import study as backend_study, config as backend_config, transport
+        for module in (backend, backend.disk, submission, backend_study, backend_config, transport):
+            self.assertEqual(Path(module.__file__).resolve(), source.joinpath(*module.__name__.split('.')).with_suffix('.py'))
+        from autog_frontend.autonomy import read_autonomy, validate_status
+        versions = dict(ag_version='synthetic-event-pairing', git_commit='b' * 40, dirty=False,
+                        rdkit='synthetic', goodvibes='synthetic')
+        at = 1800000000
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            synthetic_home = root/'synthetic-home'
+            synthetic_home.mkdir()
+            cfg = dict(local=dict(studies_root=str(root/'studies')))
+            name = 'submission-projection-demo'
+            directory_calls = []
+            original_directory = backend.disk.directory
+
+            def isolated_directory(path):
+                path = Path(path).absolute()
+                if not path.is_relative_to(root) or '..' in path.parts:
+                    raise AssertionError('Backend directory access escaped the isolated temporary root')
+                directory_calls.append(path)
+                return original_directory(path)
+
+            def file_image():
+                # Include the complete study and isolated machine registry.
+                return {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                        for p in root.rglob('*') if p.is_file()}
+
+            with patch.object(Path, 'home', return_value=synthetic_home), \
+                    patch.object(backend.disk, 'directory', side_effect=isolated_directory), \
+                    patch.object(backend, 'versions', return_value=versions), \
+                    patch.object(backend, 'now', side_effect=lambda: at), \
+                    patch('autog_frontend.autonomy.time.time', side_effect=lambda: at), \
+                    patch.object(backend_config, 'load_config', side_effect=AssertionError('Default config forbidden')), \
+                    patch.object(transport, 'SSHTransport', side_effect=AssertionError('Transport forbidden')), \
+                    patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                    patch('socket.create_connection', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect_ex', side_effect=AssertionError('Network forbidden')):
+                # Exercise the actual fixed-root helper before any study event
+                # write. Path.home and the directory guard isolate all machine
+                # registries, including manual-writers, without changing HOME.
+                self.assertEqual(Path.home(), synthetic_home)
+                with submission._machine_directory(create=True) as registry:
+                    actual = os.fstat(registry.fd)
+                    expected = (synthetic_home/'.config/ag').stat()
+                    self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                backend_study.init(cfg, name)
+                path = root/'studies'/name
+                identity = submission.study_identity(path)
+                with submission.machine_lock(), backend.disk.manual_writers(identity['study_key'], create=True) as writers:
+                    actual = os.fstat(writers.fd)
+                    expected = (synthetic_home/'.config/ag/manual-writers'/identity['study_key']).stat()
+                    self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                self.assertTrue(directory_calls)
+                self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
+                store = Studies(root/'studies')
+                with TestClient(create_app(root/'studies'), base_url='http://localhost',
+                                client=('127.0.0.1', 12345)) as client:
+                    secrets = []
+
+                    def check(phase, consumed=None):
+                        before = file_image()
+                        public = backend.status(cfg, name)
+                        self.assertIs(public['submission_counts_verified'], False)
+                        raw = json.loads((path/'autonomy/state.json').read_text())
+                        saved = read_autonomy(store, name, now=at)
+                        projected = validate_status(public, now=at)
+                        raw_projected = validate_status(raw, now=at)
+                        response = client.get(f'/api/studies/{name}/autonomy')
+                        self.assertEqual(response.status_code, 200, response.text)
+                        http = response.json()
+                        self.assertEqual(file_image(), before)
+                        for value in (saved, projected, raw_projected, http):
+                            self.assertEqual((value['status'], value['phase']), ('ok', phase), value)
+                            self.assertEqual(value['integration'], 'pending-backend-action-boundary')
+                            if consumed is None:
+                                self.assertNotIn('submissions', value)
+                                self.assertNotIn('submissions_count', value)
+                            else:
+                                self.assertEqual(value['submissions_count'], consumed)
+                                self.assertEqual(value['current_round_submission_count'], consumed)
+                                self.assertEqual(len(value['submissions']), consumed)
+                            text = json.dumps(value)
+                            for forbidden in ('token_sha256', 'owner_token_sha256', 'previous_lease',
+                                              'writer_id', 'study_key', 'submission_counts_verified', *secrets):
+                                self.assertNotIn(forbidden, text)
+                        fields = ('phase', 'seq', 'journal_sha256', 'current_plan', 'current_round', 'current_run',
+                                  'lease', 'totals', 'manual_actions_blocked', 'submissions', 'submissions_count',
+                                  'current_round_submission_count', 'submissions_truncated', 'submission_pause',
+                                  'waiting', 'waiting_count', 'waiting_truncated')
+                        for field in fields:
+                            self.assertEqual(saved.get(field), projected.get(field), field)
+                            self.assertEqual(saved.get(field), raw_projected.get(field), field)
+                            self.assertEqual(saved.get(field), http.get(field), field)
+                        self.assertEqual(saved['events'], http['events'])
+                        return saved
+
+                    backend.initialize(cfg, name)
+                    check('ended')
+                    at += 1
+                    plan = backend.create_plan(cfg, name, dict(goal='Synthetic submission projection',
+                        comparison_groups=['synthetic'], method_policy='Synthetic method only',
+                        mechanism_scope='No scientific conclusion',
+                        system_rules=dict(main='Synthetic main', small='Synthetic small'),
+                        estimated_hours=1, attempt_limit=10, valid_until=at + 20000))
+                    backend.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic confirmation')
+                    backend.begin(cfg, name, plan['plan_id'], 'Synthetic round authorization')
+                    run = backend.start(cfg, name, plan['plan_id'], 'synthetic-session')
+                    round_id = run['state']['current_round']
+                    secrets.extend((run['token'], hashlib.sha256(run['token'].encode()).hexdigest()))
+                    check('running')
+                    at += 1
+                    backend.change(cfg, name, 'count', run['run_id'], run['token'], kind='attempt',
+                        request_id='intent-one', object_id='synthetic-object', failure_class='none',
+                        evidence='Synthetic intent only')
+
+                    def record(index):
+                        attempt_id = f'synthetic-{index:03d}'
+                        return dict(attempt_id=attempt_id, object_id=f'object-{index}', failure_class=None,
+                            ownership_sha256=hashlib.sha256(attempt_id.encode()).hexdigest(), round_id=round_id,
+                            run_id=run['run_id'], plan_sha256=plan['sha256'], rule_sha256='c' * 64, max_attempts=10)
+
+                    # Synthetic API input records; every persisted state and
+                    # journal byte is produced by the actual backend writers.
+                    for index in range(1, 9):
+                        at += 1
+                        with submission.machine_lock(), backend.submission_guard(cfg, name, run['run_id'], run['token'],
+                                                                                 plan_sha256=plan['sha256']) as guard:
+                            guard.consume(record(index))
+                            if index == 1:
+                                guard.dispatch_started(record(index)['attempt_id'])
+                            elif index == 2:
+                                guard.abort_before_dispatch(record(index)['attempt_id'], 'Synthetic early abort')
+                        check('running', index)
+                    at += 1
+                    with submission.machine_lock(), backend.submission_guard(cfg, name, run['run_id'], run['token'],
+                                                                             plan_sha256=plan['sha256']) as guard:
+                        guard.waiting('waiting-object', 'd' * 64)
+                    self.assertEqual(check('running', 8)['waiting_count'], 1)
+                    at += 1
+                    with submission.machine_lock(), backend.submission_guard(cfg, name, run['run_id'], run['token'],
+                                                                             plan_sha256=plan['sha256']) as guard:
+                        guard.consume(record(9))
+                        self.assertEqual(guard.snapshot['phase'], 'paused')
+                        with self.assertRaisesRegex(ValueError, 'paused'):
+                            guard.dispatch_started(record(9)['attempt_id'])
+                        guard.abort_before_dispatch(record(9)['attempt_id'], 'Synthetic threshold abort')
+                    paused = check('paused', 9)
+                    self.assertEqual(paused['totals']['attempt'], 1)
+                    self.assertIn('90%', paused['submission_pause']['reason'])
+                    self.assertTrue(paused['manual_actions_blocked'])
+                    at += backend.LEASE_SECONDS + 1
+                    for index, dispatched in ((1, True), (2, False)):
+                        with submission.machine_lock():
+                            backend.boundary_failure(cfg, name, record(index)['attempt_id'], record(index)['ownership_sha256'],
+                                run_id=run['run_id'], token=run['token'], dispatched=dispatched,
+                                reason='Synthetic late boundary failure')
+                    failed = check('paused', 9)
+                    rows = {row['attempt_id']: row for row in failed['submissions']}
+                    self.assertTrue(rows['synthetic-001']['boundary_failure']['dispatched'])
+                    self.assertIsNone(rows['synthetic-001']['aborted_before_dispatch'])
+                    self.assertEqual(rows['synthetic-002']['aborted_before_dispatch']['reason'], 'Synthetic early abort')
+                    self.assertEqual(rows['synthetic-002']['boundary_failure']['reason'], 'Synthetic late boundary failure')
+                    self.assertEqual(failed['lease']['status'], 'expired')
+                    at += 1
+                    with backend.manual_write_guard(cfg, name, action='prepare') as writer:
+                        self.assertTrue(writer['manual_takeover'])
+                        secrets.extend((writer['writer_id'], writer['study_key']))
+                        taken = check('paused', 9)
+                        self.assertIsNone(taken['lease'])
+                        self.assertEqual(taken['current_round']['id'], round_id)
+                        self.assertEqual(taken['totals']['attempt'], 1)
+                        self.assertFalse(taken['manual_actions_blocked'])  # Local projection is not writer permission.
+                    final = check('paused', 9)
+                    event_kinds = {row['op'] for row in final['events']}
+                    self.assertTrue({'submission_consume', 'submission_dispatch', 'submission_abort',
+                                     'submission_boundary_failure', 'waiting', 'manual_takeover'} <= event_kinds)
+                    self.assertTrue((synthetic_home/'.config/ag/autonomy-submit.lock').is_file())
+                    registry = synthetic_home/'.config/ag/manual-writers'/identity['study_key']
+                    self.assertEqual(len(list(registry.glob('*.claim.json'))), 1)
+                    self.assertEqual(len(list(registry.glob('*.complete.json'))), 1)
+                    self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
+
+
+class PairedCancellationAutonomyTests(unittest.TestCase):
+    def test_actual_t187_cancellation_records_and_http_projection(self):
+        """Exact-module local writers; no cancellation executor or combined-backend proof."""
+        import sys
+        source = os.environ.get('T196_CANCELLATION_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated T187 source for actual cancellation-record pairing')
+        source = Path(source).resolve()
+        original_modules = {name: value for name, value in sys.modules.items()
+                            if name == 'ag' or name.startswith('ag.')}
+        for name in original_modules:
+            sys.modules.pop(name)
+
+        def restore_modules():
+            for name in list(sys.modules):
+                if name == 'ag' or name.startswith('ag.'):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'path', [str(source), *sys.path]):
+            from ag import autonomy as backend, study as backend_study
+            from ag import config as backend_config, transport
+        for module in (backend, backend.disk, backend_study, backend_config, transport):
+            self.assertEqual(Path(module.__file__).resolve(), source.joinpath(*module.__name__.split('.')).with_suffix('.py'))
+        from autog_frontend.autonomy import read_autonomy, validate_status
+        versions = dict(ag_version='synthetic-cancellation-pairing', git_commit='c' * 40, dirty=False,
+                        rdkit='synthetic', goodvibes='synthetic')
+        at = 1800000000
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            synthetic_home = root/'synthetic-home'
+            synthetic_home.mkdir()
+            cfg = dict(local=dict(studies_root=str(root/'studies')))
+            name = 'cancellation-projection-demo'
+            original_directory = backend.disk.directory
+            directory_calls = []
+
+            def isolated_directory(path):
+                path = Path(path).absolute()
+                if not path.is_relative_to(root) or '..' in path.parts:
+                    raise AssertionError('Backend directory access escaped the isolated temporary root')
+                directory_calls.append(path)
+                return original_directory(path)
+
+            def file_image():
+                return {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                        for p in root.rglob('*') if p.is_file()}
+
+            with patch.object(Path, 'home', return_value=synthetic_home), \
+                    patch.object(backend.disk, 'directory', side_effect=isolated_directory), \
+                    patch.object(backend, 'versions', return_value=versions), \
+                    patch.object(backend, 'now', side_effect=lambda: at), \
+                    patch('autog_frontend.autonomy.time.time', side_effect=lambda: at), \
+                    patch.object(backend_config, 'load_config', side_effect=AssertionError('Default config forbidden')), \
+                    patch.object(transport, 'SSHTransport', side_effect=AssertionError('Transport forbidden')), \
+                    patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                    patch('socket.create_connection', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect', side_effect=AssertionError('Network forbidden')), \
+                    patch('socket.socket.connect_ex', side_effect=AssertionError('Network forbidden')):
+                self.assertEqual(Path.home(), synthetic_home)
+                backend_study.init(cfg, name)
+                path = root/'studies'/name
+                fd = backend.disk.directory(path)
+                try:
+                    actual, expected = os.fstat(fd), path.stat()
+                    self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                finally:
+                    os.close(fd)
+                store = Studies(root/'studies')
+                with TestClient(create_app(root/'studies'), base_url='http://localhost',
+                                client=('127.0.0.1', 12345)) as client:
+                    secrets = [str(root), str(source)]
+
+                    def check(phase, consumed=None, results=None, lineages=None):
+                        before = file_image()
+                        public = backend.status(cfg, name)
+                        raw = json.loads((path/'autonomy/state.json').read_text())
+                        saved = read_autonomy(store, name, now=at)
+                        checked = validate_status(public, now=at)
+                        raw_checked = validate_status(raw, now=at)
+                        response = client.get(f'/api/studies/{name}/autonomy')
+                        self.assertEqual(response.status_code, 200, response.text)
+                        http = response.json()
+                        self.assertEqual(file_image(), before)
+                        for value in (saved, checked, raw_checked, http):
+                            self.assertEqual((value['status'], value['phase']), ('ok', phase), value)
+                            self.assertEqual(value['integration'], 'pending-backend-action-boundary')
+                            for field, count in (('cancellations', consumed), ('cancellation_results', results),
+                                                 ('reroute_lineages', lineages)):
+                                if count is None:
+                                    self.assertNotIn(field, value)
+                                    self.assertNotIn(field + '_count', value)
+                                else:
+                                    self.assertEqual(value[field + '_count'], count)
+                                    self.assertEqual(len(value[field]), count)
+                                    self.assertFalse(value[field + '_truncated'])
+                            text = json.dumps(value)
+                            for forbidden in ('token_sha256', 'cancellation_authorized', 'termination_confirmed',
+                                              'reroute_eligible', 'can_reroute', *secrets):
+                                self.assertNotIn(forbidden, text)
+                        for field in ('phase', 'seq', 'journal_sha256', 'current_round', 'current_run', 'lease',
+                                      'totals', 'manual_actions_blocked', 'cancellations', 'cancellations_count',
+                                      'cancellations_truncated', 'cancellation_results', 'cancellation_results_count',
+                                      'cancellation_results_truncated', 'reroute_lineages', 'reroute_lineages_count',
+                                      'reroute_lineages_truncated'):
+                            self.assertEqual(saved.get(field), checked.get(field), field)
+                            self.assertEqual(saved.get(field), raw_checked.get(field), field)
+                            self.assertEqual(saved.get(field), http.get(field), field)
+                        self.assertEqual(saved['events'], http['events'])
+                        return saved
+
+                    backend.initialize(cfg, name)
+                    check('ended')
+                    at += 1
+                    plan = backend.create_plan(cfg, name, dict(goal='Synthetic cancellation projection',
+                        comparison_groups=['synthetic'], method_policy='Synthetic method only',
+                        mechanism_scope='No scientific conclusion',
+                        system_rules=dict(main='Synthetic main', small='Synthetic small'),
+                        estimated_hours=1, attempt_limit=10, valid_until=at + 20000))
+                    backend.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic confirmation')
+                    backend.begin(cfg, name, plan['plan_id'], 'Synthetic first round')
+                    first = backend.start(cfg, name, plan['plan_id'], 'synthetic-first-session')
+                    first_round = first['state']['current_round']
+                    secrets.extend((first['token'], hashlib.sha256(first['token'].encode()).hexdigest()))
+                    backend.change(cfg, name, 'count', first['run_id'], first['token'], kind='cancel',
+                        request_id='cancel-intent', object_id='synthetic-object', failure_class='none',
+                        evidence='Synthetic intent only')
+                    check('running')
+                    receipts = []
+                    for index, kind in enumerate(('no_progress', 'reroute'), 1):
+                        at += 1
+                        # Synthetic identity inputs only. The real backend APIs
+                        # exclusively write the state, hashes, and journal.
+                        binding = dict(study_id=name, attempt_id=f'synthetic-{index:03d}', cluster='synthetic-entry',
+                            scheduler='slurm', job_id=str(100 + index), manifest_sha256='b' * 64,
+                            submission_sha256='c' * 64)
+                        private_reason = (f'Synthetic recorded evidence "{root / "evidence source.log"}"; '
+                                          f'token {first["token"]}; token hash {hashlib.sha256(first["token"].encode()).hexdigest()}')
+                        receipt = backend._consume_cancellation(cfg, name, first['run_id'], first['token'],
+                            plan_sha256=plan['sha256'], binding=binding, ownership_sha256='d' * 64,
+                            kind=kind, reason=private_reason, evidence_sha256='e' * 64,
+                            lineage_sha256='1' * 64 if kind == 'reroute' else None)
+                        self.assertIs(receipt['cancellation_authorized'], False)
+                        self.assertFalse(receipt['duplicate'])
+                        self.assertEqual(receipt['record']['reason'], private_reason)
+                        receipts.append(receipt)
+                        view = check('running', index, lineages=1 if kind == 'reroute' else None)
+                        row = next(row for row in view['cancellations'] if row['attempt_id'] == binding['attempt_id'])
+                        self.assertEqual(row['consumption_sha256'], receipt['record']['consumption_sha256'])
+                        self.assertEqual(row['kind'], kind)
+                        self.assertIn('[路径已隐藏]', row['reason'])
+                        self.assertEqual(view['totals']['cancel'], 1)  # Intents do not become actual consumption.
+                    at += 1
+                    accepted = backend._record_cancellation_result(cfg, name, first['run_id'], first['token'],
+                        attempt_id='synthetic-001', consumption_sha256=receipts[0]['record']['consumption_sha256'],
+                        outcome='accepted', reason=f'Synthetic acceptance, not termination: {root / "receipt.log"}',
+                        evidence_sha256='f' * 64)
+                    self.assertIs(accepted['cancellation_authorized'], False)
+                    accepted_view = check('running', 2, 1, 1)
+                    self.assertEqual(accepted_view['cancellation_results'][0]['outcome'], 'accepted')
+                    self.assertIn('[路径已隐藏]', accepted_view['cancellation_results'][0]['reason'])
+                    self.assertEqual(accepted_view['reroute_lineages'],
+                                     [dict(lineage_sha256='1' * 64, attempt_id='synthetic-002')])
+                    at += 1
+                    backend.change(cfg, name, 'finish', first['run_id'], first['token'], reason='Synthetic wake ended')
+                    backend.change(cfg, name, 'end', None, None, round_id=first_round, reason='Synthetic round ended')
+                    check('ended', 2, 1, 1)
+                    at += 1
+                    backend.begin(cfg, name, plan['plan_id'], 'Synthetic second round')
+                    second = backend.start(cfg, name, plan['plan_id'], 'synthetic-second-session')
+                    secrets.extend((second['token'], hashlib.sha256(second['token'].encode()).hexdigest()))
+                    self.assertNotEqual(second['state']['current_round'], first_round)
+                    check('running', 2, 1, 1)
+                    at += 1
+                    late = dict(attempt_id='synthetic-002', consumption_sha256=receipts[1]['record']['consumption_sha256'],
+                                outcome='unknown', reason='Synthetic late cancellation response unknown', evidence_sha256='2' * 64)
+                    result = backend._record_cancellation_result(cfg, name, first['run_id'], first['token'], **late)
+                    self.assertIs(result['cancellation_authorized'], False)
+                    unknown = check('paused', 2, 2, 1)
+                    self.assertEqual(unknown['current_round']['id'], second['state']['current_round'])
+                    self.assertEqual(unknown['lease']['run_id'], second['run_id'])
+                    self.assertTrue(all(row['round_id'] == first_round for row in unknown['cancellations']))
+                    before = file_image()
+                    repeated = backend._record_cancellation_result(cfg, name, first['run_id'], first['token'], **late)
+                    self.assertTrue(repeated['duplicate'])
+                    self.assertIs(repeated['cancellation_authorized'], False)
+                    self.assertEqual(file_image(), before)
+                    at += 1
+                    backend.change(cfg, name, 'end', second['run_id'], second['token'],
+                                   round_id=second['state']['current_round'], reason='Synthetic final end')
+                    final = check('ended', 2, 2, 1)
+                    self.assertTrue({'cancel_consume', 'cancel_result'} <= {row['op'] for row in final['events']})
+                    self.assertTrue(directory_calls)
+                    self.assertTrue(all(value.is_relative_to(root) for value in directory_calls))
+                    self.assertEqual(list(synthetic_home.iterdir()), [])  # Standalone T187 has no global registry.
+
+
+class PairedCombinedAutonomyTests(unittest.TestCase):
+    def test_actual_combined_submit_cancel_stop_and_successor_projection(self):
+        """Frozen full-module fixture, fake external IO, and real local API writers."""
+        import sys
+        backend_root = os.environ.get('T196_COMBINED_BACKEND_ROOT')
+        if not backend_root:
+            self.skipTest('Supply the isolated full ag combination and its source-provenance.json')
+        backend_root = Path(backend_root).resolve()
+        source, fixtures = backend_root/'src', backend_root/'tests'
+        provenance = json.loads((backend_root.parent/'source-provenance.json').read_text())
+
+        def source_image():
+            return {f'ag/{p.relative_to(backend_root)}': (hashlib.sha256(p.read_bytes()).hexdigest(),
+                                                        p.stat().st_mtime_ns)
+                    for p in backend_root.rglob('*') if p.is_file()}
+
+        source_before = source_image()
+        self.assertEqual({name: value[0] for name, value in source_before.items()}, provenance['all_ag_files'])
+        self.addCleanup(lambda: self.assertEqual(source_image(), source_before))
+        selected = lambda name: name == 'ag' or name.startswith(('ag.', 'test_'))
+        original_modules = {name: value for name, value in sys.modules.items() if selected(name)}
+        for name in original_modules:
+            sys.modules.pop(name)
+
+        def restore_modules():
+            for name in list(sys.modules):
+                if selected(name):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+
+        self.addCleanup(restore_modules)
+        with patch.object(sys, 'dont_write_bytecode', True), \
+                patch.object(sys, 'path', [str(source), str(fixtures), *sys.path]):
+            import pytest
+            import test_autonomy_cancel as upstream
+            from ag import autonomy as backend, autonomy_submission as ownership
+            from ag import config as backend_config, transport
+            from autog_frontend.autonomy import read_autonomy, validate_status
+            for name, module in list(sys.modules.items()):
+                if selected(name):
+                    expected = source if name == 'ag' or name.startswith('ag.') else fixtures
+                    self.assertTrue(Path(module.__file__).resolve().is_relative_to(expected), name)
+            self.assertEqual(Path(upstream.__file__).resolve(), fixtures/'test_autonomy_cancel.py')
+            with tempfile.TemporaryDirectory() as folder, pytest.MonkeyPatch.context() as monkeypatch:
+                root = Path(folder).resolve()
+                directory_calls, config_calls = [], []
+                original_directory, original_config = backend.disk.directory, backend_config.load_config
+
+                def isolated_path(path):
+                    path = Path(path).absolute()
+                    if ('..' in path.parts or not path.is_relative_to(root)
+                            or not path.resolve().is_relative_to(root)):
+                        raise AssertionError('Backend access escaped the isolated temporary root')
+                    return path
+
+                def isolated_directory(path):
+                    path = isolated_path(path)
+                    directory_calls.append(path)
+                    return original_directory(path)
+
+                def isolated_config(path=None, **options):
+                    if path is None:
+                        raise AssertionError('Default configuration is forbidden')
+                    path = isolated_path(path)
+                    config_calls.append(path)
+                    return original_config(path, **options)
+
+                def file_image():
+                    return {str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mtime_ns)
+                            for p in root.rglob('*') if p.is_file()}
+
+                with patch.object(backend.disk, 'directory', side_effect=isolated_directory), \
+                        patch.object(backend_config, 'load_config', side_effect=isolated_config), \
+                        patch.object(transport.SSHTransport, '__init__', side_effect=AssertionError('Real SSH forbidden')), \
+                        patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                        patch('socket.create_connection', side_effect=AssertionError('Network forbidden')), \
+                        patch('socket.socket.connect', side_effect=AssertionError('Network forbidden')), \
+                        patch('socket.socket.connect_ex', side_effect=AssertionError('Network forbidden')), \
+                        patch('socket.socket.bind', side_effect=AssertionError('Network listeners forbidden')):
+                    # Import and invoke the complete upstream fixtures. Only
+                    # their synthetic inputs/fake transport are reused; state
+                    # and journal bytes are written exclusively by real APIs.
+                    cfg = upstream.cfg.__wrapped__(root)
+                    env = upstream.real_autonomous_cancel_pipeline.__wrapped__(cfg, root, monkeypatch)
+                    home = root/'isolated-integration-home'
+                    self.assertEqual(Path.home(), home)
+                    # Prove both fixed global-helper paths are isolated before
+                    # the first study, prepare, or autonomy event is written.
+                    with ownership._machine_directory(create=True) as registry:
+                        actual, expected = os.fstat(registry.fd), (home/'.config/ag').stat()
+                        self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                    with backend.disk.manual_writers('0' * 64, create=True) as writers:
+                        actual = os.fstat(writers.fd)
+                        expected = (home/'.config/ag/manual-writers'/('0' * 64)).stat()
+                        self.assertEqual((actual.st_dev, actual.st_ino), (expected.st_dev, expected.st_ino))
+                    owner = env.owner()
+                    path, name = owner.path.parent.parent, owner.path.parent.parent.name
+                    store = Studies(root/'studies')
+                    secrets = [str(root), str(source)]
+                    observed_events = set()
+
+                    def remember_run():
+                        secrets.extend((owner.run['token'], hashlib.sha256(owner.run['token'].encode()).hexdigest()))
+
+                    remember_run()
+                    with patch('autog_frontend.autonomy.time.time', side_effect=lambda: env.clock[0]), \
+                            TestClient(create_app(root/'studies'), base_url='http://localhost',
+                                       client=('127.0.0.1', 12345)) as client:
+
+                        def check(submissions, cancellations=None):
+                            before = file_image()
+                            public = backend.status(env.cfg, name)
+                            self.assertIs(public['submission_counts_verified'], False)
+                            raw = json.loads((path/'autonomy/state.json').read_text())
+                            saved = read_autonomy(store, name, now=env.clock[0])
+                            views = (saved, validate_status(public, now=env.clock[0]),
+                                     validate_status(raw, now=env.clock[0]))
+                            response = client.get(f'/api/studies/{name}/autonomy')
+                            self.assertEqual(response.status_code, 200, response.text)
+                            http = response.json()
+                            self.assertEqual(file_image(), before)
+                            for value in (*views, http):
+                                self.assertEqual((value['status'], value['phase']), ('ok', 'running'), value)
+                                self.assertEqual(value['submissions_count'], submissions)
+                                self.assertEqual(value['current_round_submission_count'], submissions)
+                                self.assertFalse(value['submissions_truncated'])
+                                for field in ('cancellations', 'cancellation_results', 'reroute_lineages'):
+                                    if cancellations is None:
+                                        self.assertNotIn(field, value)
+                                        self.assertNotIn(field + '_count', value)
+                                    else:
+                                        self.assertEqual(value[field + '_count'], cancellations)
+                                        self.assertEqual(len(value[field]), cancellations)
+                                        self.assertFalse(value[field + '_truncated'])
+                                text = json.dumps(value)
+                                for forbidden in ('token_sha256', 'owner_token_sha256', 'study_key',
+                                                  'termination_confirmed', 'reroute_eligible', 'can_reroute',
+                                                  'autonomy-cancel-stopped.json', *secrets):
+                                    self.assertNotIn(forbidden, text)
+                            fields = ('phase', 'seq', 'journal_sha256', 'current_round', 'current_run',
+                                      'lease', 'totals', 'manual_actions_blocked', 'submissions',
+                                      'submissions_count', 'current_round_submission_count',
+                                      'cancellations', 'cancellation_results', 'reroute_lineages')
+                            for field in fields:
+                                for value in (*views[1:], http):
+                                    self.assertEqual(saved.get(field), value.get(field), field)
+                            self.assertEqual(saved['events'], http['events'])
+                            observed_events.update(row['op'] for row in saved['events'])
+                            return saved, raw
+
+                        submitted, _ = check(1)
+                        self.assertIsNotNone(submitted['submissions'][0]['dispatch_started'])
+                        env.next_wake(owner)
+                        remember_run()
+                        check(1)
+                        accepted = env.cancel_owned(owner)
+                        self.assertEqual(accepted['outcome'], 'accepted')
+                        accepted_view, _ = check(1, 1)
+                        result = accepted_view['cancellation_results'][0]
+                        consumed = accepted_view['cancellations'][0]
+                        self.assertEqual(result['outcome'], 'accepted')
+                        self.assertEqual(result['consumption_sha256'], consumed['consumption_sha256'])
+                        self.assertEqual(consumed['kind'], 'reroute')
+                        self.assertFalse((owner.path/'autonomy-cancel-stopped.json').exists())
+                        placement = next(p for p in env.placements() if p['attempt_id'] == owner.path.name)
+                        self.assertNotEqual(placement['state'], 'finished')  # Acceptance retains occupation.
+                        attempts_before = set(owner.path.parent.iterdir())
+                        with self.assertRaises((ValueError, FileNotFoundError)):
+                            env.successor(owner)
+                        self.assertEqual(set(owner.path.parent.iterdir()), attempts_before)
+                        stopped = env.stopped(owner)
+                        self.assertIs(stopped['stopped'], True)
+                        stop_bytes = (owner.path/'autonomy-cancel-stopped.json').read_bytes()
+                        self.assertEqual(hashlib.sha256(stop_bytes).hexdigest(), stopped['evidence_sha256'])
+                        stopped_view, _ = check(1, 1)
+                        self.assertEqual(stopped_view['cancellation_results'], accepted_view['cancellation_results'])
+                        self.assertEqual(stopped_view['cancellations'], accepted_view['cancellations'])
+                        placement = next(p for p in env.placements() if p['attempt_id'] == owner.path.name)
+                        self.assertEqual(placement['state'], 'finished')
+                        successor = env.successor(owner)
+                        final, raw = check(2, 1)
+                        self.assertEqual((owner.manifest['cluster'], successor.manifest['cluster']), ('batch', 'default'))
+                        self.assertEqual(successor.manifest['reroute_source']['attempt_id'], owner.path.name)
+                        owner_hash = raw['state']['submissions'][owner.path.name]['ownership_sha256']
+                        self.assertEqual(final['reroute_lineages'],
+                                         [dict(lineage_sha256=owner_hash, attempt_id=owner.path.name)])
+                        self.assertEqual({row['attempt_id'] for row in final['submissions']},
+                                         {owner.path.name, successor.path.name})
+                        self.assertTrue(all(row['round_id'] == final['current_round']['id']
+                                            for row in final['submissions']))
+                        self.assertEqual(owner.fake.cancel_calls, 1)
+                        self.assertEqual(sum(call.operation == 'submit' for call in owner.fake.calls), 1)
+                        self.assertEqual(sum(call.operation == 'submit' for call in successor.fake.calls), 1)
+                        self.assertEqual((owner.path/'autonomy-cancel-stopped.json').read_bytes(), stop_bytes)
+                        self.assertTrue({'submission_consume', 'submission_dispatch', 'cancel_consume',
+                                         'cancel_result'} <= observed_events)
+                    self.assertTrue(directory_calls and config_calls)
+                    self.assertTrue(all(p.is_relative_to(root) for p in directory_calls + config_calls))
