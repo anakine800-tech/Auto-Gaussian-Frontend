@@ -360,6 +360,23 @@ CSV 每个状态/物种/构象一行，保留单位、条件、警告、来源�
   Dedup and cluster JSON outputs are shown verbatim; XYZ files use the frame viewer. No complete sampling or scientific
   acceptance is inferred from any saved status or number.
 
+## 放宽输入提醒（T197）
+
+Attempt 的关键事实顶部只读显示不可变 manifest 保存的输入检查标记，
+不依赖作业状态或 facts 是否解析成功。仅当顶层 `input_validation` 的
+`mode` 为 `relaxed`、`method_verified` 为 `false`、`skipped_checks` 为非空且
+每项均为非空白字符串的清单时，显示“输入检查已放宽”“方法口径未核验”及原样跳过项。
+该来源不能用于 `ag scan-peak`；解析、自定义基组、`SCRF=Read` 等情况可能使结果
+无法进入 `ag profile`，页面不把可能不适用写成一律不可用。
+
+旧 manifest 无该字段时保留既有显示，不推断已核验或已放宽。标记损坏、未知 mode、
+空或错误清单、缺失字段、`method_verified=true` 冲突以及不可读 manifest 均提示
+“输入检查标记无法核实”，方法核验状态保持未知。来源按钮打开已有 manifest 查看区；
+跳过项只显示转义文本，不执行 HTML、链接或命令，也不修正原记录。
+此提醒不声明底线检查或科学验收通过，不新增 GUI 编辑、放宽开关或提交能力。
+当前使用约定字段与合成数据验证；T188 最终字段及后端组合验证仍待协调确认。
+任务与交付边界见 [T197](docs/redesign-tasks/T197-relaxed-input-notice.md)。
+
 ## CREST 错误摘要与来源（T160）
 
 CREST Attempt 默认展示已有 `facts.crest_diagnostics` 的摘要及四种状态：错误证据、
