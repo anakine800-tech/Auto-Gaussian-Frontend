@@ -7,7 +7,7 @@ T153 只准备版本号和文档；最终配套验收使用负责人合并 T152 
 功能合入不会自动更新运行检出或服务；发布 PR 经监督方审阅并由负责人合并后，后续同号 tag/Release、部署及服务重启分别按明确指示执行。
 两个 v4.6.3 tag 核验及对应机器实际部署验收完成后，才记录该机器已升级。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
-构建依赖 setuptools 83.0.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
+构建依赖 setuptools 84.1.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
 A local viewer for the new `ag` study directory architecture, read-only by default.
 Optional actions delegate to a startup-selected local `ag` executable. The viewer
@@ -19,7 +19,7 @@ Requires Python 3.11–3.13, Node.js and pnpm matching `web/package.json`.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install setuptools==83.0.0
+.venv/bin/python -m pip install setuptools==84.1.0
 .venv/bin/python -m pip install -r requirements.lock.txt
 .venv/bin/python -m pip install --no-deps --no-build-isolation .
 pnpm --dir web install --frozen-lockfile
