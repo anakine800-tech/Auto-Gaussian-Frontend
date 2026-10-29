@@ -1178,6 +1178,14 @@ class PairedAutonomyTests(unittest.TestCase):
         if not source:
             self.skipTest('Supply the isolated T184 backend source for the paired run')
         source = Path(source).resolve()
+        original_modules = {name: value for name, value in sys.modules.items()
+                            if name == 'ag' or name.startswith('ag.')}
+        def restore_modules():
+            for name in list(sys.modules):
+                if name == 'ag' or name.startswith('ag.'):
+                    sys.modules.pop(name)
+            sys.modules.update(original_modules)
+        self.addCleanup(restore_modules)
         with patch.object(sys, 'path', [str(source), *sys.path]):
             from ag import autonomy as backend, study as backend_study
         self.assertEqual(Path(backend.__file__).resolve(), source/'ag/autonomy.py')
