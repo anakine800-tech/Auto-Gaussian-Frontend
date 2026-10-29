@@ -59,3 +59,36 @@ PR 首行 `Task: T192`。写清十结构行为、失败隔离、请求复用和 
 - 首次 PR 全量浏览器：`pnpm --dir web test`，373 项通过；覆盖 2/3/6/10/11、恢复、共享来源请求/JSON 解析、错误隔离、参考切换、窄屏和 IRC。
 - 桌面 1440px、窄屏 390px 合成截图随私下交付保存；截图不进入公开仓库。全部测试使用独立环境、临时合成目录和假 ag。
 - 仅进行了合成离线验收；未操作研究 study、真实配置、集群或正式服务。合并和部署仍由协调会话分别处理。
+
+## 审阅补充：固定版本格式化
+
+使用临时 tooling 中的 **Prettier 3.6.2**，只处理本 PR 实际修改的下列 10 个 TS/TSX/CSS 文件；不新增产品依赖，不修改项目 lockfile，不做全仓格式化。
+`--no-config --no-editorconfig` 避免继承检出外的设置；统一单引号和 Prettier 其余默认值。
+
+```sh
+pnpm --dir '<TEMP_TOOLING>' add --save-exact prettier@3.6.2
+'<TEMP_TOOLING>/node_modules/.bin/prettier' \
+  --no-config --no-editorconfig --single-quote --check \
+  web/src/compare-basket.ts \
+  web/src/compare-page.tsx \
+  web/src/compare-tray.tsx \
+  web/src/help-page.tsx \
+  web/src/molecule-layout.css \
+  web/src/quick-comparison.ts \
+  web/src/structure-comparison.tsx \
+  web/tests/compare-page.spec.ts \
+  web/tests/frames-compare-capacity.spec.ts \
+  web/tests/shell-progress.spec.ts
+```
+
+同一文件清单使用 `--write` 完成格式化，最终 `--check` 和 `--debug-check` 均通过；
+使用同版本解析器对功能提交 `9bef73a` 与最终文件逐一比较规范化 AST，10 个文件全部等价。
+格式化后 `pnpm --dir web build` 通过，产品依赖和 lockfile 无变化。
+CSS 产物逐字节相同；JS 仅有六处原生 DOM 的静态文字/空格分片，合并这些相邻文本后，整个新旧 bundle 逐字节相同。
+格式化后比较/IRC 回归共 55 项通过（1.4 分钟）；执行命令如下。已确认本轮临时服务退出，未复用他人的测试服务。
+
+```sh
+AUTOG_SOURCE_PYTHON="<ISOLATED_PYTHON>" pnpm --dir web test \
+  tests/compare-page.spec.ts tests/frames-compare-capacity.spec.ts \
+  tests/shell-progress.spec.ts tests/irc-review.spec.ts
+```
