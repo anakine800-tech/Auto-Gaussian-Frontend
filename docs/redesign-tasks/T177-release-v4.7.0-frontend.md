@@ -32,4 +32,37 @@ Task: T177
 
 ## 实施与验收记录（2026-10-29）
 
-状态：发布准备进行中；最终配套等待协调方提供 T178 的真实完整合并 SHA。保持 draft，未以当前后端 main 代替。
+状态：版本、文档和前端一次完整离线回归完成；最终配套等待协调方提供 T178 的真实完整合并 SHA。保持 draft，未以当前后端 main 代替。
+
+### 基线、来源与范围
+
+- 开工核对远端 main 为 `fa48ab1a0c0d669233a189bb5457b143d07dd798`；正式运行检出干净且未修改。T177 分支及 v4.7.0 tag/Release 未占用，前端无其他打开的 PR。
+- `v4.6.3..main --first-parent` 仅有 T158 #49（`d09868c43a6131cb8ea6452cb132a0e5a6d34d04`）和 T160 #50（`fa48ab1a0c0d669233a189bb5457b143d07dd798`），两项 GitHub PR 均为 merged。
+- 本次完整离线验证源码提交为 `43fe6f421d327335e9d287b947f4e505917462e8`。后续仅调整 README/CHANGELOG 的当前 CREST 现场边界及追加本单验收；功能实现、测试、版本、依赖、锁文件输入不变，未无意义重跑全量。交付准确 HEAD 记录在 PR。
+- 协调方 2026-10-29 的 T159 最新复核确认：旧普通 PBS 与 Slurm 正式取回兼容已满足原任务最低要求；所用相关代码 blob/AST 与已验证执行源核对相同。保留早前 PBS 失败，不宣称新集合、mdopt、不完整取回或真实错误诊断已现场通过；补强方案不追加为原工单强制门槛。本单没有执行这些现场操作。
+- 严格七个允许文件。三处版本文件除 4.6.3 → 4.7.0 外逐字不变；旧 CHANGELOG、旧版本历史逐字保留。open-tasks 保留 T177，因为最终实际配套未完成。
+
+### 已完成的离线验证
+
+环境为 Python 3.13.13、Node.js 24.22.1、pnpm 11.19.0；使用独立 `.venv`、setuptools 83.0.0 和现有 requirements/pnpm 锁定依赖。原 PATH 的 pnpm 11.25.0 与首次离线缺包仅发生在准备环境阶段，没有执行产品测试；就绪指定版本后使用 frozen-lockfile 安装，锁文件未改。
+
+| 检查 | 实际命令／方法 | 本次结果 |
+|---|---|---|
+| 隔离安装 | `python -m pip install --no-deps --no-build-isolation .`；`python -I -B` 核对安装 | 元数据、实际模块、pyproject、网页 package.json 均为 4.7.0；安装导入为该独立 `.venv/lib/python3.13/site-packages/autog_frontend/__init__.py` |
+| Python 全量，一次 | `.venv/bin/python -B -m unittest discover -s tests -t . -v` | 205 项：203 通过、2 跳过，82.363 秒；源码导入来自本工作树 `autog_frontend/__init__.py` |
+| 类型／生产构建，一次 | `pnpm --dir web build` | 通过；保留既有大于 500 kB chunk 提示，未改阈值或构建设置 |
+| 浏览器全量，一次 | `AUTOG_SOURCE_PYTHON=<本树解释器> pnpm --dir web test` | 362 项全部通过，0 失败、0 跳过，6.0 分钟；1 worker、retries=0，原有超时阈值不变 |
+| 范围及静态图 | 323 个跟踪文件的 SHA-256 清单，测试前后核对 | 实现、测试和锁文件相同；工作树静态参考图无变化，截图仅写临时副本／测试输出 |
+
+两项 Python 跳过分别是 `tests.test_server_monitor.PairedBackendTests` 与 `tests.test_actions.PairedResourceTests`，因为没有提供其指定的实际后端环境。**两项均不计作本次最终配套通过。**
+
+浏览器源码由上述完整提交导出，开始前 323 个文件逐项 SHA-256 与工作树一致，并独立安装冻结依赖。测试使用同一独立 Python，实际前端模块来自临时副本的 `autog_frontend/__init__.py`；完整解释器与导入绝对路径仅存本机日志。只启动 18765–18769 临时回环测试服务，使用合成 study 与假 ag，结束后释放；未读取生产配置或研究数据。
+
+覆盖既有服务器四/五卡、PBS/Slurm、重试／迟到状态、研究、结果、证据、报告阅读、构象及振动、跨页实际本地 HTTP 集成；也包含 T158 默认档位、手选保留、容量未知、节点/比例与旧 CLI 路径，以及 T160 四种诊断状态、哈希不符、缺来源、惰性读取、分页及移动端。另目检本次合成的窄屏资源表单与桌面诊断来源截图。临时副本的六张既有 T132 参考 PNG 被测试更新，工作树原图逐字节不变，不提交生成图。
+
+### 最终配套与交付状态
+
+- 等待协调方提供 T178 **真实完整合并 SHA** 后，核对 GitHub merged 记录并从该提交导出实际后端源码；按现有 `T151_BACKEND_SOURCE` / PairedBackendTests 实际运行，记录 testsRun、skipped、模块来源和后端版本。当前后端 main、分支 HEAD 和历史功能配套均不替代。
+- 本次有效私有词表已确认存在、非空且正则有效；全量扫描 323 文件（110 个二进制跳过）、暂存扫描 7 文件均零命中，`git diff --check` 与 author/committer noreply 核对通过；交付前再核对最终暂存内容。
+- 最终准确 HEAD 的 CI、独立审阅及配套未齐前保持 draft，不自行合并。前后端相关内容若再变，补受影响检查。
+- 仅离线合成、构建和发布候选配套验证；未进行真实服务重启、集群验证或计算。未创建 tag/Release、未部署、未推 main；未修改研究数据、旧 Attempt 或生产配置。
