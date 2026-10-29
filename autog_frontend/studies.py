@@ -471,6 +471,8 @@ class Studies:
 
     def file(self, study, path):
         parts = tuple(component(p) for p in path.split('/'))
+        if parts[0].casefold() == 'autonomy':
+            raise StudyError('Autonomy records are private; use the filtered autonomy view', 403)
         suffix = Path(parts[-1]).suffix.lower()
         if suffix not in FILE_TYPES:
             raise StudyError('Unsupported file type', 400)
@@ -781,6 +783,10 @@ class Studies:
                     previous = {}
                 validated = {}
                 for name in names:
+                    if not parts and name.casefold() == 'autonomy':
+                        # Raw records can contain run credentials. Only the
+                        # dedicated whitelist projection is public to the UI.
+                        continue
                     if count >= EVIDENCE_ENTRY_LIMIT:
                         truncated = True
                         break

@@ -1,0 +1,116 @@
+.autonomy-view {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.autonomy-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.autonomy-heading h2,
+.autonomy-heading p {
+  margin: 0 0 var(--space-2);
+}
+.autonomy-view > .muted,
+.autonomy-view > .notice {
+  margin: 0;
+}
+.autonomy-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.autonomy-view .Panel {
+  min-width: 0;
+  padding: var(--space-4);
+}
+.autonomy-view .FactGrid {
+  grid-template-columns: minmax(96px, 1fr) minmax(0, 3fr);
+}
+.autonomy-view .FactGrid dd,
+.autonomy-view code,
+.autonomy-list li,
+.autonomy-prose {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.autonomy-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.autonomy-counts > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+.autonomy-counts span {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.autonomy-counts strong {
+  font-size: var(--fs-kpi);
+}
+.autonomy-plan + .autonomy-plan {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+}
+.autonomy-plan h3 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.autonomy-list {
+  padding-left: var(--space-6);
+}
+.autonomy-list li {
+  margin: var(--space-2) 0;
+}
+.autonomy-events {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  background: var(--surface);
+}
+@media (max-width: 740px) {
+  .autonomy-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .autonomy-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .autonomy-heading {
+    flex-wrap: wrap;
+  }
+  .autonomy-view .FactGrid {
+    grid-template-columns: minmax(86px, 1fr) minmax(0, 2fr);
+  }
+}
+
+.autonomy-policy {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.autonomy-policy h4,
+.autonomy-policy h5,
+.autonomy-policy h6 {
+  font-size: var(--fs-md);
+  margin: var(--space-3) 0 var(--space-2);
+}
+.autonomy-policy section + section,
+.autonomy-method + .autonomy-method {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-2);
+}

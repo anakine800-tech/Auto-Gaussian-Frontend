@@ -80,6 +80,75 @@ class ActionsTests(unittest.TestCase):
         bad=json.loads(json.dumps(targets));bad['nodes'][0]['options'][0]['cores']=999
         with self.assertRaises(ValueError):validate_targets(bad,'default',actions.clusters['default']['tiers'])
 
+    def test_old_and_whole_node_capabilities_start_and_bind_current_candidates(self):
+        """Both CLI generations start; whole-node selection needs its capability."""
+        for whole in (False, True):
+            with self.subTest(whole=whole):
+                _, targets = self.node_setup()
+                config = settings(self.studies)
+                row = config['clusters'][0]
+                fractions = ['1/2', '1/4', '1'] if whole else ['1/2', '1/4']
+                row['node_targeting'] = dict(default_fraction='1/2', fractions=fractions)
+                row['resources']['tiers'].update(mini=dict(cores=12, mem_gb=24),
+                    general=dict(cores=24, mem_gb=48), max=dict(cores=48, mem_gb=96))
+                targets['nodes'][0]['options'] += [dict(fraction='1/4', cores=12, mem_gb=24, tier='mini')]
+                if whole:
+                    targets['nodes'][0]['options'] += [dict(fraction='1', cores=48, mem_gb=96, tier='max')]
+                self.control(clusters_response=config, nodes_response=targets)
+                actions = Actions(Studies(self.studies), self.fake)
+                self.assertEqual(actions.clusters['default']['node_targeting'], row['node_targeting'])
+                self.assertEqual(actions.node_targets()['default'], targets)
+                payload = dict(action='prepare', study='butane-demo', attempt='prepared', cluster='default',
+                    input=gjf(), tier='max', walltime='01:00:00', label='whole', relation='derived_from',
+                    method_basis='Synthetic only', target_node='compute-a', node_fraction='1')
+                if not whole:
+                    with self.assertRaisesRegex(StudyError, 'not supported'):
+                        actions.execute(payload)
+                    self.assertFalse((self.study/'drafts').exists())
+                else:
+                    result = actions.execute(payload)
+                    self.assertEqual(result['exit_code'], 0, result)
+                    manifest = json.loads(result['stdout'])
+                    self.assertEqual((manifest['cores'], manifest['mem_gb'], manifest['tier']), (48, 96, 'max'))
+                    prepare = [args for args in self.calls() if args[0] == 'prepare']
+                    self.assertEqual(len(prepare), 1)
+                    self.assertEqual(prepare[0][-4:], ['--target-node', 'compute-a', '--node-fraction', '1'])
+                    self.assertFalse(any(args[0] in ('submit', 'cancel', 'fetch') for args in self.calls()))
+
+    def test_node_capability_rejects_unknown_missing_duplicate_or_changed_defaults(self):
+        invalid = [None, {}, {'fractions': ['1/2', '1/4']},
+                   dict(default_fraction='1', fractions=['1/2', '1/4', '1']),
+                   dict(default_fraction='1/2', fractions=['1/2']),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4', '1/8']),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4', '1', '1']),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4', 1]),
+                   dict(default_fraction='1/2', fractions=['1/2', '1/4'], arbitrary=True)]
+        for capability in invalid:
+            with self.subTest(capability=capability):
+                config = settings(self.studies)
+                config['clusters'][0]['node_targeting'] = capability
+                self.control(clusters_response=config)
+                with self.assertRaisesRegex(ValueError, 'node targeting capability'):
+                    Actions(Studies(self.studies), self.fake)
+
+    def test_whole_node_candidates_cannot_expand_capabilities_or_resources(self):
+        actions, targets = self.node_setup()
+        tiers = actions.clusters['default']['tiers'] | {'max': dict(cores=48, mem_gb=96, mem_mb=76800)}
+        targets['nodes'][0]['options'] = [dict(fraction='1', cores=48, mem_gb=96, tier='max')]
+        with self.assertRaises(ValueError):
+            validate_targets(targets, 'default', tiers)
+        supported = ('1/2', '1/4', '1')
+        self.assertEqual(validate_targets(targets, 'default', tiers, supported), targets)
+        for options in ([dict(fraction='1/8', cores=48, mem_gb=96, tier='max')],
+                        targets['nodes'][0]['options'] * 2,
+                        [dict(fraction='1', cores=47, mem_gb=94, tier='max')],
+                        [dict(fraction='1', cores=48, mem_gb=96, tier='missing')],
+                        targets['nodes'][0]['options'] * 4):
+            bad = json.loads(json.dumps(targets))
+            bad['nodes'][0]['options'] = options
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                validate_targets(bad, 'default', tiers, supported)
+
     def test_node_priority_groups_and_order_contract(self):
         actions,targets=self.node_setup()
         prototype=targets['nodes'][0]
@@ -923,3 +992,292 @@ with patch.object(cli, 'load_config', return_value=cfg), patch.object(capacity, 
             self.assertEqual(source_input.read_bytes(), original_input)
             self.assertEqual(source_input.stat().st_mtime_ns, original_mtime)
             self.assertFalse((root/'remote').exists())
+
+
+class AutonomyActionTests(unittest.TestCase):
+    setUp = ActionsTests.setUp
+    client_for = ActionsTests.client_for
+    post = ActionsTests.post
+    prepare = ActionsTests.prepare
+    calls = ActionsTests.calls
+    control = ActionsTests.control
+
+    def saved(self, phase='running', lease='active'):
+        from tests.autonomy_fixture import create_autonomy
+        snapshot = create_autonomy(self.study, phase, lease=lease)
+        self.control(autonomy_response=snapshot)
+        return snapshot
+
+    def write_calls(self):
+        return [row for row in self.calls() if row[0] in ('prepare', 'submit', 'cancel', 'fetch')]
+
+    def all_writes_refused(self):
+        for action in ('prepare', 'submit', 'cancel', 'fetch'):
+            response = self.prepare() if action == 'prepare' else self.post(action)
+            self.assertEqual(response.status_code, 409, (action, response.text))
+        self.assertEqual(self.write_calls(), [])
+        self.assertFalse((self.study/'drafts').exists())
+
+    def test_running_including_wakeup_gaps_and_expired_lease_refuses_direct_http(self):
+        for lease in ('active', 'none', 'expired'):
+            with self.subTest(lease=lease):
+                self.saved(lease=lease)
+                context = self.client.get('/api/actions/butane-demo/prepared').json()
+                self.assertTrue(context['autonomy']['manual_actions_blocked'])
+                self.all_writes_refused()
+                self.assertEqual(self.post('status').status_code, 200)
+        self.assertFalse(any(row[0] == 'autonomy' for row in self.calls()))
+
+    def test_paused_lease_blocks_then_released_and_ended_use_normal_rules(self):
+        self.saved('paused')
+        self.all_writes_refused()
+        for phase in ('paused', 'ended'):
+            self.saved(phase, lease='none')
+            response = self.post('fetch')
+            self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row[0] for row in self.write_calls()], ['fetch', 'fetch'])
+        queries = [row for row in self.calls() if row[0] == 'autonomy']
+        self.assertEqual(queries, [['autonomy', 'status', '--study', str(self.study), '--json']] * 2)
+
+    def test_old_backend_absent_works_but_existing_unverifiable_state_refuses(self):
+        self.control(autonomy_code=2, autonomy_stderr='unsupported command')
+        self.assertEqual(self.post('fetch').status_code, 200)
+        self.assertFalse(any(row[0] == 'autonomy' for row in self.calls()))
+        self.saved('ended', lease='none')
+        self.control(autonomy_code=2, autonomy_stderr='private backend error')
+        response = self.post('fetch')
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn('private backend error', response.text)
+        self.assertEqual(len(self.write_calls()), 1)
+
+    def test_unknown_missing_and_corrupt_state_refuse_all_four_actions(self):
+        from tests.autonomy_fixture import write_snapshot
+        snapshot = self.saved('ended', lease='none')
+        for variant in ('missing', 'truncated', 'unsupported', 'bad-hash'):
+            path = self.study/'autonomy/state.json'
+            write_snapshot(self.study, snapshot)
+            if variant == 'missing':
+                path.unlink()
+            elif variant == 'truncated':
+                path.write_text('{')
+            else:
+                changed = json.loads(json.dumps(snapshot))
+                if variant == 'unsupported':
+                    changed['state']['schema'] = 'ag-autonomy/999'
+                else:
+                    changed['journal_sha256'] = 'f' * 64
+                write_snapshot(self.study, changed)
+            with self.subTest(variant=variant):
+                self.all_writes_refused()
+
+    def test_stale_page_and_repeated_clicks_recheck_current_state(self):
+        context = self.client.get('/api/actions/butane-demo/prepared').json()
+        self.assertFalse(context['autonomy']['manual_actions_blocked'])
+        self.saved()
+        self.all_writes_refused()
+        self.all_writes_refused()
+
+    def test_change_during_draft_rejected_at_dispatch(self):
+        from tests.autonomy_fixture import create_autonomy
+        actions = Actions(Studies(self.studies), self.fake)
+        original = actions.draft
+        def changing_draft(*args):
+            result = original(*args)
+            create_autonomy(self.study, lease='none')
+            return result
+        payload = dict(action='prepare', study='butane-demo', attempt='prepared',
+                       cluster='default', input=gjf(), tier='general', walltime='02:00:00',
+                       label='changed', relation='derived_from', method_basis='Synthetic')
+        with patch.object(actions, 'draft', side_effect=changing_draft), patch.object(actions, 'run') as run:
+            with self.assertRaisesRegex(StudyError, '自主轮次仍在运行'):
+                actions.execute(payload)
+            run.assert_not_called()
+        self.assertEqual(self.write_calls(), [])
+
+    def test_backend_status_cannot_disagree_with_local_or_change_during_query(self):
+        from tests.autonomy_fixture import create_autonomy
+        actions = Actions(Studies(self.studies), self.fake)
+        snapshot = self.saved('ended', lease='none')
+        old_query = actions.autonomy_status
+        def changing_query(argv):
+            result = old_query(argv)
+            create_autonomy(self.study, lease='none')
+            return result
+        with patch.object(actions, 'autonomy_status', side_effect=changing_query), patch.object(actions, 'run') as run:
+            with self.assertRaises(StudyError):
+                actions.execute(dict(action='fetch', study='butane-demo', attempt='prepared'))
+            run.assert_not_called()
+        self.saved('ended', lease='none')
+        # A selected backend returning a different journal is not this snapshot.
+        snapshot['journal_sha256'] = 'f' * 64
+        self.control(autonomy_response=snapshot)
+        self.assertEqual(self.post('fetch').status_code, 409)
+        self.assertEqual(self.write_calls(), [])
+
+    def test_private_records_and_status_errors_never_reach_http(self):
+        from tests.autonomy_fixture import FAKE_TOKEN
+        self.saved('ended', lease='none')
+        for path in ('autonomy/state.json', 'Autonomy/state.json', 'AUTONOMY/state.json',
+                     'autonomy/plan-plan-demo.json', 'autonomy/journal.jsonl'):
+            response = self.client.get('/api/studies/butane-demo/files/' + path)
+            self.assertEqual(response.status_code, 403)
+        evidence = self.client.get('/api/studies/butane-demo/evidence').json()
+        self.assertFalse(any(row['path'].startswith('autonomy/') for row in evidence['files']))
+        for url in ('/api/studies/butane-demo/autonomy', '/api/actions/butane-demo/prepared'):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(FAKE_TOKEN, response.text)
+            self.assertNotIn('token_sha256', response.text)
+        self.control(autonomy_stdout=FAKE_TOKEN, autonomy_stderr=FAKE_TOKEN)
+        response = self.post('fetch')
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn(FAKE_TOKEN, response.text)
+        self.assertEqual(self.write_calls(), [])
+
+    def test_private_status_output_limit_and_timeout_preserve_operation_lock(self):
+        from tests.autonomy_fixture import FAKE_TOKEN
+        self.saved('ended', lease='none')
+        self.control(autonomy_stdout='x' * 2048, autonomy_stderr=FAKE_TOKEN)
+        with patch('autog_frontend.actions.AUTONOMY_OUTPUT_LIMIT', 1024):
+            self.assertEqual(self.post('fetch').status_code, 409)
+        self.control(autonomy_wait_for_release=True, autonomy_stdout=FAKE_TOKEN + 'x' * (3 * 1024 * 1024),
+                     autonomy_stderr=FAKE_TOKEN + 'e' * (3 * 1024 * 1024))
+        with patch.object(Actions, 'drain', side_effect=AssertionError('Private output must use bounded discard')) as drain:
+            try:
+                with patch('autog_frontend.actions.AUTONOMY_TIMEOUT', .05):
+                    response = self.post('fetch')
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()['timed_out'])
+                self.assertNotIn(FAKE_TOKEN, response.text)
+                self.assertEqual((response.json()['stdout'], response.json()['stderr']), ('', ''))
+                self.assertEqual(self.post('status').status_code, 409)
+                self.assertEqual(self.write_calls(), [])
+            finally:
+                (self.root/'release').touch()
+            deadline = time.monotonic() + 3
+            while self.post('status').status_code == 409 and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertEqual(self.post('status').status_code, 200)
+            drain.assert_not_called()
+
+    def test_readonly_endpoint_never_invokes_ag_or_mutates_records(self):
+        self.saved()
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.study.rglob('*') if p.is_file()}
+        with patch('subprocess.Popen', side_effect=AssertionError('read-only must not invoke ag')):
+            client = self.client_for(create_app(self.studies))
+            self.assertEqual(client.get('/api/studies/butane-demo/autonomy').status_code, 200)
+            self.assertEqual(client.post('/api/actions').status_code, 405)
+        self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
+
+
+class PairedAutonomyTests(unittest.TestCase):
+    def test_saved_t184_records_and_status_projection(self):
+        """Real local bookkeeping only, not T186 action-boundary or CLI proof."""
+        import sys
+        source = os.environ.get('T196_BACKEND_SOURCE')
+        if not source:
+            self.skipTest('Supply the isolated T184 backend source for the paired run')
+        source = Path(source).resolve()
+        with patch.object(sys, 'path', [str(source), *sys.path]):
+            from ag import autonomy as backend, study as backend_study
+        self.assertEqual(Path(backend.__file__).resolve(), source/'ag/autonomy.py')
+        self.assertEqual(Path(backend.disk.__file__).resolve(), source/'ag/_autonomy_store.py')
+        from autog_frontend.autonomy import read_autonomy, validate_status
+        at = 1800000000
+        versions = dict(ag_version='synthetic-pairing', git_commit='a' * 40, dirty=False,
+                        rdkit='synthetic', goodvibes='synthetic')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            cfg = dict(local=dict(studies_root=str(root/'studies')))
+            name = 'autonomy-pairing-demo'
+            with patch.object(backend, 'versions', return_value=versions), \
+                    patch.object(backend, 'now', side_effect=lambda: at), \
+                    patch('subprocess.Popen', side_effect=AssertionError('Subprocesses forbidden')), \
+                    patch('socket.socket', side_effect=AssertionError('Network forbidden')):
+                backend_study.init(cfg, name)
+                path = root/'studies'/name
+                store = Studies(root/'studies')
+
+                def check(phase, blocked, lease_status=None):
+                    before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                              for p in path.rglob('*') if p.is_file()}
+                    saved = read_autonomy(store, name, now=at)
+                    public = validate_status(backend.status(cfg, name), now=at)
+                    self.assertEqual((saved['status'], public['status']), ('ok', 'ok'))
+                    self.assertEqual((saved['phase'], saved['manual_actions_blocked']), (phase, blocked))
+                    self.assertEqual(saved['lease']['status'] if saved['lease'] else None, lease_status)
+                    for key in ('phase', 'seq', 'journal_sha256', 'current_plan', 'current_round',
+                                'current_run', 'lease', 'totals', 'summary', 'pending', 'plans'):
+                        self.assertEqual(saved[key], public[key], key)
+                    self.assertEqual(public['verification'], 'ag-status')
+                    self.assertEqual(saved['integration'], 'pending-backend-action-boundary')
+                    self.assertNotIn('token', json.dumps(saved))
+                    self.assertNotIn('token', json.dumps(public))
+                    self.assertEqual({p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}, before)
+                    return saved
+
+                backend.initialize(cfg, name)
+                initial = check('ended', False)
+                self.assertIsNone(initial['current_plan'])
+                self.assertIsNone(initial['current_round'])
+                at += 1
+                plan = backend.create_plan(cfg, name, dict(goal='Synthetic local projection check',
+                    comparison_groups=['synthetic'], method_policy='Synthetic method only',
+                    mechanism_scope='No scientific conclusion',
+                    system_rules=dict(main='Synthetic main', small='Synthetic small'),
+                    estimated_hours=1, attempt_limit=3, valid_until=at + 20000))
+                self.assertIsNone(check('ended', False)['plans'][0]['confirmation'])
+                at += 1
+                backend.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic confirmation')
+                self.assertEqual(check('ended', False)['plans'][0]['confirmation']['sha256'], plan['sha256'])
+                at += 1
+                backend.begin(cfg, name, plan['plan_id'], 'Synthetic authorization round')
+                running = check('running', True)
+                round_id = running['current_round']['id']
+                self.assertIsNone(running['current_run'])
+                at += 1
+                first = backend.start(cfg, name, plan['plan_id'], 'synthetic-session')
+                awake = check('running', True, 'active')
+                self.assertEqual(awake['current_run']['id'], first['run_id'])
+                expired = read_autonomy(store, name, now=at + backend.LEASE_SECONDS + 1)
+                self.assertEqual(expired['lease']['status'], 'expired')
+                self.assertTrue(expired['manual_actions_blocked'])
+                at += 1
+                backend.change(cfg, name, 'count', first['run_id'], first['token'],
+                    kind='attempt', request_id='synthetic-intent', object_id='synthetic-object',
+                    failure_class='none', evidence='Synthetic intent only')
+                at += 1
+                backend.change(cfg, name, 'update', first['run_id'], first['token'],
+                    summary='Synthetic saved summary', pending=['Synthetic pending decision'], objects={})
+                counted = check('running', True, 'active')
+                self.assertEqual(counted['totals']['attempt'], 1)
+                self.assertEqual(counted['current_round']['totals']['attempt'], 1)
+                self.assertEqual(counted['current_run']['totals']['attempt'], 1)
+                self.assertEqual(counted['pending'], ['Synthetic pending decision'])
+                at += 1
+                backend.change(cfg, name, 'finish', first['run_id'], first['token'], reason='Synthetic wake finished')
+                gap = check('running', True)
+                self.assertEqual(gap['current_round']['id'], round_id)
+                self.assertIsNone(gap['current_run'])
+                at += 1
+                second = backend.start(cfg, name, plan['plan_id'], 'synthetic-next-session')
+                next_wake = check('running', True, 'active')
+                self.assertEqual(next_wake['current_round']['id'], round_id)
+                self.assertNotEqual(second['run_id'], first['run_id'])
+                self.assertEqual(next_wake['current_run']['totals']['attempt'], 0)
+                self.assertEqual(next_wake['current_round']['totals']['attempt'], 1)
+                at += 1
+                backend.pause(cfg, name, 'Synthetic pause')
+                check('paused', True, 'active')
+                at += 1
+                backend.change(cfg, name, 'finish', second['run_id'], second['token'], reason='Synthetic lease release')
+                check('paused', False)
+                at += 1
+                backend.change(cfg, name, 'end', None, None, round_id=round_id, reason='Synthetic round ended')
+                ended = check('ended', False)
+                self.assertEqual(ended['current_plan'], plan['plan_id'])
+                self.assertEqual(ended['current_round']['id'], round_id)
+                self.assertEqual(ended['current_round']['ended_at'], at)
+                self.assertEqual(ended['current_round']['totals']['attempt'], 1)
+                self.assertIsNone(ended['lease'])
+                self.assertIsNone(ended['current_run'])

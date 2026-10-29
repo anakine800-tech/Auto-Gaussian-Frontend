@@ -54,6 +54,16 @@ def main():
     if args[0] == 'nodes':
         print(json.dumps(control.get('nodes_response', {})))
         return 0
+    if args[0:2] == ['autonomy', 'status']:
+        (home/'autonomy-started').touch()
+        while control.get('autonomy_wait_for_release') and not (home/'release').exists():
+            time.sleep(.01)
+        if 'autonomy_stdout' in control:
+            print(control['autonomy_stdout'], end='')
+        else:
+            print(json.dumps(control.get('autonomy_response', {})))
+        print(control.get('autonomy_stderr', ''), end='', file=sys.stderr)
+        return control.get('autonomy_code', 0)
     (home/'started').touch()
     print(control.get('early_stdout', ''), end='', flush=True)
     print(control.get('early_stderr', ''), end='', file=sys.stderr, flush=True)
