@@ -123,3 +123,15 @@
 .structure-comparison .comparison-differences{max-height:100px;overflow:auto;font-size:var(--fs-sm);margin:8px 0}
 .comparison-method{font-size:var(--fs-xs);line-height:1.5;max-height:4.5em;overflow:auto;overflow-wrap:anywhere;margin:6px 0}
 @media(max-width:1023px){.irc-structure-grid{grid-template-columns:minmax(0,1fr)}.Drawer:has(.structure-comparison){width:100vw;padding:12px}}
+
+/* General comparisons can span several rows; report-bound IRC cards retain
+   their existing three-card viewport sizing and narrow-screen layout. */
+.structure-comparison .irc-structure-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.structure-comparison .irc-structure-card{min-width:0}
+.structure-comparison .irc-structure-card .molecule-stage svg{height:260px;max-height:none}
+.structure-comparison .comparison-controls>label{min-width:0;max-width:100%;flex-wrap:wrap}
+.structure-comparison .comparison-controls select,.structure-comparison .comparison-controls input:not([type=checkbox]){min-width:0;max-width:100%}
+.structure-comparison [aria-label="Kabsch RMSD"]{display:flex;flex-wrap:wrap;gap:4px 24px;padding-left:20px;font-size:var(--fs-sm);overflow-wrap:anywhere}
+@media(min-width:1024px){.structure-comparison .irc-structure-grid[data-structure-count="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:740px) and (max-width:1023px){.structure-comparison .irc-structure-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:739px){.structure-comparison .irc-structure-grid{grid-template-columns:minmax(0,1fr)}.structure-comparison .comparison-controls>label{width:100%}}

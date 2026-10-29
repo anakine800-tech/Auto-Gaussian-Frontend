@@ -97,18 +97,22 @@ test('five milestone states, source line, recent files collapsed and last three 
  await page.getByRole('article',{name:'待签字',exact:true}).getByRole('button').click();await expect(page.locator('#milestones')).toContainText('仅待签');await expect(page.locator('#milestones').getByText('已签',{exact:true})).toHaveCount(0);
 });
 
-test('basket survives detail, reload, navigation, shared link and seventh-item rejection',async({page,context})=>{
+test('basket survives detail, reload, navigation, shared link and eleventh-item rejection',async({page,context,request})=>{
+ const data=await (await request.get('/api/studies/butane-demo')).json();
+ const example=data.attempts.find((a:any)=>a.id==='anti');
+ while(data.attempts.length<11)data.attempts.push({...example,id:`synthetic-extra-${data.attempts.length}`,label:'Synthetic capacity entry'});
+ await context.route('**/api/studies/butane-demo',r=>r.fulfill({json:data}));
  await page.goto('/#/s/butane-demo/attempts');
  const boxes=page.getByRole('table',{name:'Attempt 结果表'}).getByRole('checkbox');
- for(let i=0;i<6;i++)await boxes.nth(i).check();
+ for(let i=0;i<10;i++)await boxes.nth(i).check();
  const selected=await boxes.nth(0).getAttribute('aria-label');
- await boxes.nth(6).click();await expect(boxes.nth(6)).not.toBeChecked();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText('最多 6 项');
+ await boxes.nth(10).click();await expect(boxes.nth(10)).not.toBeChecked();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText('最多 10 项');
  const url=page.url();await page.getByRole('table',{name:'Attempt 结果表'}).getByRole('link',{name:'anti',exact:true}).click();await expect(page).toHaveURL(/research\/a\/anti\?cmp=/);
  await page.reload();const removed=page.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:/^移除 /}).last();await removed.click();
  await page.getByRole('link',{name:'← 返回列表'}).click();await expect(page.getByRole('checkbox',{name:selected!,exact:true})).toBeChecked();
- await expect(page.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(5);
- await page.getByRole('button',{name:'结果',exact:true}).click();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText('5 / 6');
- const other=await context.newPage();await other.goto(url);await expect(other.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(6);
+ await expect(page.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(9);
+ await page.getByRole('button',{name:'结果',exact:true}).click();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText('9 / 10');
+ const other=await context.newPage();await other.goto(url);await expect(other.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(10);
  await other.goto('/#/s/butane-demo/attempts?cmp=anti,gauche');await expect(other.getByRole('table',{name:'Attempt 结果表'}).locator('input:checked')).toHaveCount(2);
  await other.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'打开比较',exact:true}).click();
  await expect(other.getByRole('heading',{name:'比较（前端现场计算，非正式结果）'})).toBeVisible();

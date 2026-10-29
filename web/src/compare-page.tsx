@@ -1,8 +1,8 @@
 import {useEffect,useState} from 'react';
 import {endpoint,get,object} from './api';
 import type {Study} from './api';
-import {useCompareBasket} from './compare-basket';
-import {comparisonEntries,comparisonObjects,comparisonEnergy,energyMetrics,inspectProtocol,protocolKeys,thermoKeys} from './quick-comparison';
+import {COMPARE_LIMIT,useCompareBasket} from './compare-basket';
+import {loadComparisonSources,comparisonEntries,comparisonObjects,comparisonEnergy,energyMetrics,inspectProtocol,protocolKeys,thermoKeys} from './quick-comparison';
 import type {CompareSource,EvidenceCatalog} from './quick-comparison';
 import {parseAtomPairs,StructureComparison} from './structure-comparison';
 import {isGeometry} from './molecule-viewer';
@@ -15,12 +15,12 @@ const shown=(v:unknown):string=>v===true?'通过':v===false?'未通过':typeof v
 export function ComparePage({data,revision}:{data:Study;revision:number}){
  const {ids}=useCompareBasket(data.id),key=ids.join('/');
  const [sources,setSources]=useState<Record<string,CompareSource>|null>(null),[catalog,setCatalog]=useState<EvidenceCatalog>(),[error,setError]=useState(''),[reference,setReference]=useState(''),[differences,setDifferences]=useState(false),[pairText,setPairText]=useState(''),[overlays,setOverlays]=useState<string[]>([]);
- useEffect(()=>{const c=new AbortController();setSources(null);setError('');setOverlays(ids.slice(0,3));
+ useEffect(()=>{const c=new AbortController();setSources(null);setCatalog(undefined);setError('');setOverlays(ids);
   get<{catalog:EvidenceCatalog}>(endpoint(data.id,'evidence'),c.signal).then(async result=>{
    const objects=comparisonObjects(result.catalog),needed=new Set(ids);
    for(const o of objects)if(o.members.some(id=>ids.includes(id))||Object.values(o.adopted).some(id=>ids.includes(id)))Object.values(o.adopted).forEach(id=>needed.add(id));
-   const loaded=await Promise.all([...needed].map(async id=>{try{return [id,await get<CompareSource>(endpoint(data.id,'attempts',id,'comparison-structure'),c.signal)] as const;}catch(e){return [id,{id,facts:{data:null,error:(e as Error).message},geometry:{data:null,error:(e as Error).message}}] as const;}}));
-   if(!c.signal.aborted){setCatalog(result.catalog);setSources(Object.fromEntries(loaded));}
+   const loaded=await loadComparisonSources(data.id,[...needed],c.signal);
+   if(!c.signal.aborted){setCatalog(result.catalog);setSources(loaded);}
   }).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();
  },[data.id,key,revision]);
  const entries=comparisonEntries(ids,comparisonObjects(catalog),sources??{}),ref=entries.find(e=>e.id===reference)??entries[0];
@@ -47,8 +47,8 @@ export function ComparePage({data,revision}:{data:Study;revision:number}){
  <div className="comparison-sources">{entries.map(e=><div key={e.id}><strong>{e.label}</strong>{e.error&&<p role="status">{e.error}</p>}{Object.entries(e.layers).map(([layer,s])=>s&&<a key={layer} href={routeHash([data.id,s.id])}>{layer.toUpperCase()}：{s.id}</a>)}</div>)}</div>
  <h3>几何</h3><label>原子对 <input aria-label="比较原子对" placeholder="1-2,2-3" value={pairText} onChange={e=>setPairText(e.target.value)}/></label>{pairError&&<ErrorNotice>{pairError}</ErrorNotice>}
  <p>距离取比较篮条目的最终结构，编号不重排。</p>{table('几何距离',pairs.map(([a,b])=>({name:`${a}-${b} / Å`,values:entries.map(e=>{const g=sources[e.id]?.geometry.data;if(!isGeometry(g))return '缺失几何';const l=g.atoms[a-1],r=g.atoms[b-1];return l&&r?Math.hypot(l.x-r.x,l.y-r.y,l.z-r.z).toFixed(4):'原子编号超出结构';})})))}
- <h3>结构叠合</h3><fieldset><legend>从比较篮选择 2–3 个结构</legend>{ids.map(id=><label key={id}><input type="checkbox" checked={overlays.includes(id)} disabled={!overlays.includes(id)&&overlays.length>=3} onChange={e=>setOverlays(e.target.checked?[...overlays,id]:overlays.filter(v=>v!==id))}/>{id}</label>)}</fieldset>
- {overlays.length>=2?<StructureComparison key={overlays.join('/')} study={data.id} ids={overlays} inline initialPairs={pairText}/>:<p>至少选择两个结构以显示 Kabsch 对齐与 RMSD。</p>}
+ <h3>结构叠合</h3><fieldset><legend>从比较篮选择 2–{COMPARE_LIMIT} 个结构</legend>{ids.map(id=><label key={id}><input type="checkbox" checked={overlays.includes(id)} disabled={!overlays.includes(id)&&overlays.length>=COMPARE_LIMIT} onChange={e=>setOverlays(e.target.checked?[...overlays,id]:overlays.filter(v=>v!==id))}/>{id}</label>)}</fieldset>
+ {overlays.length>=2?<StructureComparison study={data.id} ids={overlays} loadedSources={sources} inline initialPairs={pairText}/>:<p>至少选择两个结构以显示 Kabsch 对齐与 RMSD。</p>}
  </>}
  </article>;
 }

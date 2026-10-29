@@ -87,7 +87,7 @@ for(const [width,height] of [[1440,860],[1280,720]])for(const count of [2,3])tes
  for(const card of await dialog.locator('.irc-structure-card').all()){await card.scrollIntoViewIfNeeded();const box=(await card.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);await expect(card.getByTestId('molecule-scene')).toBeVisible();}
  expect(writes).toEqual([]);expect(reads.every(url=>url.endsWith('/comparison-structure'))).toBe(true);
  await page.screenshot({path:info.outputPath(`t110-comparison-${count}-${width}.png`)});
- await page.getByRole('button',{name:'研究',exact:true}).click();await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();await page.getByRole('checkbox',{name:'比较 waiting',exact:true}).check();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText(`${count+1} / 6`);
+ await page.getByRole('button',{name:'研究',exact:true}).click();await page.getByRole('button',{name:'全部 Attempt',exact:true}).click();await page.getByRole('checkbox',{name:'比较 waiting',exact:true}).check();await expect(page.getByRole('complementary',{name:'比较篮'})).toContainText(`${count+1} / 10`);
 });
 test('one selection disabled; incompatible protocols and atom order are explicit; narrow cards stack',async({page})=>{
  await page.goto('/#/s/butane-demo/attempts');await page.getByRole('checkbox',{name:'比较 anti',exact:true}).check();await expect(page.getByRole('complementary',{name:'比较篮'}).getByRole('button',{name:'打开比较'})).toBeDisabled();

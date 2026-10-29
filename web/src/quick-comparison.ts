@@ -1,4 +1,4 @@
-import {object} from './api';
+import {endpoint,get,object} from './api';
 import type {Attempt} from './api';
 import {isGeometry} from './molecule-viewer';
 
@@ -84,6 +84,27 @@ export function compareAttempts(attempts:Pick<Attempt,'id'|'facts'|'geometry'>[]
 // The unified page reuses the exact T82 parser above. Legacy comparisons stay
 // strict; only the explicitly requested cross-multiplicity state gap is new.
 export type CompareSource=Pick<Attempt,'id'|'facts'|'geometry'>;
+// A load owns its sources: one request/JSON parse per actual Attempt, shared
+// across adopted layers and the structure viewer. Refreshes create a new load.
+export async function loadComparisonSources(study:string,ids:string[],signal:AbortSignal):Promise<Record<string,CompareSource>> {
+ const loaded=await Promise.all([...new Set(ids)].map(async id=>{
+  let source:CompareSource;
+  try {
+   source=await get<CompareSource>(endpoint(study,'attempts',id,'comparison-structure'),signal);
+   source={...source,id,
+    facts:source.facts.error?{...source.facts,data:null}:source.facts,
+    geometry:source.geometry.error?{...source.geometry,data:null}:source.geometry,
+   };
+  } catch(error) {
+   if(signal.aborted)throw error;
+   const message=(error as Error).message;
+   source={id,facts:{data:null,error:message},geometry:{data:null,error:message}};
+  }
+  return [id,source] as const;
+ }));
+ return Object.fromEntries(loaded);
+}
+
 export const protocolKeys=['方法','基组','色散','溶剂模型','溶剂','基函数形式','程序版本','元素组成','电荷','多重度'];
 export function inspectProtocol(a:CompareSource|undefined,thermodynamics=false){
  const spec:Record<string,string>={},errors:string[]=[];
