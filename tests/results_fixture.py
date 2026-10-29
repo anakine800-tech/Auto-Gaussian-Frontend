@@ -70,6 +70,108 @@ VIBRATION_FACTS_CASES = {
 }
 
 
+# Each value is a manifest-field overlay, including absence for legacy input.
+# These are deliberately invalid as well as valid saved records, not ag output.
+RELAXED_INPUT_CASES = {
+    "valid": {
+        "input_validation": {
+            "mode": "relaxed",
+            "skipped_checks": [
+                "route keyword support", "custom basis parsing", "SCRF=Read parsing"
+            ],
+            "method_verified": False,
+        }
+    },
+    "empty": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": [], "method_verified": False,
+    }},
+    "non-string": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": ["route support", 42], "method_verified": False,
+    }},
+    "wrong-list": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": "route support", "method_verified": False,
+    }},
+    "null-list": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": None, "method_verified": False,
+    }},
+    "verified": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": ["route support"], "method_verified": True,
+    }},
+    "wrong-method": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": ["route support"], "method_verified": "false",
+    }},
+    "unknown": {"input_validation": {
+        "mode": "future-mode", "skipped_checks": ["route support"], "method_verified": False,
+    }},
+    "legacy": {},
+    "null": {"input_validation": None},
+    "non-object": {"input_validation": "relaxed"},
+    "array": {"input_validation": []},
+    "empty-object": {"input_validation": {}},
+    "missing-checks": {"input_validation": {
+        "mode": "relaxed", "method_verified": False,
+    }},
+    "missing-method": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": ["route support"],
+    }},
+    "missing-mode": {"input_validation": {
+        "skipped_checks": ["route support"], "method_verified": False,
+    }},
+    "whitespace": {"input_validation": {
+        "mode": "relaxed", "skipped_checks": ["route support", " \t\n "], "method_verified": False,
+    }},
+    "escaped": {
+        "input_validation": {
+            "mode": "relaxed",
+            "skipped_checks": [
+                '<img src="x" onerror="window.relaxedInputXss=1">',
+                '<script>window.relaxedInputXss=1</script>',
+                '[synthetic link](javascript:alert(1)) https://example.invalid/relaxed',
+                '$(synthetic-command) `synthetic-command` & < > " quoted',
+                "SyntheticLongCheck_" + "x" * 2400,
+            ],
+            "method_verified": False,
+        }
+    },
+}
+
+
+def add_relaxed_input_attempts(study):
+    """Opt-in synthetic records; preserve the default browser demo inventory."""
+    cases = [
+        (name, fields, "fetched", True)
+        for name, fields in RELAXED_INPUT_CASES.items()
+    ]
+    cases += [
+        (state, RELAXED_INPUT_CASES["valid"], state, False)
+        for state in ("submitted", "running", "failed")
+    ]
+    cases.append(("no-facts", RELAXED_INPUT_CASES["valid"], "fetched", False))
+    for name, fields, state, has_facts in cases:
+        attempt_id = "relaxed-" + name
+        base = study / "attempts" / attempt_id
+        base.mkdir()
+        manifest = {
+            "attempt_id": attempt_id,
+            "label": "Synthetic relaxed-input " + name,
+            "template": "gaussian",
+            "parents": [],
+            "science": {"method_basis": "Synthetic method record; unverified"},
+            **fields,
+        }
+        (base / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (base / "status.json").write_text(json.dumps({"state": state}), encoding="utf-8")
+        if has_facts:
+            (base / "facts.json").write_text(
+                json.dumps({
+                    "schema": "ag-facts/1",
+                    "termination": "normal",
+                    "route": "# HF/STO-3G Opt Freq",
+                }),
+                encoding="utf-8",
+            )
+
+
 def orientation(kind="Standard", shift=0):
     lines = [
         f" {kind} orientation:",
@@ -176,7 +278,7 @@ def monitor_snapshot():
     }
 
 
-def create_results_studies(root):
+def create_results_studies(root, *, relaxed_inputs=False):
     study = create_preview_studies(root)
     with (study / "study.md").open("a") as f:
         f.write(
@@ -253,4 +355,6 @@ def create_results_studies(root):
     monitor = root / ".ag-monitor"
     monitor.mkdir()
     (monitor / "latest.json").write_text(json.dumps(monitor_snapshot()))
+    if relaxed_inputs:
+        add_relaxed_input_attempts(study)
     return study

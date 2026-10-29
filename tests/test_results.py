@@ -4,16 +4,118 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from autog_frontend.api import create_app
 from autog_frontend.optimization import parse_optimization
 from tests.results_fixture import (
+    RELAXED_INPUT_CASES,
     VIBRATION_FACTS_CASES,
     create_results_studies,
     opt_log,
     orientation,
     monitor_snapshot,
 )
+
+
+class RelaxedInputResultsTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.study = create_results_studies(self.root, relaxed_inputs=True)
+        # Viewing metadata must not run ag, a shell, or any other subprocess.
+        for target in ("subprocess.Popen", "subprocess.run"):
+            guard = patch(target, side_effect=AssertionError("read invoked subprocess"))
+            guard.start()
+            self.addCleanup(guard.stop)
+        self.client = TestClient(
+            create_app(self.root),
+            base_url="http://localhost",
+            client=("127.0.0.1", 51234),
+        )
+        self.base = "/api/studies/butane-demo"
+
+    def snapshot(self):
+        return {
+            path.relative_to(self.root).as_posix(): (
+                path.read_bytes(), path.stat().st_mtime_ns
+            )
+            for path in self.root.rglob("*")
+            if path.is_file()
+        }
+
+    def test_saved_markers_and_sources_are_preserved_without_inference(self):
+        before = self.snapshot()
+        response = self.client.get(self.base)
+        self.assertEqual(response.status_code, 200)
+        rows = {row["id"]: row for row in response.json()["attempts"]}
+        for name, fields in RELAXED_INPUT_CASES.items():
+            with self.subTest(case=name):
+                attempt_id = "relaxed-" + name
+                path = self.study / "attempts" / attempt_id / "manifest.json"
+                expected = json.loads(path.read_text())
+                detail = self.client.get(self.base + "/attempts/" + attempt_id)
+                self.assertEqual(detail.status_code, 200)
+                self.assertEqual(
+                    detail.json()["manifest"], {"data": expected, "error": None}
+                )
+                self.assertEqual(
+                    rows[attempt_id]["manifest"], detail.json()["manifest"]
+                )
+                self.assertEqual({key: expected[key] for key in fields}, fields)
+                if name == "legacy":
+                    self.assertNotIn(
+                        "input_validation", detail.json()["manifest"]["data"]
+                    )
+                source = self.client.get(
+                    self.base + "/files/attempts/" + attempt_id + "/manifest.json"
+                )
+                self.assertEqual(source.status_code, 200)
+                self.assertEqual(source.content, path.read_bytes())
+        self.assertEqual(self.snapshot(), before)
+
+    def test_marker_survives_all_saved_states_and_missing_facts(self):
+        before = self.snapshot()
+        for name, state in [
+            ("valid", "fetched"),
+            ("submitted", "submitted"),
+            ("running", "running"),
+            ("failed", "failed"),
+            ("no-facts", "fetched"),
+        ]:
+            with self.subTest(state=state, case=name):
+                response = self.client.get(self.base + "/attempts/relaxed-" + name)
+                self.assertEqual(response.status_code, 200)
+                data = response.json()
+                self.assertEqual(data["status"]["data"]["state"], state)
+                self.assertEqual(
+                    data["manifest"]["data"]["input_validation"],
+                    RELAXED_INPUT_CASES["valid"]["input_validation"],
+                )
+                if name != "valid":
+                    self.assertIsNone(data["facts"]["data"])
+                    self.assertTrue(data["facts"]["error"])
+                    facts = self.study / "attempts" / ("relaxed-" + name) / "facts.json"
+                    self.assertFalse(facts.exists())
+        self.assertEqual(self.snapshot(), before)
+
+    def test_damaged_manifest_retains_error_and_exact_source_without_repair(self):
+        path = self.study / "attempts/relaxed-valid/manifest.json"
+        for raw in (b'{"input_validation":', b"null", b"[]", b'"relaxed"'):
+            with self.subTest(raw=raw):
+                path.write_bytes(raw)
+                before = self.snapshot()
+                response = self.client.get(self.base + "/attempts/relaxed-valid")
+                self.assertEqual(response.status_code, 200)
+                self.assertIsNone(response.json()["manifest"]["data"])
+                self.assertTrue(response.json()["manifest"]["error"])
+                source = self.client.get(
+                    self.base + "/files/attempts/relaxed-valid/manifest.json"
+                )
+                self.assertEqual(source.status_code, 200)
+                self.assertEqual(source.content, raw)
+                self.assertEqual(self.snapshot(), before)
 
 
 class ResultsTests(unittest.TestCase):

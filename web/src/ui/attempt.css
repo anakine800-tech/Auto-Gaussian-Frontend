@@ -60,6 +60,35 @@
   font-size: var(--fs-sm);
   color: var(--warn);
 }
+.input-validation-notice {
+  min-width: 0;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--warn);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+}
+.input-validation-notice h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--warn);
+}
+.input-validation-notice p {
+  margin: var(--space-2) 0;
+}
+.input-validation-notice ul {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-4);
+  white-space: pre-wrap;
+}
+.input-validation-notice button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .vibration-completeness {
   display: inline-block;
   margin: 0;

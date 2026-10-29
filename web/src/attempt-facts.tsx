@@ -27,6 +27,86 @@ const convergence = (v: unknown) =>
 const modeCount = (v: unknown) =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
 
+function InputValidationNotice({
+  manifest,
+  onInspect,
+}: {
+  manifest: Attempt["manifest"];
+  onInspect: (name: string) => void;
+}) {
+  const m = object(manifest.data) && !manifest.error ? manifest.data : null;
+  if (m && !Object.hasOwn(m, "input_validation")) return null;
+  const marker = m?.input_validation;
+  const validation = object(marker) ? marker : null;
+  const checks = validation?.skipped_checks;
+  const validChecks =
+    Array.isArray(checks) &&
+    checks.length > 0 &&
+    checks.every(
+      (check) => typeof check === "string" && check.trim().length > 0,
+    );
+  const valid =
+    validation?.mode === "relaxed" &&
+    validation.method_verified === false &&
+    validChecks;
+  const reasons = !m
+    ? ["manifest 无法读取，输入检查状态未知。"]
+    : !validation
+      ? ["输入检查标记不是有效对象。"]
+      : [
+          ...(validation.mode !== "relaxed" ? ["mode 缺失或无法识别。"] : []),
+          ...(validation.method_verified !== false
+            ? [
+                validation.method_verified === true
+                  ? "method_verified=true 与放宽输入的方法未核验标记冲突。"
+                  : "method_verified 缺失或无效。",
+              ]
+            : []),
+          ...(!validChecks
+            ? ["跳过项须为非空字符串清单；缺失、空清单或无效项无法核实。"]
+            : []),
+        ];
+  return (
+    <section className="input-validation-notice" aria-label="输入检查提醒">
+      <h3>{valid ? "输入检查已放宽" : "输入检查标记无法核实"}</h3>
+      {valid ? (
+        <>
+          <p>
+            <strong>方法口径未核验</strong>；提交或正常结束不代表科学验收通过。
+          </p>
+          <p>已保存的跳过项：</p>
+          <ul>
+            {(checks as string[]).map((check, i) => (
+              <li key={i}>{check}</li>
+            ))}
+          </ul>
+          <p>
+            <code>ag scan-peak</code> 不可用：不能使用此来源。
+            <code>ag profile</code> 可能不适用：解析、自定义基组或 SCRF=Read
+            等情况可能使结果无法进入分析，须核对来源与适用条件。
+          </p>
+        </>
+      ) : (
+        <>
+          <p>
+            <strong>方法核验状态未知</strong>
+            ；不能据此认定输入检查或科学验收通过。
+          </p>
+          <ul>
+            {reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <p>保留 manifest 原记录，请查看来源核对。</p>
+        </>
+      )}
+      <button type="button" onClick={() => onInspect("manifest.json")}>
+        查看输入检查 manifest 来源
+      </button>
+    </section>
+  );
+}
+
 function VibrationCompleteness({
   facts,
 }: {
@@ -168,6 +248,7 @@ export function AttemptFacts({
   const electronic = m.template === "xtb" ? f.total_energy : e.scf;
   return (
     <Panel title="关键事实" className="attempt-facts">
+      <InputValidationNotice manifest={data.manifest} onInspect={onInspect} />
       <FactGrid
         facts={[
           {
