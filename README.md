@@ -1,11 +1,11 @@
-# Auto-Gaussian Study Viewer v4.6.3
+# Auto-Gaussian Study Viewer v4.7.0
 
-**配合 ag 4.6.3 使用。** This is the v4.6.3 release candidate; see [CHANGELOG.md](CHANGELOG.md#v463).
+**v4.7.0 发布准备，目标配套 ag 4.7.0。** 最终配套等待 T178 的真实合并 SHA，尚未完成；见 [CHANGELOG.md](CHANGELOG.md#v470) 与 [T177 验收记录](docs/redesign-tasks/T177-release-v4.7.0-frontend.md)。
 
 标准部署为每台电脑一个操作模式前端（8773）+ 一个监控服务；重启操作版后令牌会更换，已打开页面须刷新。
-T153 只准备版本号和文档；最终配套验收使用负责人合并 T152 后的真实完整合并 SHA。
+T177 只准备版本号、文档和发布验证；最终配套验收使用协调方提供并核对的 T178 真实完整合并 SHA。
 功能合入不会自动更新运行检出或服务；发布 PR 经监督方审阅并由负责人合并后，后续同号 tag/Release、部署及服务重启分别按明确指示执行。
-两个 v4.6.3 tag 核验及对应机器实际部署验收完成后，才记录该机器已升级。
+两个 v4.7.0 tag 核验及对应机器实际部署验收完成后，才记录该机器已升级。
 顶部导航为服务器 / 研究 / 结果 / 证据，右侧为使用说明；旧链接自动跳转。
 构建依赖 setuptools 84.1.0，并按[提交前扫描说明](#启用提交前扫描)启用本机 hook。
 
@@ -82,7 +82,7 @@ source installation above serves the explicit Vite build.
 
 ### 可选只读启动
 
-1. 在获准部署时同步已核对的前端 v4.6.3 发布提交，按上面的步骤安装并构建；配合 ag 4.6.3 使用。
+1. 在获准部署时同步已核对的前端 v4.7.0 发布提交，按上面的步骤安装并构建；配合 ag 4.7.0 使用。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -703,24 +703,26 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-V4.6.3 includes the already merged T147 (#46) and T151 (#47). Slurm availability
-uses actual Idle cores, with Other shown separately and missing or contradictory
-resources left unknown. Hardware notes are deduplicated; refused retries do not
-start fast polling; expired sampling plans show that the next round is awaited;
-the pause confirmation wording is corrected.
-Retry feedback uses an explicit capability marker and matches the entry, source
-and request. Matching terminal results immediately stop fast polling; old backends
-retain the four-key response and explicitly cannot confirm the exact request.
-A monitor restart leaves the request result unconfirmed, even if it was running;
-the viewer never automatically registers it again. Existing four/five-card layouts,
-PBS node selection/allocation, Slurm, study and evidence views remain compatible.
+V4.7.0 is release preparation for the already merged T158 (#49) and T160 (#50).
+T158 uses each selected entry's explicit default tier for a new Gaussian Attempt,
+shows cores, scheduler memory and Gaussian input memory separately, and displays
+local single-node capacity with its time and source. Manual choices survive capacity
+refreshes. Selectable occupied nodes and each permitted fraction remain explicit;
+unknown capacity is not an availability guarantee, and no node or tier is changed
+automatically. Missing capabilities retain the documented older-backend behavior.
 
-Pair this release with backend ag 4.6.3: T148 improves monitor accuracy, T149 adds
-request tracking and configuration rereads, and T150 fills missing resource lines
-for new Gaussian inputs in ag. The frontend does not backfill existing Attempts
-or add automatic operations. T153 changes only version constants and documentation,
-including the shared restart wording and completed T146/T147 task entries.
-Read-only defaults, path/size checks and ag-mediated actions stay unchanged.
+T160 displays saved CREST diagnostics and reads bounded source excerpts only when
+expanded, checking the exact allowed filename, SHA-256 and line range. Error evidence,
+unclear cause, no matching error and unavailable output remain distinct. Old facts
+retain error_hint; absent evidence never implies success. Fetching and facts parsing
+remain ag's responsibility; viewing does not fetch, refresh facts or retry a calculation.
+
+The target paired backend is ag 4.7.0, prepared by T178. Final pairing is pending
+its verified full merge SHA; the current backend main is not a substitute. T177 changes
+only version constants and release documentation. Existing Attempts, inputs, facts,
+read-only defaults, path/size checks and ag-mediated action gates remain unchanged.
+This frontend adds no Hessian generation, Hessian report viewer or Hessian-derived
+mode display; the existing Gaussian-log vibration view retains its original limits.
 The existing UI passes no approval/policy option, so its submit and cancel
 actions still use the Mac dialog.
 
@@ -728,10 +730,10 @@ actions still use the Mac dialog.
 工具状态、采用记录、`termination` 和 `n_imag` 均不等于科学验收。
 
 Supervisory review is required for both release PRs. Merge and publication follow
-explicit owner authorization; `v4.6.3` tags must point to each release PR's exact merge
-commit, using that repository's v4.6.3 CHANGELOG section. Those future merge commits
-are recorded only after they exist. Final pairing uses the verified full T152 merge
-SHA, never the older T149 merge or a floating main. Deployment requires
+explicit owner authorization; `v4.7.0` tags must point to each release PR's exact merge
+commit, using that repository's v4.7.0 CHANGELOG section. Those future merge commits
+are recorded only after they exist. Final pairing uses the verified full T178 merge
+SHA, never an earlier backend merge, a branch head or a floating main. Deployment requires
 authorization and follows OPERATIONS.md after both tags are verified. Complete all required
 development-machine checks, including existing-entry regression and the observation
 period specified in the private deployment message, before configuring the research
@@ -744,7 +746,7 @@ cannot safely handle new records, stop affected operations and report partial re
 Special CPU mapping and cross-client races require separate site acceptance;
 the current nodefile guard checks but does not archive the original nodefile.
 Real synthetic compute requires its own approval and placement/output/receipt evidence.
-This patch adds no study/catalog migration; the existing v2 conditions below remain.
+This release preparation adds no study/catalog migration; the existing v2 conditions below remain.
 Before real studies write v2 events, both machines must be deployed and a temporary
 non-research study must pass candidate registration, `ag g0 --record` and frontend
 ledger display checks on the research computer. Preserve that study in a container
@@ -758,7 +760,7 @@ establish the current deployed version or acceptance status of either machine.
 ### 版本核对
 
 在对应隔离安装或获准部署的 Python 环境核对包元数据、实际导入模块与网页包，
-三处版本均应为 `4.6.3`；同时核对 `pyproject.toml`，不再沿用 runtime 4.0.0 例外。
+三处版本均应为 `4.7.0`；同时核对 `pyproject.toml`，不再沿用 runtime 4.0.0 例外。
 模块路径必须指向本次选定安装或源码，版本字符串本身不能证明运行服务已经升级。
 
 ```sh
@@ -768,6 +770,9 @@ establish the current deployed version or acceptance status of either machine.
 
 ### 已知问题
 
+- 最终 ag 4.7.0 配套尚待 T178 实际合并源码验证；功能 PR 的历史配套或默认 CI 跳过不能代替本次结果。
+- CREST 取回/诊断的现场覆盖沿用后端记录：旧普通 Slurm 五文件补取回通过；PBS 首次下载连接中断后停止。新输出集合、mdopt、不完整取回和真实错误诊断尚无完整现场验收，前端合成显示通过不能补足这些证据。
+- 前端不提供新增 Hessian 生成或专用查看；原 Gaussian log 振动显示不因后端新增能力而扩大。
 - 串行采样经转发一轮可能 100–150 秒；手动重试先等当前入口完成，再耗时采目标入口。睡眠停采、醒来自动恢复，初期可能因网络未就绪失败或退避。
 - catalog v2 升级后不能降级，也不能删行降级；G0、扫描和登记状态都是诊断与记录，不代表科学验收。
 - 证据库冷启动在已有测量中约 2.5 秒，实际耗时随本机与文件数量变化。
@@ -775,6 +780,7 @@ establish the current deployed version or acceptance status of either machine.
 
 ## 版本历史
 
+- **v4.7.0（发布准备）**：T158 新 Attempt 默认资源、单节点容量与可选节点比例；T160 CREST 诊断摘要和可核验来源；目标配套 ag 4.7.0，最终 T178 合并源码配套待验收。[发布说明](CHANGELOG.md#v470)
 - **v4.6.3（发布准备）**：T147 监控资源与重试显示修补、T151 请求终态与重启未确认反馈；三处版本统一，清理已完成待办，配合 ag 4.6.3。[发布说明](CHANGELOG.md#v463)
 - **v4.6.2**：T145 显式 PBS 节点选择、原优先级分组与顺序、半数/四分之一及资源摘要；旧入口不显示不适用控件，配合 ag 4.6.2。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T143 PBS 节点分配明细、四/五卡响应式布局、可选四/六档与单作业时限显示；配合 ag 4.6.1，复用快照并明确未知及非实时状态。[发布说明](CHANGELOG.md#v461)
