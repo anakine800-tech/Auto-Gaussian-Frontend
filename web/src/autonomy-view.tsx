@@ -9,8 +9,6 @@ import type {
   AutonomySnapshot,
   AutonomySubmission,
   AutonomyWaiting,
-  AutonomyCancellation,
-  AutonomyCancellationResult,
 } from "./api";
 import { routeHash } from "./routing";
 import { EmptyState, ErrorNotice, FactGrid, Panel, StatusBadge } from "./ui";
@@ -24,11 +22,10 @@ const statusLabels = {
   invalid: "记录损坏或无法核验",
   missing: "记录缺失",
 };
-const counterLabels: Record<keyof AutonomyCounts, string> = {
+// Autonomous cancellation and rerouting are disabled in the current pilot.
+const counterLabels = {
   attempt: "Attempt 意图",
   remedy: "修复",
-  cancel: "取消",
-  reroute: "改派",
 };
 const eventLabels: Record<string, string> = {
   init: "初始化",
@@ -73,12 +70,14 @@ function Counts({
 }) {
   return (
     <div className="autonomy-counts" aria-label={label}>
-      {(Object.keys(counterLabels) as (keyof AutonomyCounts)[]).map((key) => (
-        <div key={key}>
-          <span>{counterLabels[key]}</span>
-          <strong>{value?.[key] ?? "—"}</strong>
-        </div>
-      ))}
+      {(Object.keys(counterLabels) as (keyof typeof counterLabels)[]).map(
+        (key) => (
+          <div key={key}>
+            <span>{counterLabels[key]}</span>
+            <strong>{value?.[key] ?? "—"}</strong>
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -420,202 +419,6 @@ const cancellationOutcome = {
   accepted: "取消请求已受理",
   unknown: "取消结果未知",
 };
-function CancellationRecord({ record }: { record: AutonomyCancellation }) {
-  return (
-    <article
-      className="autonomy-record"
-      aria-label={`取消消耗 ${record.attempt_id}`}
-    >
-      <details className="autonomy-cancellation-record">
-        <summary>
-          <strong>{record.attempt_id}</strong>{" "}
-          <StatusBadge>已记录消耗</StatusBadge> {cancellationKind[record.kind]}
-        </summary>
-        <FactGrid
-          facts={[
-            { label: "轮次", value: record.round_id },
-            { label: "唤醒", value: record.run_id },
-            { label: "记录时间", value: timestamp(record.at) },
-            { label: "日志序号", value: record.seq },
-          ]}
-        />
-        <p>保存理由：{record.reason}</p>
-        <details>
-          <summary>取消消耗绑定哈希</summary>
-          <FactGrid
-            facts={[
-              {
-                label: "消耗记录 SHA-256",
-                value: <code>{record.consumption_sha256}</code>,
-              },
-              {
-                label: "归属记录 SHA-256",
-                value: <code>{record.ownership_sha256}</code>,
-              },
-              {
-                label: "计划 SHA-256",
-                value: <code>{record.plan_sha256}</code>,
-              },
-              {
-                label: "依据 SHA-256",
-                value: <code>{record.evidence_sha256}</code>,
-              },
-              ...(record.lineage_sha256 === null
-                ? []
-                : [
-                    {
-                      label: "原计算链 SHA-256",
-                      value: <code>{record.lineage_sha256}</code>,
-                    },
-                  ]),
-            ]}
-          />
-        </details>
-      </details>
-    </article>
-  );
-}
-function CancellationResult({
-  record,
-}: {
-  record: AutonomyCancellationResult;
-}) {
-  return (
-    <article
-      className="autonomy-record"
-      aria-label={`取消返回结果 ${record.attempt_id}`}
-    >
-      <details className="autonomy-cancellation-record">
-        <summary>
-          <strong>{record.attempt_id}</strong>{" "}
-          <StatusBadge tone={record.outcome === "unknown" ? "warn" : "neutral"}>
-            {cancellationOutcome[record.outcome]}
-          </StatusBadge>{" "}
-          <span>任务停止未确认</span>
-        </summary>
-        <FactGrid
-          facts={[
-            { label: "唤醒", value: record.run_id },
-            { label: "记录时间", value: timestamp(record.at) },
-            { label: "日志序号", value: record.seq },
-          ]}
-        />
-        <p>保存说明：{record.reason}</p>
-        <p className="muted">
-          这里只记录取消调用的返回；当前记录未确认任务停止。
-        </p>
-        <details>
-          <summary>取消结果绑定哈希</summary>
-          <FactGrid
-            facts={[
-              {
-                label: "消耗记录 SHA-256",
-                value: <code>{record.consumption_sha256}</code>,
-              },
-              {
-                label: "依据 SHA-256",
-                value: <code>{record.evidence_sha256}</code>,
-              },
-            ]}
-          />
-        </details>
-      </details>
-    </article>
-  );
-}
-function CancellationRecords({ data }: { data: AutonomyStatus }) {
-  return (
-    <Panel title="已保存取消与改投记录">
-      <p className="muted">
-        只汇总本研究已保存的取消消耗、返回结果和原计算链对应关系。请求已受理不等于任务已停止；当前记录未确认终止。
-      </p>
-      <FactGrid
-        facts={[
-          {
-            label: "已保存取消消耗数",
-            value: savedCount(data.cancellations_count),
-          },
-          {
-            label: "已保存取消返回结果数",
-            value: savedCount(data.cancellation_results_count),
-          },
-          {
-            label: "已保存改投链数",
-            value: savedCount(data.reroute_lineages_count),
-          },
-        ]}
-      />
-      {data.cancellations === undefined ? (
-        <EmptyState>
-          取消消耗未知：记录未提供该字段，不能按零次处理。
-        </EmptyState>
-      ) : data.cancellations.length === 0 ? (
-        <EmptyState>保存的取消消耗清单为空。</EmptyState>
-      ) : (
-        <details className="autonomy-records">
-          <summary>最近取消消耗（{data.cancellations.length} 条）</summary>
-          {data.cancellations.map((record) => (
-            <CancellationRecord key={record.attempt_id} record={record} />
-          ))}
-        </details>
-      )}
-      {data.cancellations_truncated && (
-        <p className="notice">
-          取消消耗清单已截断；数量来自完整保存表，不能用展示条数替代。
-        </p>
-      )}
-      {data.cancellation_results === undefined ? (
-        <EmptyState>取消返回结果未知：记录未提供该字段。</EmptyState>
-      ) : data.cancellation_results.length === 0 ? (
-        <EmptyState>保存的取消返回结果清单为空。</EmptyState>
-      ) : (
-        <details className="autonomy-records">
-          <summary>
-            最近取消返回结果（{data.cancellation_results.length} 条）
-          </summary>
-          {data.cancellation_results.map((record) => (
-            <CancellationResult key={record.attempt_id} record={record} />
-          ))}
-        </details>
-      )}
-      {data.cancellation_results_truncated && (
-        <p className="notice">
-          取消返回结果清单已截断；数量来自完整保存表，不能用展示条数替代。
-        </p>
-      )}
-      {data.reroute_lineages === undefined ? (
-        <EmptyState>改投链记录未知：记录未提供该字段。</EmptyState>
-      ) : data.reroute_lineages.length === 0 ? (
-        <EmptyState>保存的改投链清单为空。</EmptyState>
-      ) : (
-        <details className="autonomy-records">
-          <summary>
-            已记录消耗的改投链（{data.reroute_lineages.length} 条）
-          </summary>
-          <p className="muted">仅显示已保存的对应关系，不推断后续动作。</p>
-          {data.reroute_lineages.map((record) => (
-            <article
-              className="autonomy-record"
-              aria-label={`改投链 ${record.attempt_id}`}
-              key={record.lineage_sha256}
-            >
-              <h4>Attempt：{record.attempt_id}</h4>
-              <details>
-                <summary>原计算链哈希</summary>
-                <code>{record.lineage_sha256}</code>
-              </details>
-            </article>
-          ))}
-        </details>
-      )}
-      {data.reroute_lineages_truncated && (
-        <p className="notice">
-          改投链清单已截断；数量来自完整保存表，不能用展示条数替代。
-        </p>
-      )}
-    </Panel>
-  );
-}
 function Plan({
   plan,
   current,
@@ -785,6 +588,7 @@ export function AutonomyView({
         </EmptyState>
       ) : (
         <>
+          <p className="notice">自主取消／改投未启用</p>
           <div className="autonomy-columns">
             <Panel title="当前自主轮次">
               <p className="muted">
@@ -907,7 +711,6 @@ export function AutonomyView({
             </p>
           </Panel>
           <SubmissionRecords data={data} />
-          <CancellationRecords data={data} />
           <div className="autonomy-columns">
             <Panel title="日志摘要">
               <p className="autonomy-prose">

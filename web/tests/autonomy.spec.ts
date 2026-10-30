@@ -21,6 +21,7 @@ async function screenshotAtTop(page: Page, path: string) {
   await page.screenshot({ path, fullPage: false });
 }
 
+// Offline synthetic projections, not archived output from a real execution.
 const counts = { attempt: 3, remedy: 1, cancel: 0, reroute: 0 };
 function savedStatus(): AutonomyStatus {
   const now = Date.now() / 1000;
@@ -530,8 +531,18 @@ for (const [status, label] of [
     const view = page.getByRole("region", { name: "自主运行状态" });
     await expect(view).toContainText(label);
     await expect(view).not.toContainText("尚无保存的计划");
-    if (status !== "absent")
+    await expect(view).not.toContainText("自主取消／改投未启用");
+    await expect(view.locator(".autonomy-counts")).toHaveCount(0);
+    await expect(
+      view.getByRole("region", { name: "已保存取消与改投记录", exact: true }),
+    ).toHaveCount(0);
+    if (status === "absent") {
+      await expect(view).toContainText("此 Study 没有自主运行目录。");
+      await expect(view).not.toContainText("手动新建、提交、取消和取回已阻止");
+    } else {
+      await expect(view).toContainText("无法展示可信的自主记录");
       await expect(view).toContainText("手动新建、提交、取消和取回已阻止");
+    }
   });
 }
 
@@ -844,120 +855,13 @@ test("truncated persisted rows retain server counts and do not invent a current 
   await expect(waiting).toContainText("等待记录清单已截断");
 });
 
-test("saved cancellation outcomes do not confirm stopping or new action eligibility", async ({
-  page,
-}, info) => {
-  const data = cancellationStatus();
-  Object.assign(data.cancellations![0], {
-    token_sha256: "PRIVATE_CANCEL_TOKEN_SENTINEL",
-    binding: {
-      job_id: "PRIVATE_JOB_SENTINEL",
-      cluster: "PRIVATE_CLUSTER_SENTINEL",
-    },
-    absolute_path: "PRIVATE_PATH_SENTINEL",
-    versions: { dirty: "PRIVATE_VERSION_SENTINEL" },
-  });
-  Object.assign(data.cancellation_results![0], {
-    token: "PRIVATE_RESULT_TOKEN_SENTINEL",
-  });
-  Object.assign(data.reroute_lineages![0], {
-    new_attempt: "PRIVATE_REROUTE_SENTINEL",
-  });
-  const writes: string[] = [];
-  page.on("request", (request) => {
-    if (!["GET", "HEAD"].includes(request.method())) writes.push(request.url());
-  });
-  await page.route("**/api/studies/*/autonomy", (route) =>
-    route.fulfill({ json: data }),
-  );
-  await page.goto("/");
-  await page.getByRole("button", { name: "自主运行", exact: true }).click();
-  const panel = page.getByRole("region", {
-    name: "已保存取消与改投记录",
-    exact: true,
-  });
-  await expect(panel.locator(".FactGrid").first().locator("dd")).toHaveText([
-    "2",
-    "2",
-    "1",
-  ]);
-  await expect(
-    page
-      .getByRole("region", { name: "累计记录", exact: true })
-      .locator(".autonomy-counts>div")
-      .filter({ hasText: "取消" })
-      .locator("strong"),
-  ).toHaveText("0");
-  await expect(panel).toContainText("请求已受理不等于任务已停止");
-  await panel.getByText("最近取消消耗（2 条）", { exact: true }).click();
-  const consumption = panel.getByRole("article", {
-    name: "取消消耗 no-progress-demo",
-  });
-  await consumption.locator(".autonomy-cancellation-record>summary").click();
-  await expect(consumption).toContainText("无进展取消");
-  await expect(consumption).toContainText("Synthetic no-progress observation");
-  await consumption.getByText("取消消耗绑定哈希", { exact: true }).click();
-  await expect(consumption).toContainText("7".repeat(64));
-  await consumption.locator(".autonomy-cancellation-record>summary").click();
-  await expect(
-    panel.getByRole("article", { name: "取消消耗 reroute-demo" }),
-  ).toContainText("改投取消");
-  await panel.getByText("最近取消消耗（2 条）", { exact: true }).click();
-  await panel.getByText("最近取消返回结果（2 条）", { exact: true }).click();
-  const accepted = panel.getByRole("article", {
-      name: "取消返回结果 no-progress-demo",
-    }),
-    unknown = panel.getByRole("article", { name: "取消返回结果 reroute-demo" });
-  await expect(accepted).toContainText("取消请求已受理");
-  await expect(accepted).toContainText("任务停止未确认");
-  await accepted.locator(".autonomy-cancellation-record>summary").click();
-  await expect(accepted).toContainText(
-    "Synthetic cancellation request accepted",
-  );
-  await expect(accepted).toContainText("当前记录未确认任务停止");
-  await accepted.locator(".autonomy-cancellation-record>summary").click();
-  await expect(unknown).toContainText("取消结果未知");
-  await expect(unknown).toContainText("任务停止未确认");
-  await panel.getByText("已记录消耗的改投链（1 条）", { exact: true }).click();
-  const lineage = panel.getByRole("article", { name: "改投链 reroute-demo" });
-  await lineage.getByText("原计算链哈希", { exact: true }).click();
-  await expect(lineage).toContainText("9".repeat(64));
-  await panel.getByText("已记录消耗的改投链（1 条）", { exact: true }).click();
-  await expect(panel.locator("button")).toHaveCount(0);
-  await expect(panel.getByRole("link")).toHaveCount(0);
-  await expect(panel).not.toContainText("PRIVATE_");
-  await expect(panel).not.toContainText("已确认停止");
-  await page.getByText("最近日志事件", { exact: true }).click();
-  await expect(page.locator(".autonomy-events")).toContainText("记录取消消耗");
-  await expect(page.locator(".autonomy-events")).toContainText(
-    "记录取消返回结果",
-  );
-  await expect(page.locator(".autonomy-events")).toContainText(
-    "任务停止未确认",
-  );
-  expect(writes).toEqual([]);
-  await screenshotPanel(
+for (const records of ["missing", "empty", "history", "truncated"] as const) {
+  test(`disabled cancellation and rerouting stay hidden with ${records} records`, async ({
     page,
-    "已保存取消与改投记录",
-    info.outputPath("autonomy-cancellation-desktop.png"),
-  );
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
-  await screenshotPanel(
-    page,
-    "已保存取消与改投记录",
-    info.outputPath("autonomy-cancellation-mobile.png"),
-  );
-});
-
-for (const explicit of [false, true])
-  test(`cancellation fields distinguish ${explicit ? "explicit empty records" : "legacy missing records"}`, async ({
-    page,
-  }) => {
-    const data = savedStatus();
-    if (explicit)
+  }, info) => {
+    const hasHistory = records === "history" || records === "truncated";
+    const data = hasHistory ? cancellationStatus() : savedStatus();
+    if (records === "empty") {
       Object.assign(data, {
         cancellations: [],
         cancellations_count: 0,
@@ -969,87 +873,157 @@ for (const explicit of [false, true])
         reroute_lineages_count: 0,
         reroute_lineages_truncated: false,
       });
+    }
+    if (records === "truncated") {
+      data.cancellations_count = 65;
+      data.cancellations_truncated = true;
+      data.cancellation_results_count = 35;
+      data.cancellation_results_truncated = true;
+      data.reroute_lineages_count = 31;
+      data.reroute_lineages_truncated = true;
+    }
+    const savedCounts = {
+      ...counts,
+      cancel: hasHistory ? 4 : 0,
+      reroute: hasHistory ? 2 : 0,
+    };
+    data.totals = savedCounts;
+    data.current_round!.totals = savedCounts;
+    data.current_run = {
+      id: "run-demo",
+      started_at: data.checked_at - 120,
+      ended_at: data.checked_at - 60,
+      outcome: "合成离线唤醒记录",
+      totals: savedCounts,
+    };
+    const writes: string[] = [];
+    page.on("request", (request) => {
+      if (!["GET", "HEAD"].includes(request.method()))
+        writes.push(request.url());
+    });
     await page.route("**/api/studies/*/autonomy", (route) =>
       route.fulfill({ json: data }),
     );
     await page.goto("/");
     await page.getByRole("button", { name: "自主运行", exact: true }).click();
-    const panel = page.getByRole("region", {
-      name: "已保存取消与改投记录",
-      exact: true,
-    });
-    await expect(panel.locator(".FactGrid").first().locator("dd")).toHaveText(
-      explicit ? ["0", "0", "0"] : Array(3).fill("未知（记录未提供）"),
-    );
-    for (const text of explicit
-      ? [
-          "保存的取消消耗清单为空",
-          "保存的取消返回结果清单为空",
-          "保存的改投链清单为空",
-        ]
-      : ["取消消耗未知", "取消返回结果未知", "改投链记录未知"]) {
-      await expect(panel).toContainText(text);
+    const view = page.getByRole("region", { name: "自主运行状态" });
+    await expect(
+      view.getByText("自主取消／改投未启用", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      view.getByRole("region", { name: "已保存取消与改投记录", exact: true }),
+    ).toHaveCount(0);
+    await expect(view.locator(".autonomy-cancellation-record")).toHaveCount(0);
+    for (const label of ["本轮计数", "单次唤醒计数", "累计计数"]) {
+      const counters = view.getByLabel(label, { exact: true });
+      await expect(counters.locator("span")).toHaveText([
+        "Attempt 意图",
+        "修复",
+      ]);
+      await expect(counters.locator("strong")).toHaveText(["3", "1"]);
     }
-    await expect(panel).not.toContainText("取消请求已受理");
-    await expect(panel).not.toContainText("已确认停止");
+    for (const label of [
+      "已保存取消消耗数",
+      "已保存取消返回结果数",
+      "已保存改投链数",
+      "取消消耗未知",
+      "取消返回结果未知",
+      "改投链记录未知",
+      "保存的取消消耗清单为空",
+      "保存的取消返回结果清单为空",
+      "保存的改投链清单为空",
+    ]) {
+      await expect(view).not.toContainText(label);
+    }
+    await expect(view).toContainText("手动新建、提交、取消和取回已阻止");
+    if (hasHistory) {
+      // Historical event evidence stays read only and does not enable a capability.
+      await view.getByText("最近日志事件", { exact: true }).click();
+      await expect(view.locator(".autonomy-events")).toContainText(
+        "记录取消消耗",
+      );
+      await expect(view.locator(".autonomy-events")).toContainText(
+        "任务停止未确认",
+      );
+      await expect(view).not.toContainText("已确认停止");
+    }
+    await page.reload();
+    await expect(
+      view.getByText("自主取消／改投未启用", { exact: true }),
+    ).toBeVisible();
+    expect(writes).toEqual([]);
+    if (records === "history") {
+      await screenshotAtTop(
+        page,
+        info.outputPath("autonomy-disabled-desktop.png"),
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(390);
+      await screenshotAtTop(
+        page,
+        info.outputPath("autonomy-disabled-mobile.png"),
+      );
+    }
   });
+}
 
-test("truncated cancellation records keep independent saved totals", async ({
+test("disabled cancellation preserves finished-failure remedy consumption and saved budget", async ({
   page,
-}) => {
-  const data = cancellationStatus();
-  const hex = (value: number) => value.toString(16).padStart(64, "0");
-  data.cancellations = Array.from({ length: 30 }, (_, index) => ({
-    ...data.cancellations![1],
-    attempt_id: `cancel-${index}`,
-    run_id: `cancel-run-${index}`,
-    seq: index + 10,
-    lineage_sha256: hex(index + 1),
-    consumption_sha256: hex(index + 101),
-  }));
-  data.cancellations_count = 65;
-  data.cancellations_truncated = true;
-  // Each independently truncated list can contain different Attempts.
-  data.cancellation_results = Array.from({ length: 30 }, (_, index) => ({
-    ...data.cancellation_results![0],
-    attempt_id: `older-result-${index}`,
-    run_id: `older-run-${index}`,
-    consumption_sha256: hex(index + 201),
-  }));
-  data.cancellation_results_count = 35;
-  data.cancellation_results_truncated = true;
-  data.reroute_lineages = data.cancellations.map((record) => ({
-    attempt_id: record.attempt_id,
-    lineage_sha256: record.lineage_sha256!,
-  }));
-  data.reroute_lineages_count = 31;
-  data.reroute_lineages_truncated = true;
+}, info) => {
+  const data = consumptionStatus();
+  // Synthetic projection of a new Attempt for an already-ended failed job.
+  // It is not evidence of a real remedy execution or submission archive.
+  data.submissions![0] = {
+    ...data.submissions![0],
+    attempt_id: "remedy-demo",
+    failure_class: "synthetic-ended-failure",
+    boundary_failure: null,
+  };
   await page.route("**/api/studies/*/autonomy", (route) =>
     route.fulfill({ json: data }),
   );
   await page.goto("/");
   await page.getByRole("button", { name: "自主运行", exact: true }).click();
-  const panel = page.getByRole("region", {
-    name: "已保存取消与改投记录",
+  await expect(
+    page.getByText("自主取消／改投未启用", { exact: true }),
+  ).toBeVisible();
+  const consumption = page.getByRole("region", {
+    name: "已保存提交消耗",
     exact: true,
   });
-  await expect(panel.locator(".FactGrid").first().locator("dd")).toHaveText([
-    "65",
-    "35",
-    "31",
-  ]);
-  for (const text of [
-    "最近取消消耗（30 条）",
-    "最近取消返回结果（30 条）",
-    "已记录消耗的改投链（30 条）",
-    "取消消耗清单已截断",
-    "取消返回结果清单已截断",
-    "改投链清单已截断",
-  ]) {
-    await expect(panel).toContainText(text);
-  }
-  await expect(panel).not.toContainText("剩余取消");
-  await expect(panel).not.toContainText("可改投");
+  await expect(
+    consumption.locator(".FactGrid").first().locator("dd"),
+  ).toHaveText(["2", "2"]);
+  await consumption.getByText("最近提交消耗（2 条）", { exact: true }).click();
+  const remedy = consumption.getByRole("article", {
+    name: "提交消耗 remedy-demo",
+    exact: true,
+  });
+  await remedy.locator(".autonomy-consumption-record>summary").click();
+  await expect(remedy).toContainText("synthetic-ended-failure");
+  await expect(
+    remedy.getByText("该规则最多提交次数", { exact: true }).locator("+ dd"),
+  ).toHaveText("2");
+  const plan = page.getByRole("region", { name: "保存的计划", exact: true });
+  await expect(
+    plan.getByText("Attempt 意图上限", { exact: true }).locator("+ dd"),
+  ).toHaveText("6");
+  await expect(
+    plan.getByText("计划预计用时", { exact: true }).locator("+ dd"),
+  ).toHaveText("2 小时（保存值）");
+  await expect(
+    page.getByRole("region", { name: "保存的提交暂停记录", exact: true }),
+  ).toContainText("Actual round submission count reached 90%");
+  await expect(
+    page.getByRole("region", { name: "等待可选资源记录", exact: true }),
+  ).toContainText("已保存等待记录数");
+  await screenshotPanel(
+    page,
+    "已保存提交消耗",
+    info.outputPath("autonomy-remedy-desktop.png"),
+  );
 });
 
 test.describe("manual action guard", () => {
