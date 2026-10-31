@@ -2,8 +2,16 @@
 
 ## v4.8.0
 
-**发布准备，配套 T218 的 ag 4.8.0。4.7.1 不单独发布，其已合并内容并入本版。**
-下方 v4.7.1 及更早段落保留历史原文；本节说明当前发布范围，不代表已创建 release 或已部署。
+**已于 2026-10-31 正式发布，配套 ag 4.8.0；开发机部署及实际核验已完成。4.7.1 未单独发布，其已合并内容已并入本版。**
+
+- [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.0)
+  固定于 `f5730a1a04dcd05210663be0f849214f88a9fc64`（[T219 #63](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/63)）。
+- [后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.0)
+  固定于 `568c45c2b605b62a750465a26ba0296be4ae7cba`（[T218 #395](https://github.com/anakine800-tech/Auto-Gaussian/pull/395)）。
+
+两仓 Release 均非 Draft、非 Prerelease。[T219](docs/redesign-tasks/T219-release-v4.8.0-frontend.md)
+及 tag 内准备文字保留候选历史，下方 v4.7.1 及更早段落保留原文。
+[T221](docs/redesign-tasks/T221-v480-published-status.md) 为发布后文档收尾，不是新版本，不移动或替代发布 tag。
 
 ### 变更
 
@@ -20,9 +28,10 @@
 
 - 自主取消、自主改投未启用，需要时提醒负责人在 Mac 上手动取消；SCNet 自主取消和改投不在本版，PBS 自主取消/改投仍为后续范围。PBS 看不到他人作业不视为空闲，T214 后续处理；T198 已取消。
 - T185/T186/T188 先合并后真实验证属于流程偏离；负责人将发版条件改为“真实验证通过 + 监督方确认”，协调方确认现已满足，敏感改动审阅已通过。功能合并、发布或部署仍不授予具体 study 自主运行权限，也不代表科学验收。
-- 本地仅做版本、类型/生产构建、打包及必要检查，负责人已接受的旧全量和定向证据保留；最终完整回归以本次 head CI 为准，见 [T219](docs/redesign-tasks/T219-release-v4.8.0-frontend.md)。本单不新增真实计算或集群验证。
-- 协调方负责审阅/合并，在版本提交当前 head CI 通过后创建 tag/release，并按已获授权仅部署开发机；研究机本轮不动，开发机配置完全不改，临时验证配置另列清单待负责人决定。
-- 保持完整源码部署：核对两仓确切发布提交，在固定运行检出安装并按冻结锁文件重建网页；wheel/sdist 与单独网页产物不能替代完整源码。具体备份、服务替换、令牌刷新和回退按 [OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md) 及私有交付执行。
+- 发布版本 [前端 CI 41169867712](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/actions/runs/41169867712)：Python 283 通过、6 项既有可选配套跳过，浏览器 484 通过；[后端 CI 41169811824](https://github.com/anakine800-tech/Auto-Gaussian/actions/runs/41169811824)：8395 通过、2 跳过，Skills 533 通过。两仓合并树均等于受测树，CI 通过后才创建 tag/Release。T219 的本地候选验证记录保留；本次状态文档不重跑本地全量，不新增真实计算或集群验证。
+- 开发机正式前后端已部署为 4.8.0；doctor 五入口通过、monitor 唯一正式采样者正常。负责人手动打开正式服务器页并停留约 134 秒，无导航或刷新，判定时间、五入口样本时间和显示年龄均更新；显示年龄与捕获时刻的年龄分别核对。研究机本轮未操作，开发机验收不代表所有机器已升级。
+- 发布与部署当时配置未变；随后经负责人单独授权，由协调方完成配置清理，已恢复验证前配置并保留链路标记，登记、预留及验证证据保留。具体配置值和原始记录仅留私有材料。
+- 开发机已按两仓确切发布提交完成完整源码部署；后续逐机部署仍需明确授权，在固定运行检出安装并按冻结锁文件重建网页。wheel/sdist 与单独网页产物不能替代完整源码。具体备份、服务替换、令牌刷新和回退按 [OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md) 及私有交付执行。
 - 旧后端缺能力保持明确限制；无自主目录沿用原人工操作，已有自主记录无法核验则拒绝相关写操作。回退恢复完整前后端来源、依赖、网页和服务方式，保留自主/输入标记/catalog v2 记录；不得删字段或改哈希制造兼容。
 
 ## v4.7.1
