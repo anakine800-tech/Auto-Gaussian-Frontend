@@ -14,6 +14,7 @@ from .static_ui import load_ui
 from .search_index import SearchIndex
 from .study_summary import study_type
 from .autonomy import read_autonomy
+from .monitor import LinkHealthQuery, attach_link_health
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
@@ -32,6 +33,8 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
             body, mime = ui["/"]
             meta = f'<meta name="ag-token" content="{actions.token}">'
             ui["/"] = (body.replace(b"</head>", meta.encode() + b"</head>"), mime)
+
+    link_query = LinkHealthQuery(store.root, actions.executable if actions else ag) if actions or ag is not None else None
 
     @app.middleware("http")
     async def local_readonly(request: Request, call_next):
@@ -138,7 +141,12 @@ def create_app(studies_root, ui_directory=None, *, enable_actions=False, ag=None
 
     @app.get("/api/monitor")
     def monitor():
-        return store.monitors(actions.clusters if actions else ())
+        health = (link_query.read() if link_query else
+                  dict(link_health=None, link_health_error='尚无链路检查：未配置本机 ag'))
+        configured = set(actions.clusters if actions else ())
+        if health['link_health'] is not None:
+            configured.update(row['name'] for row in health['link_health']['entries'])
+        return attach_link_health(store.monitors(configured), health)
 
     @app.get("/api/studies")
     def list_studies():

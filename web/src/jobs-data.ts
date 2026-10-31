@@ -3,6 +3,28 @@ import {object} from './api';
 import {capacityGroups} from './capacity-overview';
 export type RetryStatus={version:1;entry:string;request_id:string;requested_at:string;state:'queued'|'running'|'finished'|'discarded';reason:null|'auth_confirmation_required'|'entry_removed'|'config_changed'|'monitor_restarted';finished_at:string|null;sampled_at:string|null;ok:boolean|null};
 export type ClusterRow={name:string;source:string;ambiguous:boolean;snapshot:Monitor|null;error:string|null;retry_tracking_supported?:boolean;retry_status?:RetryStatus|null;retry_status_error?:string|null};
+export type LinkHealth={schema:'ag-link-health/1';observed_at:number;status:'healthy'|'relay_outage'|'local_outage'|'cluster_failure'|'unknown';entries:{name:string;relay_group:'relay'|null;sampled_at:string|null;age_seconds:number|null;interval_seconds:number|null;status:'success'|'failed'|'unknown';reason:null|'sample_failed'|'missing'|'invalid'|'configuration'|'future'|'stale'}[]};
+export type MonitorResponse={clusters:ClusterRow[];link_health?:LinkHealth|null;link_health_error?:string|null};
+export function linkHealthView(data:MonitorResponse|null,now:number,readError=''){
+ const report=data?.link_health??null;
+ let reason=readError?'本次读取失败，链路状态未知':data?.link_health_error??(!report?'尚无链路检查':'');
+ if(report&&!reason){
+  if(!Number.isFinite(report.observed_at)||report.observed_at*1000>now)reason='链路判定时间尚未生效，状态未知';
+  for(const entry of report.entries){
+   const rows=data!.clusters.filter(row=>row.name===entry.name);
+   if(rows.length!==1||rows[0].ambiguous){reason='链路判定与快照来源不一致，状态未知';break;}
+   if(entry.status==='unknown')continue;
+   const row=rows[0],snapshot=row.snapshot,stamp=Date.parse(entry.sampled_at??''),age=(now-stamp)/1000;
+   if(row.error||!snapshot||Date.parse(snapshot.sampled_at)!==stamp||snapshot.interval_seconds!==entry.interval_seconds||snapshot.ok!==(entry.status==='success')){
+    reason='链路判定与快照不一致，状态未知';break;
+   }
+   if(!Number.isFinite(age)||entry.interval_seconds===null||age<0||age>3*entry.interval_seconds){reason='链路判定所用采样已过期或尚未生效，状态未知';break;}
+  }
+ }
+ // Only expire/invalidate the producer's verdict. Never infer a new failure class.
+ const status:LinkHealth['status']=reason||!report?'unknown':report.status;
+ return {report,status,reason:reason||(status==='unknown'?'采样证据不足，无法判断链路状态':'')};
+}
 export function retryTerminal(status:RetryStatus){
  if(status.state==='finished')return status.ok?'本次采样完成':'本次采样失败，请查看采样错误';
  if(status.state!=='discarded')return null;
@@ -106,7 +128,7 @@ export const amount=(n:number|null|undefined)=>n==null?'未知':Number(n.toFixed
 export const isRunning=(job:Job)=>['R','E','RUNNING','COMPLETING'].includes(job.state);
 export const isQueued=(job:Job)=>['Q','H','W','S','PENDING','SUSPENDED','CONFIGURING','REQUEUED','RESIZING'].includes(job.state);
 export function schedulerLabel(row:ClusterRow){const c=row.snapshot?.cluster;return c?.scheduler?.toUpperCase()||(c?.hardware?.source==='pbsnodes'?'PBS':c?.hardware?.source==='sinfo'?'SLURM':'—');}
-export function serverModels(rows:ClusterRow[],now:number){
+export function serverModels(rows:ClusterRow[],now:number,link?:ReturnType<typeof linkHealthView>){
  const groups=capacityGroups(rows,now);
  return [...rows].sort((a,b)=>{
   const x=a.snapshot?.cluster?.display_order,y=b.snapshot?.cluster?.display_order;
@@ -122,7 +144,10 @@ export function serverModels(rows:ClusterRow[],now:number){
   const sort=(items:Job[],field:'start_time'|'qtime')=>[...items].sort((a,b)=>Number(!!b.mine)-Number(!!a.mine)||(Date.parse(a[field]??'')||Infinity)-(Date.parse(b[field]??'')||Infinity)||a.job_id.localeCompare(b.job_id));
   const nodes=state.hasData?cluster?.nodes??[]:[],known=scheduler!=='SLURM'&&cluster?.hardware_capacity_known!==false&&nodes.length>0&&nodes.every(n=>nodeAllocation(n.cores_total,n.cores_used).remaining!==null);
   const free=nodes.filter(n=>n.state==='free');
+  const entry=link?.report?.entries.find(e=>e.name===row.name);
+  const linkStatus=entry?.status==='failed'&&(link?.status==='local_outage'||link?.status==='relay_outage'&&entry.relay_group!==null)?link.status:null;
   return {key:entryKey(row),row,label:clusterLabel(row)+(row.ambiguous?' · '+row.source:''),...state,group,scheduler,sampling:data?.sampling??null,notes:[...new Set(hardware?.notes??[])],
+   linkStatus,
    warningCount:(data?.warnings.length??0)+(hardware?.error?1:0)+(cluster?.storage_error?1:0)+(cluster?.expiry_warning?1:0),
    cores:usable?(scheduler==='SLURM'?slurmSegments(hardware,own?.cores_running):segments(hardware?.cores_total,hardware?.cores_allocated,own?.cores_running)):null,
    memory:usable?segments(hardware?.mem_total_gb,hardware?.mem_allocated_gb,own?.mem_running_gb):null,

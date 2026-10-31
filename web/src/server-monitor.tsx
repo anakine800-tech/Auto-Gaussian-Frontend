@@ -6,13 +6,14 @@ import {actionToken} from './actions';
 import type {Study} from './api';
 import {routeHash} from './routing';
 import {DataTable,EmptyState,ErrorNotice,Panel,StatusBadge} from './ui';
-import {clusterLabel,finishedAttempts,retryTerminal,serverModels} from './jobs-data';
-import type {ClusterRow,LocalAttempt,ServerModel} from './jobs-data';
+import {clusterLabel,finishedAttempts,linkHealthView,retryTerminal,serverModels} from './jobs-data';
+import {localTime} from './server-cards';
+import type {LocalAttempt,MonitorResponse,ServerModel} from './jobs-data';
 import {WalltimeProgress} from './job-progress';
 import './ui/server.css';
 export type {Monitor} from './jobs-data';
 export function ServerMonitor({revision}:{revision:number}){
- const [data,setData]=useState<{clusters:ClusterRow[]}|null>(null),[error,setError]=useState(''),[now,setNow]=useState(Date.now()),[tick,setTick]=useState(0);
+ const [data,setData]=useState<MonitorResponse|null>(null),[error,setError]=useState(''),[now,setNow]=useState(Date.now()),[tick,setTick]=useState(0);
  const [local,setLocal]=useState<LocalAttempt[]|null>(null),[localErrors,setLocalErrors]=useState<string[]>([]),[fastPolling,setFastPolling]=useState(false);
  const [messages,setMessages]=useState<Record<string,string>>({});
  const requestNumbers=useRef(new Map<string,number>());
@@ -84,13 +85,18 @@ export function ServerMonitor({revision}:{revision:number}){
    if(!c.signal.aborted){setLocal(rows);setLocalErrors(errors);}
   }catch(e){if(!c.signal.aborted){setLocal(null);setLocalErrors([e instanceof Error?e.message:'读取失败']);}}})();return()=>c.abort();
  },[tick]);
- const models=serverModels(data?.clusters??[],now);
+ const link=linkHealthView(data,now,error),models=serverModels(data?.clusters??[],now,link);
  const [selected,setSelected]=useState('');
  const firstKey=models[0]?.key;
  useEffect(()=>{if(!selected&&firstKey)setSelected(firstKey);},[selected,firstKey]);
  const active=models.find(m=>m.key===selected)??models[0];
  const finished=finishedAttempts(local??[]);
  return <section className="jobs-page server-page" aria-label="服务器监控"><div className="jobs-heading"><h2>服务器</h2><span className="muted">{fastPolling?'每 3 秒读取本地采样；本地记录仍每 30 秒读取':'每 30 秒读取本地采样与记录'}</span></div>
+ {data&&<section className="link-health" aria-label="链路状态">
+  <StatusBadge tone={link.status==='healthy'?'ok':link.status==='unknown'?'warn':'bad'}>{link.status==='healthy'?'链路正常':link.status==='relay_outage'?'链路中断':link.status==='local_outage'?'本机断网':link.status==='cluster_failure'?'个别集群故障':'链路状态未知'}</StatusBadge>
+  <span>{link.status==='healthy'?'当前配置入口的采样正常。':link.status==='relay_outage'?'中继入口共同链路不可用；其他入口仍有成功采样。':link.status==='local_outage'?'全部入口失败（按本机断网处理）':link.status==='cluster_failure'?'部分入口采样失败，请查看对应卡片。':link.reason}</span>
+  <small>判定时间：{link.report?localTime(new Date(link.report.observed_at*1000).toISOString()):'未知'} · 基于监控快照，故障分类不代表物理根因。</small>
+ </section>}
  {error&&<ErrorNotice>{error}</ErrorNotice>}{!data?<p role="status">读取采样快照…</p>:models.length===0?<EmptyState>暂无集群采样。</EmptyState>:<>
  <ServerCards models={models} selected={active.key} onSelect={setSelected} now={now}/>
  <div className="server-tabs" role="tablist" aria-label="服务器详情">{models.map((m,i)=><button key={m.key} role="tab" id={'server-tab-'+i} aria-controls="server-detail" aria-selected={active.key===m.key} tabIndex={active.key===m.key?0:-1} onClick={()=>setSelected(m.key)} onKeyDown={e=>{

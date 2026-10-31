@@ -1,5 +1,53 @@
 ag-monitor/1 快照显示（T7c、T7e）
 
+## T217C：全机链路判定（HTTP 包装字段）
+
+数据提供端：T217A [PR #393](https://github.com/anakine800-tech/Auto-Gaussian/pull/393)，
+核对 head `8d096ee3edff6849f4d8917dfacff9e0f28b77e8`。既有 `ag clusters --json`
+顶层增加 `link_health`，每次调用读取最近本机监控缓存并使用后端同一分类器；
+前端不使用 study 级自主记录，不复制分类策略。
+
+`GET /api/monitor` 保留原 `clusters` 数组，增加 `link_health`（对象或 null）和
+`link_health_error`（固定说明或 null）。操作模式复用已选定的 ag；只读模式
+仅在启动显式提供 `--ag` 时启用该只读查询，默认不找 PATH、不启动 ag。
+每次 GET 执行固定 `ag clusters --json --verify-studies-root <viewer-root>`，
+15 秒超时、不立即重试；校验 `studies_root_matches=true`、输出大小与字段。
+不缓存首次判定，不把动态健康状态混入 `Actions.clusters` 的资源配置比较。
+读取失败不清空原快照，不新增 POST 或采样，不授予推进权限。
+
+投影只包含：
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| schema | `ag-link-health/1` |
+| observed_at | 有限 epoch 秒，本次全机判定时间 |
+| status | healthy / relay_outage / local_outage / cluster_failure / unknown |
+| entries[].name | 通用入口身份，唯一 |
+| entries[].relay_group | null 或统一投影为 `relay`；不返回原本机分组标识 |
+| entries[].sampled_at | UTC ISO 或 null |
+| entries[].age_seconds | 判定时的快照年龄或 null；与时间核对一致 |
+| entries[].interval_seconds | 30–600 整数或 null |
+| entries[].status | success / failed / unknown |
+| entries[].reason | null / sample_failed / missing / invalid / configuration / future / stale |
+
+原配置、拓扑、主机、账号、路径和 stdout/stderr 不转发；未知附加键不透传。
+每个已知入口判定还须匹配唯一、无歧义的前端快照来源，以及相同 sampled_at、
+interval_seconds 和成功/失败事实。分次读取遇到更新窗口时只降为 unknown，
+保留快照供查看；不选取两个同名 default 中“较新”的一个。
+
+HTTP 返回和浏览器每秒时钟均检查证据尚未生效/超过 `3 × interval_seconds`；
+只降为未知，不推导其他故障类别、不重新判成功，不添加 15 分钟宽限。
+HTTP 整次读取失败时，保留的旧判定也立即显示未知，原判定时间仍可见。
+旧后端缺字段保留原卡片行为并显示“尚无链路检查”或缺字段说明。
+单次快照仍用既有 600 秒显示过期规则，但 T217A 当前不将其作为已知链路证据。
+
+healthy 显示“链路正常”；relay_outage 显示“链路中断”，对应 relay 失败卡片
+和详情一致标注；cluster_failure 保留个别失败行为；local_outage 显示
+“本机断网”及“全部入口失败（按本机断网处理）”。这些是基于快照的分类，
+不能证明物理故障根因。各入口自己的快照年龄、上次成功与非最新标记保留。
+
+## 原有快照字段与显示
+
 文件位置：旧单集群为 `<studies_root>/.ag-monitor/latest.json`；命名集群为
 `<studies_root>/.ag-monitor/<name>/latest.json`（包括命名 default）。每个文件 UTF-8 JSON，
 ≤ 2 MiB，由 ag 原子替换写入，前端只读。两种 default 位置并存时显示来源歧义，不能自动认定当前来源。
