@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.8.0
+
+**发布准备，配套 T218 的 ag 4.8.0。4.7.1 不单独发布，其已合并内容并入本版。**
+下方 v4.7.1 及更早段落保留历史原文；本节说明当前发布范围，不代表已创建 release 或已部署。
+
+### 变更
+
+- **十结构对比（T192）。** 同 Study 支持 2–10 项比较与结构叠合，保留来源和选择；第十一项拒绝，对齐不写回坐标。[#54](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/54)
+- **能级图与 CSV（T193）。** 图、表和 CSV 使用同一已保存自由能剖面快照，显示条件和来源，不重算能量或代替科学签字。[#55](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/55)
+- **振动完整性（T194）。** 仅显示 facts 保存的已读/预期模式数及不可用原因，缺字段保持未知，不推算完整性或 TS 验收。[#56](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/56)
+- **方法检索（T195）。** 当前或全部 Study 可检索 manifest 保存的 route/method_basis，坏记录和索引覆盖限制明确提示。[#57](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/57)
+- **自主状态与操作保护（T196/T210）。** 只读显示实际计划、轮次、消费和日志；无目录显示未启用，运行中或无法核验时保持写保护。明确“自主取消／改投未启用”，移除独立取消/改投面板，保留历史日志。具名节点兼容旧 1/2、1/4 及后端明确提供的整节点比例 1，默认仍为 1/2。[#59](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/59)、[#61](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/61)
+- **放宽输入标记（T197）。** 只读展示 manifest 的跳过检查与“方法口径未核验”；旧记录兼容，损坏标记明确无法核实，不增加 GUI 放宽开关。[#58](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/58)
+- **链路与快照（T217C）。** 只展示本机 ag 返回的链路判定、判定时间及每入口快照年龄；缺失、旧、过期或不可信字段保持未知，旧后端快照仍可读。前端不自行探测或重判链路，保持同源保护与原过期阈值。[#62](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/62)
+- **发布元数据（T219）。** Python 包、运行时及网页包统一 4.8.0，依赖与锁文件不变。包含 T209 [#60](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/60) 的未发布准备和 T181 [#53](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/53) 的上一版状态收尾。
+
+### 启用、验证与部署
+
+- 自主取消、自主改投未启用，需要时提醒负责人在 Mac 上手动取消；SCNet 自主取消和改投不在本版，PBS 自主取消/改投仍为后续范围。PBS 看不到他人作业不视为空闲，T214 后续处理；T198 已取消。
+- T185/T186/T188 先合并后真实验证属于流程偏离；负责人将发版条件改为“真实验证通过 + 监督方确认”，协调方确认现已满足，敏感改动审阅已通过。功能合并、发布或部署仍不授予具体 study 自主运行权限，也不代表科学验收。
+- 本地仅做版本、类型/生产构建、打包及必要检查，负责人已接受的旧全量和定向证据保留；最终完整回归以本次 head CI 为准，见 [T219](docs/redesign-tasks/T219-release-v4.8.0-frontend.md)。本单不新增真实计算或集群验证。
+- 协调方负责审阅/合并，在版本提交当前 head CI 通过后创建 tag/release，并按已获授权仅部署开发机；研究机本轮不动，开发机配置完全不改，临时验证配置另列清单待负责人决定。
+- 保持完整源码部署：核对两仓确切发布提交，在固定运行检出安装并按冻结锁文件重建网页；wheel/sdist 与单独网页产物不能替代完整源码。具体备份、服务替换、令牌刷新和回退按 [OPERATIONS.md](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md) 及私有交付执行。
+- 旧后端缺能力保持明确限制；无自主目录沿用原人工操作，已有自主记录无法核验则拒绝相关写操作。回退恢复完整前后端来源、依赖、网页和服务方式，保留自主/输入标记/catalog v2 记录；不得删字段或改哈希制造兼容。
+
 ## v4.7.1
 
 **发布准备，配套 T208 的 ag 4.7.1；尚未发布或部署。自主运行尚未启用。**
