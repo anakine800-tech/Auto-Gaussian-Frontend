@@ -50,7 +50,7 @@ export function ServerDetail({model:m,revision,now,onRetry,retryMessage}:{model:
    <p>上次因{pauseReason(m.sampling?.pause_reason??null)}而暂停。请确认问题已修复后重新采样；失败后将继续暂停。</p>
    <div className="server-retry-confirm"><button onClick={()=>setConfirm(false)}>取消</button><button onClick={()=>void retry(true)}>确认重试</button></div>
   </Drawer>
-  {m.old&&<p className="server-stale" role="status">非最新{m.stale?' · 数据已过期':''}。{m.row.ambiguous?'来源未确认；':!d?.ok?'采样失败；':''}{m.hasData?'以下为保留的采样记录，不能视为当前状态。':'暂无成功采样数据，不能据此判断服务器空闲。'}</p>}
+  {m.old&&<p className="server-stale" role="status">非最新{m.stale?' · 数据已过期':''}。{m.row.ambiguous?'来源未确认；':m.row.error||!d?'采样状态未知；':m.linkStatus==='relay_outage'?'链路中断；':m.linkStatus==='local_outage'?'本机断网；':!d.ok?'采样失败；':''}{m.hasData?'以下为保留的采样记录，不能视为当前状态。':'暂无成功采样数据，不能据此判断服务器空闲。'}</p>}
   {m.warningCount>0&&<section className="server-warnings" aria-label="警告"><h3>{m.warningCount} 条警告</h3>
    {!!d?.warnings.length&&<ul>{d.warnings.map((w,i)=><li key={i}><span>{w.detail}</span>{safeIdentity(w.study)&&safeIdentity(w.attempt)&&<> · <a href={routeHash([w.study,w.attempt])}>{w.attempt}</a></>}</li>)}</ul>}
    {c?.storage_error&&<ErrorNotice>存储查询失败：{c.storage_error}</ErrorNotice>}

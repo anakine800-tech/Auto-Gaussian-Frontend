@@ -303,6 +303,313 @@ class RetryControlTests(unittest.TestCase):
         self.assertIsNone(row['retry_status']); self.assertTrue(row['retry_status_error'])
 
 
+class LinkHealthTests(unittest.TestCase):
+    """T217C consumes local CLI evidence; no network, study, or live config."""
+    def setUp(self):
+        import os
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import patch
+        from tests.fake_ag import make_fake
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.studies = self.root / 'studies'; self.studies.mkdir()
+        home = self.root / 'home'; home.mkdir()
+        isolation = patch.dict(os.environ, {'HOME': str(home)})
+        isolation.start(); self.addCleanup(isolation.stop)
+        self.fake = make_fake(self.root)
+
+    @staticmethod
+    def report(status='healthy', *, observed=None):
+        from datetime import datetime, timezone
+        import time
+        at = int(time.time()) if observed is None else observed
+        sampled = datetime.fromtimestamp(at - 30, timezone.utc).isoformat()
+        statuses = {'healthy': ('success', 'success'),
+                    'relay_outage': ('success', 'failed'),
+                    'local_outage': ('failed', 'failed'),
+                    'cluster_failure': ('failed', 'success'),
+                    'unknown': ('success', 'unknown')}[status]
+        entries = []
+        for name, group, state in zip(('nonrelay-a', 'relay-a'), (None, 'relay-synthetic'), statuses):
+            entries.append(dict(name=name, relay_group=group, sampled_at=sampled,
+                                age_seconds=30, interval_seconds=30, status=state,
+                                reason=None if state == 'success' else 'sample_failed'))
+        if status == 'unknown':
+            entries[-1].update(sampled_at=None, age_seconds=None, interval_seconds=None,
+                               reason='missing')
+        return dict(schema='ag-link-health/1', observed_at=at, status=status, entries=entries)
+
+    def control(self, report=None, **extra):
+        import json
+        from tests.fake_ag import settings
+        template = settings(self.studies)['clusters'][0]
+        names = [r['name'] for r in report['entries']] if report else ['nonrelay-a', 'relay-a']
+        metadata = dict(clusters=[dict(copy.deepcopy(template), name=name,
+                                      is_default=name == 'default') for name in names])
+        if report is not None:
+            metadata['link_health'] = report
+        value = dict(clusters_response=metadata, **extra)
+        (self.root / 'control.json').write_text(json.dumps(value))
+        return metadata
+
+    def snapshots(self, report):
+        import json
+        for entry in report['entries']:
+            if entry['sampled_at'] is None:
+                continue
+            ok = entry['status'] == 'success'
+            data = dict(schema='ag-monitor/1', sampled_at=entry['sampled_at'],
+                        interval_seconds=entry['interval_seconds'], ok=ok,
+                        error=None if ok else 'Synthetic sampling failure',
+                        last_ok_at=entry['sampled_at'] if ok else None,
+                        own=dict(cores_in_use=0, core_cap=8, jobs=[]),
+                        cluster=dict(name=entry['name'], scheduler='pbs', nodes=[], queues=[],
+                                     cores_total=None, cores_used=None), warnings=[])
+            directory = self.studies / '.ag-monitor' / entry['name']
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / 'latest.json').write_text(json.dumps(data))
+
+    def client(self, *, actions=False, explicit=True):
+        from fastapi.testclient import TestClient
+        from autog_frontend.api import create_app
+        return TestClient(create_app(self.studies, enable_actions=actions,
+                                    ag=self.fake if explicit else None),
+                          base_url='http://localhost', client=('127.0.0.1', 12345))
+
+    def calls(self):
+        import json
+        target = self.root / 'argv.jsonl'
+        return [json.loads(line) for line in target.read_text().splitlines()] if target.exists() else []
+
+    def cache_bytes(self):
+        return {str(p.relative_to(self.studies)): (p.stat().st_mtime_ns, p.read_bytes())
+                for p in self.studies.rglob('*') if p.is_file()}
+
+    def test_schema_projection_preserves_verdict_and_removes_unpublished_fields(self):
+        from autog_frontend.monitor import validate_link_health
+        for status in ('healthy', 'relay_outage', 'local_outage', 'cluster_failure', 'unknown'):
+            with self.subTest(status=status):
+                source = self.report(status)
+                source['private_extra'] = 'synthetic-unpublished-value'
+                source['entries'][1]['private_extra'] = 'synthetic-unpublished-value'
+                before = copy.deepcopy(source)
+                clean = validate_link_health(source)
+                self.assertEqual(clean['status'], status)
+                self.assertEqual(clean['observed_at'], source['observed_at'])
+                self.assertEqual(clean['entries'][0]['relay_group'], None)
+                self.assertEqual(clean['entries'][1]['relay_group'], 'relay')
+                self.assertNotIn('private_extra', clean)
+                self.assertNotIn('private_extra', clean['entries'][1])
+                self.assertNotIn('relay-synthetic', str(clean))
+                self.assertEqual(source, before)
+
+    def test_schema_invalid_types_versions_identity_and_evidence_are_rejected(self):
+        from autog_frontend.monitor import validate_link_health
+        good = self.report()
+        invalid = [None, [], {}, dict(good, schema='ag-link-health/2'),
+                   dict(good, observed_at=True), dict(good, observed_at=float('nan')),
+                   dict(good, observed_at=float('inf')), dict(good, status='normal'),
+                   dict(good, entries={}), dict(good, entries=[]),
+                   dict(good, entries=[good['entries'][0]] * 2)]
+        invalid.extend({k: v for k, v in good.items() if k != missing} for missing in good)
+        for key, value in [('name', '../relay'), ('name', 1), ('relay_group', True),
+                           ('sampled_at', '2026-01-01T00:00:00'), ('sampled_at', None),
+                           ('age_seconds', True), ('age_seconds', float('nan')),
+                           ('age_seconds', 31), ('interval_seconds', True),
+                           ('interval_seconds', 29), ('interval_seconds', 601),
+                           ('status', 'healthy'), ('reason', 'unpublished-reason')]:
+            row = copy.deepcopy(good); row['entries'][0][key] = value; invalid.append(row)
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_link_health(value)
+
+    def test_unknown_reasons_remain_unknown_instead_of_becoming_success(self):
+        from autog_frontend.monitor import validate_link_health
+        for reason in ('missing', 'invalid', 'configuration', 'future', 'stale'):
+            value = self.report('unknown'); value['entries'][1]['reason'] = reason
+            clean = validate_link_health(value)
+            self.assertEqual(clean['status'], 'unknown')
+            self.assertEqual(clean['entries'][1]['status'], 'unknown')
+            self.assertEqual(clean['entries'][1]['reason'], reason)
+
+    def test_query_fixed_argv_is_fresh_on_every_read_and_not_a_probe(self):
+        from unittest.mock import Mock, patch
+        import json
+        from autog_frontend.monitor import LinkHealthQuery
+        reports = [self.report(), self.report('relay_outage')]
+        payloads = [self.control(report) | dict(studies_root_matches=True) for report in reports]
+        outcomes = [Mock(returncode=0, stdout=json.dumps(p).encode(), stderr=b'') for p in payloads]
+        with patch('subprocess.run', side_effect=outcomes) as run:
+            query = LinkHealthQuery(self.studies, self.fake)
+            self.assertEqual(query.read()['link_health']['status'], 'healthy')
+            self.assertEqual(query.read()['link_health']['status'], 'relay_outage')
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            self.assertEqual(call.args[0], [str(self.fake), 'clusters', '--json',
+                                           '--verify-studies-root', str(self.studies)])
+            self.assertIs(call.kwargs['shell'], False)
+            self.assertEqual(call.kwargs['timeout'], 15)
+
+    def test_query_failures_are_anonymous_and_never_reuse_previous_health(self):
+        import json
+        import subprocess
+        from unittest.mock import Mock, patch
+        from autog_frontend.monitor import LinkHealthQuery
+        marker = 'synthetic-private-output'
+        good = self.control(self.report()) | dict(studies_root_matches=True)
+        invalid = [dict(good, studies_root_matches=False), dict(good, studies_root_matches=1),
+                   {k: v for k, v in good.items() if k != 'studies_root_matches'},
+                   {k: v for k, v in good.items() if k != 'link_health'},
+                   dict(good, link_health=dict(good['link_health'], schema='unsupported'))]
+        outcomes = [Mock(returncode=0, stdout=json.dumps(value).encode(), stderr=marker.encode())
+                    for value in invalid]
+        outcomes += [Mock(returncode=1, stdout=marker.encode(), stderr=marker.encode()),
+                     Mock(returncode=0, stdout=marker.encode(), stderr=b''),
+                     Mock(returncode=0, stdout=b' ' * (2 * 1024 * 1024 + 1), stderr=b''),
+                     OSError(marker), subprocess.TimeoutExpired(marker, 15)]
+        for failure in outcomes:
+            with self.subTest(failure=type(failure).__name__):
+                with patch('subprocess.run', side_effect=[
+                        Mock(returncode=0, stdout=json.dumps(good).encode(), stderr=b''), failure]):
+                    query = LinkHealthQuery(self.studies, self.fake)
+                    self.assertEqual(query.read()['link_health']['status'], 'healthy')
+                    failed = query.read()
+                self.assertIsNone(failed['link_health'])
+                self.assertTrue(failed['link_health_error'])
+                self.assertNotIn(marker, str(failed))
+                self.assertNotIn(str(self.root), str(failed))
+
+    def test_default_readonly_does_not_discover_or_invoke_ag(self):
+        from unittest.mock import patch
+        report = self.report(); self.snapshots(report)
+        before = self.cache_bytes()
+        with patch('subprocess.Popen', side_effect=AssertionError('unexpected process')):
+            client = self.client(explicit=False)
+            response = client.get('/api/monitor')
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertIsNone(data.get('link_health'))
+            self.assertTrue(data.get('link_health_error'))
+            self.assertEqual(len(data['clusters']), 2)
+            self.assertTrue(all(row['snapshot']['ok'] for row in data['clusters']))
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.cache_bytes(), before)
+
+    def test_readonly_api_refreshes_current_global_health_without_a_study(self):
+        client = self.client()
+        for status in ('healthy', 'relay_outage', 'cluster_failure', 'local_outage'):
+            with self.subTest(status=status):
+                report = self.report(status); self.control(report); self.snapshots(report)
+                before = self.cache_bytes()
+                response = client.get('/api/monitor')
+                self.assertEqual(response.status_code, 200, response.text)
+                result = response.json()
+                self.assertEqual(result['link_health']['status'], status)
+                self.assertIsNone(result['link_health_error'])
+                self.assertEqual(result['link_health']['observed_at'], report['observed_at'])
+                self.assertNotIn('relay-synthetic', response.text)
+                self.assertNotIn(str(self.root), response.text)
+                self.assertEqual(self.cache_bytes(), before)
+        self.assertEqual(client.get('/api/studies').json()['studies'], [])
+        self.assertEqual(client.post('/api/monitor/retry', json={}).status_code, 405)
+        self.assertEqual(self.calls(), [['clusters', '--json', '--verify-studies-root',
+                                        str(self.studies)]] * 4)
+
+    def test_action_metadata_stays_static_while_monitor_queries_current_health(self):
+        from autog_frontend.actions import Actions
+        from autog_frontend.studies import Studies
+        report = self.report(); self.control(report); self.snapshots(report)
+        actions = Actions(Studies(self.studies), self.fake)
+        original = copy.deepcopy(actions.clusters)
+        client = self.client(actions=True)
+        self.assertEqual(client.get('/api/monitor').json()['link_health']['status'], 'healthy')
+        changed = self.report('relay_outage'); self.control(changed); self.snapshots(changed)
+        self.assertEqual(client.get('/api/monitor').json()['link_health']['status'], 'relay_outage')
+        self.assertEqual(actions.settings(), original)
+        self.assertEqual(actions.clusters, original)
+        self.assertTrue(all(call[0] in ('clusters', '--version') for call in self.calls()))
+
+    def test_mismatched_snapshot_binding_keeps_snapshot_and_downgrades_health(self):
+        import json
+        from datetime import datetime, timedelta
+        client = self.client()
+        for field in ('sampled_at', 'interval_seconds', 'ok'):
+            with self.subTest(field=field):
+                report = self.report(); self.control(report); self.snapshots(report)
+                target = self.studies / '.ag-monitor' / 'relay-a' / 'latest.json'
+                snapshot = json.loads(target.read_text())
+                if field == 'sampled_at':
+                    snapshot[field] = (datetime.fromisoformat(snapshot[field]) - timedelta(seconds=1)).isoformat()
+                elif field == 'interval_seconds':
+                    snapshot[field] = 60
+                else:
+                    snapshot.update(ok=False, error='Synthetic newer failure')
+                target.write_text(json.dumps(snapshot)); before = self.cache_bytes()
+                data = client.get('/api/monitor').json()
+                self.assertEqual(data['link_health']['status'], 'unknown')
+                self.assertTrue(data['link_health_error'])
+                row = next(row for row in data['clusters'] if row['name'] == 'relay-a')
+                self.assertEqual(row['snapshot'], snapshot)
+                self.assertEqual(self.cache_bytes(), before)
+
+    def test_default_source_ambiguity_never_selects_one_health_binding(self):
+        report = self.report(); report['entries'] = report['entries'][:1]
+        report['entries'][0]['name'] = 'default'
+        self.control(report); self.snapshots(report)
+        cache = self.studies / '.ag-monitor'
+        (cache / 'latest.json').write_bytes((cache / 'default' / 'latest.json').read_bytes())
+        data = self.client().get('/api/monitor').json()
+        self.assertEqual(data['link_health']['status'], 'unknown')
+        self.assertTrue(data['link_health_error'])
+        self.assertEqual(len(data['clusters']), 2)
+        self.assertTrue(all(row['ambiguous'] for row in data['clusters']))
+        self.assertEqual({row['source'] for row in data['clusters']}, {'legacy', 'named'})
+
+    def test_missing_snapshot_keeps_named_entry_and_unknown_evidence(self):
+        report = self.report('unknown'); self.control(report); self.snapshots(report)
+        data = self.client().get('/api/monitor').json()
+        self.assertEqual(data['link_health']['status'], 'unknown')
+        row = next(row for row in data['clusters'] if row['name'] == 'relay-a')
+        self.assertIsNone(row['snapshot'])
+        self.assertTrue(row['error'])
+        self.assertEqual(data['link_health']['entries'][1]['reason'], 'missing')
+
+    def test_exact_freshness_and_future_boundaries_only_downgrade_the_verdict(self):
+        from autog_frontend.monitor import attach_link_health, validate_link_health
+        from autog_frontend.studies import Studies
+        report = self.report(observed=1793404830); self.snapshots(report)
+        rows = Studies(self.studies).monitors()['clusters']
+        health = dict(link_health=validate_link_health(report), link_health_error=None)
+        original = copy.deepcopy(health)
+        for delta, expected in ((60, 'healthy'), (61, 'unknown'), (-1, 'unknown'), (-31, 'unknown')):
+            with self.subTest(delta=delta):
+                result = attach_link_health(dict(clusters=copy.deepcopy(rows)), health,
+                                            now=report['observed_at'] + delta)
+                self.assertEqual(result['link_health']['status'], expected)
+                self.assertEqual(result['clusters'], rows)
+                self.assertEqual(result['link_health']['observed_at'], report['observed_at'])
+                self.assertEqual(bool(result['link_health_error']), expected == 'unknown')
+                self.assertEqual(health, original)
+
+    def test_binding_accepts_equivalent_utc_time_and_rejects_missing_or_duplicate_source(self):
+        from autog_frontend.monitor import attach_link_health, validate_link_health
+        from autog_frontend.studies import Studies
+        report = self.report(); self.snapshots(report)
+        rows = Studies(self.studies).monitors()['clusters']
+        health = dict(link_health=validate_link_health(report), link_health_error=None)
+        rows[0]['snapshot']['sampled_at'] = rows[0]['snapshot']['sampled_at'].replace('+00:00', 'Z')
+        good = attach_link_health(dict(clusters=copy.deepcopy(rows)), health,
+                                  now=report['observed_at'])
+        self.assertEqual(good['link_health']['status'], 'healthy')
+        for changed in (rows[:1], rows + [dict(rows[0], source='legacy')]):
+            result = attach_link_health(dict(clusters=copy.deepcopy(changed)), health,
+                                        now=report['observed_at'])
+            self.assertEqual(result['link_health']['status'], 'unknown')
+            self.assertTrue(result['link_health_error'])
+            self.assertEqual(result['clusters'], changed)
+
+
 class PairedBackendTests(unittest.TestCase):
     def test_t151_merged_backend_local_pair(self):
         """Opt-in dependency source; never reads default config or constructs SSH."""

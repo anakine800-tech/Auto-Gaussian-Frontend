@@ -3,9 +3,122 @@
 Required fields/types are checked because a partial producer update must show a
 format error, rather than crash the page or mislabel old values as current.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import json
 import math
+from pathlib import Path
 import re
+import shutil
+import subprocess
+
+
+def validate_link_health(data):
+    """Project the local producer's verdict; never classify failures here."""
+    def number(value):
+        return type(value) in (int, float) and math.isfinite(value)
+
+    def identity(value):
+        return isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value)
+
+    try:
+        if (not isinstance(data, dict) or data['schema'] != 'ag-link-health/1'
+                or data['status'] not in ('healthy', 'relay_outage', 'local_outage', 'cluster_failure', 'unknown')
+                or not number(data['observed_at']) or not isinstance(data['entries'], list)
+                or len(data['entries']) > 256):
+            raise ValueError()
+        datetime.fromtimestamp(data['observed_at'], timezone.utc)
+        entries, names = [], set()
+        for row in data['entries']:
+            name, group = row['name'], row['relay_group']
+            if not identity(name) or name in names or group is not None and not identity(group):
+                raise ValueError()
+            names.add(name)
+            stamp, age, interval = row['sampled_at'], row['age_seconds'], row['interval_seconds']
+            if stamp is None:
+                if age is not None:
+                    raise ValueError()
+            elif (not number(age) or not math.isclose(
+                    data['observed_at'] - retry_timestamp(stamp).timestamp(), age, rel_tol=0, abs_tol=0.000001)):
+                raise ValueError()
+            if interval is not None and (type(interval) is not int or not 30 <= interval <= 600):
+                raise ValueError()
+            status, reason = row['status'], row['reason']
+            if status in ('success', 'failed'):
+                if (age is None or interval is None or not 0 <= age <= 3 * interval
+                        or reason != (None if status == 'success' else 'sample_failed')):
+                    raise ValueError()
+            elif status != 'unknown' or reason not in ('missing', 'invalid', 'configuration', 'future', 'stale'):
+                raise ValueError()
+            # Group names are local configuration, not browser display labels.
+            entries.append(dict(name=name, relay_group='relay' if group is not None else None,
+                                sampled_at=stamp, age_seconds=age, interval_seconds=interval,
+                                status=status, reason=reason))
+        if not entries and data['status'] != 'unknown':
+            raise ValueError()
+        return dict(schema='ag-link-health/1', observed_at=data['observed_at'],
+                    status=data['status'], entries=entries)
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError, OSError):
+        raise ValueError('链路判定格式不正确') from None
+
+
+class LinkHealthQuery:
+    """A fresh local clusters query per monitor read, with no action capability."""
+    def __init__(self, root, executable):
+        resolved = shutil.which(str(Path(executable).expanduser().absolute()))
+        if not resolved:
+            raise ValueError('本机 ag 不可用')
+        self.root, self.executable = root, str(Path(resolved).absolute())
+
+    def read(self):
+        try:
+            result = subprocess.run(
+                [self.executable, 'clusters', '--json', '--verify-studies-root', str(self.root)],
+                shell=False, capture_output=True, timeout=15, check=False)
+            if result.returncode != 0 or len(result.stdout) > 2 * 1024 * 1024:
+                raise ValueError()
+            data = json.loads(result.stdout)
+            if not isinstance(data, dict) or data.get('studies_root_matches') is not True:
+                raise ValueError()
+            if 'link_health' not in data:
+                return dict(link_health=None, link_health_error='后端未提供链路判定')
+            report = validate_link_health(data['link_health'])
+            return dict(link_health=report, link_health_error=None)
+        except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, RecursionError):
+            # Do not return stdout, stderr, executable or configuration paths.
+            return dict(link_health=None, link_health_error='本机链路判定读取失败，状态未知')
+
+
+def attach_link_health(result, health, *, now=None):
+    """Invalidate stale or mismatched evidence without deriving a new verdict."""
+    result.update(health)
+    report = health.get('link_health')
+    if report is None:
+        return result
+    at = datetime.now(timezone.utc).timestamp() if now is None else now
+    error = None
+    if report['observed_at'] > at:
+        error = '链路判定时间尚未生效，状态未知'
+    for entry in report['entries']:
+        rows = [row for row in result['clusters'] if row['name'] == entry['name']]
+        if len(rows) != 1 or rows[0]['ambiguous']:
+            error = '链路判定与快照来源不一致，状态未知'
+            break
+        if entry['status'] == 'unknown':
+            continue
+        row, snapshot = rows[0], rows[0]['snapshot']
+        if (row['error'] or snapshot is None
+                or retry_timestamp(snapshot['sampled_at']) != retry_timestamp(entry['sampled_at'])
+                or snapshot['interval_seconds'] != entry['interval_seconds']
+                or snapshot['ok'] != (entry['status'] == 'success')):
+            error = '链路判定与快照不一致，状态未知'
+            break
+        age = at - retry_timestamp(entry['sampled_at']).timestamp()
+        if not 0 <= age <= 3 * entry['interval_seconds']:
+            error = '链路判定所用采样已过期或尚未生效，状态未知'
+            break
+    if error:
+        result.update(link_health=dict(report, status='unknown'), link_health_error=error)
+    return result
 
 
 def retry_timestamp(value):

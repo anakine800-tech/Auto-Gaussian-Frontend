@@ -25,19 +25,20 @@ export function ResourceBar({label,value,unit=''}:{label:string;value:Segments;u
 }
 export function ServerCards({models,selected,onSelect,now}:{models:ServerModel[];selected:string;onSelect:(key:string)=>void;now:number}){
  return <><div className="resource-legend" aria-label="资源颜色图例">{[['mine','深色 = 本人'],['others','浅色 = 他人'],['idle','空白 = 空闲'],...(models.some(m=>(m.cores?.other??0)>0)?[['other','灰色 = 其他状态']]:[]),['unknown','斜纹 = 未知']].map(([kind,label])=><span key={kind}><i className={'legend-'+kind}/>{label}</span>)}</div><div className={'server-cards'+(models.length===5?' server-cards-five':'')}>{models.map(m=>{
-  const d=m.row.snapshot,c=d?.cluster,failed=!!m.row.error||!d?.ok,summary=m.hasData?c?.job_summary:null;
+  const d=m.row.snapshot,c=d?.cluster,unavailable=!!m.row.error||!d,failed=d?.ok===false,summary=m.hasData?c?.job_summary:null;
   const ownKnown=!!d?.ok&&m.group.own!=null;
+  const failureLabel=m.linkStatus==='relay_outage'?'链路中断':m.linkStatus==='local_outage'?'本机断网':'采样失败';
   const shared=[...m.group.group.filter(r=>r.name!==m.row.name).map(r=>models.find(x=>x.row===r)?.label??r.name),...m.group.missing];
   return <section key={m.key} aria-label={`集群 ${m.label}`}><button className="server-card" aria-label={`选择服务器 ${m.label}`} aria-pressed={selected===m.key} onClick={()=>onSelect(m.key)}>
    <span className="server-card-heading"><strong>{m.label}</strong><span>{m.scheduler}</span></span>
-   <span className="server-card-status"><StatusBadge tone={failed?'bad':m.old?'warn':'ok'}>{failed?'采样失败':m.old?'非最新':'新鲜'}</StatusBadge><SamplingStatus model={m} now={now}/>{m.warningCount>0&&<span>{m.warningCount} 条警告</span>}</span>
+   <span className="server-card-status"><StatusBadge tone={unavailable?'warn':failed?'bad':m.old?'warn':'ok'}>{unavailable?'未知':failed?failureLabel:m.old?'非最新':'新鲜'}</StatusBadge><SamplingStatus model={m} now={now}/>{m.warningCount>0&&<span>{m.warningCount} 条警告</span>}</span>
    <span className="server-age">{d?<><time dateTime={d.sampled_at} title={d.sampled_at}>{localTime(d.sampled_at)}</time> · 距今 {ageText(Math.max(0,Math.floor((now-Date.parse(d.sampled_at))/1000)))}<small>{d.interval_seconds===null?'单次采样':`采样间隔 ${d.interval_seconds} 秒`}</small></>:'尚无采样'}</span>
    <ResourceBar label="核数" value={m.cores}/><ResourceBar label="内存" value={m.memory} unit="GB"/>{(!m.cores||!m.memory)&&m.notes.map((note,i)=><small className="hardware-note" key={i}>{note}</small>)}
    <span className="server-job-count">运行 {amount(summary?.running_jobs)} 个作业 · 排队 {amount(summary?.queued_jobs)} 个作业 / {amount(summary?.queued_cores)} 核</span>
    <span>本人：运行 {amount(ownKnown?m.group.running:null)} · 排队 {amount(ownKnown?m.group.queued:null)} / 总上限 {amount(m.group.cap)} 核</span>
    {shared.length>0&&<small>与 {shared.join('、')} 共享总上限（只计一次）</small>}
    {m.row.ambiguous&&<small className="snapshot-notice">来源未确认；不能视为当前状态。</small>}
-   {failed&&<small className="snapshot-notice">采样失败：{m.row.error??d?.error??'未提供错误说明'} · 上次成功：{localTime(d?.last_ok_at)} · 当前占用与硬件容量未知</small>}
+   {unavailable?<small className="snapshot-notice">采样状态未知：{m.row.error??'尚无快照'} · 当前占用与硬件容量未知</small>:failed&&<small className="snapshot-notice">{failureLabel}{m.linkStatus?'：当前入口无法连通':'：'+(d?.error??'未提供错误说明')} · 上次成功：{localTime(d?.last_ok_at)} · 当前占用与硬件容量未知</small>}
   </button></section>;
  })}</div></>;
 }
