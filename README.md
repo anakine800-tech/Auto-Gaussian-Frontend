@@ -1,12 +1,14 @@
 # Auto-Gaussian Study Viewer v4.8.0
 
-**v4.8.0 发布准备，配套 T218 的 ag 4.8.0；4.7.1 不单独发布，内容并入本版。**
+**v4.8.0 已于 2026-10-31 正式发布，配套 ag 4.8.0；4.7.1 未单独发布，内容已并入本版。**
 本版汇总已合并的十结构对比、已保存能级图与 CSV、振动模式完整性、方法检索、
 自主状态页、放宽输入标记、取消/改投未启用提示及后端链路判定与快照年龄。
 发布不等于具体 study 的自主启用授权或科学验收；自主取消、自主改投仍未启用。
-协调方负责发布和已获授权的开发机部署，研究机本轮不动，开发机配置完全不改。
+开发机正式前后端已部署为 4.8.0，五入口 doctor、唯一 monitor 采样者及正式服务器页更新核验通过；研究机本轮未操作。
+发布与部署当时配置未变；随后经负责人单独授权完成清理，已恢复验证前配置并保留链路标记，登记、预留及验证证据保留。
 变更及兼容范围见 [v4.8.0 发布说明](CHANGELOG.md#v480)，
-本次验收见 [T219](docs/redesign-tasks/T219-release-v4.8.0-frontend.md)。
+发布与部署核验见 [当前发布状态](#v480-已发布)及 [T221](docs/redesign-tasks/T221-v480-published-status.md)；
+[T219](docs/redesign-tasks/T219-release-v4.8.0-frontend.md) 保留候选准备历史，不代表当前状态。
 
 ## 上一已发布版本（v4.7.0）
 
@@ -101,7 +103,7 @@ replace that checkout; rebuild the web assets from the approved source revision.
 
 ### 可选只读启动
 
-1. 仅在两仓 v4.8.0 已发布且获准部署后，同步各自确切发布 tag，核对其指向获准合并提交，再按上面的步骤安装并构建；配合 T218 的 ag 4.8.0 使用。本轮只部署开发机，研究机不动；发布准备不启动或替换服务。
+1. 两仓 v4.8.0 已正式发布，开发机部署及实际核验已完成，确切提交见[当前发布状态](#v480-已发布)。其他机器仍须单独获准部署，再同步配套的前后端发布 tag，核对提交并按上面的步骤安装和构建；研究机本轮未操作。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -795,15 +797,30 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-### v4.8.0 发布准备
+### v4.8.0 已发布
 
-T219 只更新版本和发布文档，基线为已 fetch 核实的 main
-`5fa4ef1b938013cebd9788bbd91d5704973b5fba`：包含 T192–T197、T210、T217C，
-配套 T218 的 ag 4.8.0。4.7.1 不单独发布，T208/T209 的已合并内容并入本版。
-协调方审阅/合并，在版本提交当前 head CI 通过后创建 tag/release，并按既有授权
-仅部署开发机；研究机本轮不动。开发机配置完全不改，临时验证配置另列清单待负责人决定。
-完整源码、构建产物、确切来源与 SHA-256、部署/回退草稿保存在私有发布包。
-本地只运行版本、构建和必要检查；负责人已接受旧全量及定向证据，最终全量交当前 head CI。
+前后端 v4.8.0 已于 **2026-10-31** 正式发布，两仓 Release 均非 Draft、非 Prerelease。
+本版包含 T192–T197、T210、T217C，配套 T218 的 ag 4.8.0；4.7.1 未单独发布，
+T208/T209 的已合并内容已并入本版。
+
+- [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.0)：
+  tag 固定于 `f5730a1a04dcd05210663be0f849214f88a9fc64`（[T219 #63](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/63)）。
+- [后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.0)：
+  tag 固定于 `568c45c2b605b62a750465a26ba0296be4ae7cba`（[T218 #395](https://github.com/anakine800-tech/Auto-Gaussian/pull/395)）。
+
+发布版本的[前端 CI](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/actions/runs/41169867712)
+为 Python 283 通过、6 项既有可选配套跳过，浏览器 484 通过；
+[后端 CI](https://github.com/anakine800-tech/Auto-Gaussian/actions/runs/41169811824)
+为 8395 通过、2 跳过，Skills 533 通过。两仓合并树均等于受测树，CI 通过后才创建 tag/Release。
+[T219](docs/redesign-tasks/T219-release-v4.8.0-frontend.md) 和 tag 内的准备文字保留为候选阶段历史；
+[T221](docs/redesign-tasks/T221-v480-published-status.md) 仅更新发布后状态，不构成新版本，不替代或移动发布 tag。
+
+截至 2026-10-31，开发机已从上述完整源码部署，正式前后端均为 4.8.0，
+doctor 五入口通过，唯一正式 monitor 采样者正常。负责人手动打开正式服务器页，
+在无导航、无刷新的约 134 秒核验期间，链路判定时间、五入口样本时间和显示年龄均更新；
+显示年龄与按捕获时刻计算的年龄已分别核对。研究机本轮未操作，不据此宣称所有机器均已升级。
+发布与部署当时配置未变；随后负责人单独授权协调方完成清理，已恢复验证前配置并保留链路标记，
+登记、预留及验证证据保留。具体机器、路径、配置值、源码与产物哈希、部署及回退记录只留私有材料。
 
 **自主取消、自主改投未启用。** 需要时提醒负责人在 Mac 上手动取消；
 SCNet 自主取消和改投不在本版，PBS 自主取消/改投仍后续。
@@ -816,8 +833,8 @@ T185/T186/T188 先合并后真实验证属于流程偏离；负责人将发版�
 已有自主记录无法核验时拒绝相关写操作。旧记录缺放宽标记时保持原显示，
 链路字段缺失/过期保持未知，旧监控快照仍可读。页面不新增自主控制或放宽开关。
 
-获准部署后从固定完整源码检出安装并按冻结锁文件重建网页；wheel/sdist 不代替源码。
-核对 Python 元数据、实际导入、网页包与配套 ag 均为 4.8.0，绑定两仓完整提交及
+后续获准部署仍须从固定完整源码检出安装并按冻结锁文件重建网页；wheel/sdist 不代替源码。
+逐机核对 Python 元数据、实际导入、网页包与配套 ag 均为 4.8.0，绑定两仓完整提交及
 前端选定的 ag 路径；刷新页面取得重启后的令牌。同源保护、人工确认及原记录保持。
 按 [运维文档](https://github.com/anakine800-tech/Auto-Gaussian/blob/main/docs/OPERATIONS.md)
 备份原源码、依赖、网页构建和服务方式；回退恢复完整配套，保留自主/输入标记/catalog v2。
@@ -917,7 +934,7 @@ establish the current deployed version or acceptance status of either machine.
 
 ## 版本历史
 
-- **v4.8.0（发布准备）**：T192–T197、T210 自主取消/改投未启用提示、T217C 后端链路判定与快照年龄；配套 T218 ag 4.8.0，开发机部署，研究机本轮不动。[发布说明](CHANGELOG.md#v480)
+- **v4.8.0（2026-10-31 已发布）**：T192–T197、T210 自主取消/改投未启用提示、T217C 后端链路判定与快照年龄；配套 ag 4.8.0，开发机部署及实际核验已完成，研究机本轮未操作。[发布说明](CHANGELOG.md#v480)
 - **v4.7.1（未单独发布，内容并入 4.8.0）**：T208/T209 的发布准备及当时验证记录保留为历史。[历史准备说明](CHANGELOG.md#v471)
 - **v4.7.0（2026-10-29 已发布）**：T158 新 Attempt 默认资源、单节点容量与可选节点比例；T160 CREST 诊断摘要和可核验来源；T179 构建依赖 setuptools 84.1.0；配合 ag 4.7.0，T178 真实合并源码的两项配套均通过、无跳过。[发布说明](CHANGELOG.md#v470)
 - **v4.6.3（发布准备）**：T147 监控资源与重试显示修补、T151 请求终态与重启未确认反馈；三处版本统一，清理已完成待办，配合 ag 4.6.3。[发布说明](CHANGELOG.md#v463)
@@ -1153,7 +1170,7 @@ T210 在可读状态页明确显示“自主取消／改投未启用”，不再
 来源和范围见 [T196 验证记录](docs/redesign-tasks/T196-autonomy-view-action-guard.md#最终冻结组合的离线配对2026-10-29)。
 页面说明前端预检不构成动作授权，具体操作仍须通过当前 ag 的授权和资源核验。
 该冻结组合的离线配对通过记录属于当时阶段，不代表部署或启用；
-4.8.0 的真实验证与监督确认口径见上方发布状态，具体 study 的启用与科学验收仍单独记录。
+4.8.0 的真实验证与监督确认口径见[当前发布状态](#v480-已发布)，具体 study 的启用与科学验收仍单独记录。
 
 可选实际事件配对使用隔离后端源码：
 `T196_SUBMISSION_BACKEND_SOURCE='<EXPORTED_T186>/ag/src' .venv/bin/python -B -m unittest tests.test_actions.PairedSubmissionAutonomyTests -v`。
