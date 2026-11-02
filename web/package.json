@@ -2,6 +2,7 @@
   "name": "autog-readonly-ui",
   "version": "4.8.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "packageManager": "pnpm@11.19.0",
   "scripts": {

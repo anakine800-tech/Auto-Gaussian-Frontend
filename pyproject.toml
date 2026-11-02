@@ -7,6 +7,8 @@ name = "autog-frontend-readonly"
 version = "4.8.0"
 description = "Local read-only viewer for ag study directories"
 requires-python = ">=3.11,<3.14"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
 dependencies = ["fastapi==0.141.1", "uvicorn==0.53.0"]
 
 [project.scripts]
