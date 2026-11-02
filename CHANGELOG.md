@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added LICENSE: All Rights Reserved (Copyright (c) 2026 Deli Sun).
+
 ## v4.8.0
 
 **已于 2026-10-31 正式发布，配套 ag 4.8.0；开发机部署及实际核验已完成。4.7.1 未单独发布，其已合并内容已并入本版。**
