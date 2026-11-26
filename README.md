@@ -524,6 +524,13 @@ changes facts nor supplies scientific acceptance. Parsing is adapted solely from
 旧四字段响应保留新快照兜底，但只提示“已收到新采样，无法精确对应本次请求”。
 每次点击仅启动一次登记，失败不换命令重发。来源歧义或损坏控制记录不清空正常监控快照。
 其他本地记录不加速读取；无效 JSON、超时和其他错误明确显示，不自动重发重试请求。
+
+复验 T151 的历史配对时，将 `T151_BACKEND_SOURCE` 指向 T149 后端合并提交 `06f3dfe2d4a62452bbd003a51cd3472c427834a1` 的 `ag/src`。[T151 验收记录](docs/redesign-tasks/T151-monitor-retry-feedback.md)
+
+```sh
+T151_BACKEND_SOURCE='<T149_BACKEND>/ag/src' .venv/bin/python -B -m unittest tests.test_server_monitor.PairedBackendTests -v
+```
+
 连续采样允许 30–600 秒，超过三倍间隔才过期；单次采样超过十分钟过期。
 “节点与队列”和“限额、档位与存储”默认收起，单节点默认展开节点区。
 共享入口用同一份最新成功占用，不累加；总上限取组内最小值。
@@ -1112,10 +1119,10 @@ ag capacity --cluster <ENTRY> --tier <TIER> [--target-node <NODE>] --json
 缺少比例标记时沿用原档位匹配规则。节点整体可选不代表每个比例都可用，容量 unknown 本身不禁止保存。
 禁用、受限、过期节点与无对应档位的原保护保留；不自动换节点或降档。
 
-T158 的本地配套验收可在当前检出的独立 `.venv` 安装指定后端源码后运行：
+复验 T158 的历史配对时，在独立 `.venv` 以可编辑模式安装后端合并提交 `e109019b3028aad75fb434b5eafce1633af72aca` 的 ag，再将 `T158_BACKEND_SOURCE` 指向同一提交的 `ag/src`。[T158 验收记录](docs/redesign-tasks/T158-new-attempt-resources.md)
 
 ```sh
-T158_BACKEND_SOURCE='<ISOLATED_BACKEND>/ag/src' .venv/bin/python -B -m unittest tests.test_actions.PairedResourceTests -v
+T158_BACKEND_SOURCE='<T158_BACKEND>/ag/src' .venv/bin/python -B -m unittest tests.test_actions.PairedResourceTests -v
 ```
 
 该用例核对实际导入位置，替换配置入口为临时合成配置，并禁止构造 SSHTransport；
