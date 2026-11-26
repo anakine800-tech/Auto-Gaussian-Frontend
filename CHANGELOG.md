@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## v4.8.1
 
-- Added LICENSE: All Rights Reserved (Copyright (c) 2026 Deli Sun).
+- 前端配套 ag 4.8.1。Python 包、运行时、网页包和合成演示中的配套版本同步为 4.8.1。Gaussian 输入校验、共享 PBS 节点准入与预留核算修复由配套后端提供。[后端 v4.8.1 发布说明](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.1/CHANGELOG.md#v481)
+- 本仓首次加入 All Rights Reserved 许可（Copyright (c) 2026 Deli Sun），Python 发行物标记为 `LicenseRef-Proprietary`，网页包标记为 `UNLICENSED`。前端 v4.8.0 tag 中没有 LICENSE 文件。[许可变更 #65](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/65)
+- 补录 v4.8.0 的发布与开发机部署验收。v4.8.1 的部署按机器另行记录。[状态文档 #64](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/64)
 
 ## v4.8.0
 
