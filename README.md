@@ -1,8 +1,8 @@
-# Auto-Gaussian Study Viewer v4.8.1
+# Auto-Gaussian Study Viewer v4.8.2
 
-**v4.8.1 配套 ag 4.8.1。** 前端将 Python 包、运行时和网页包同步到该版本，并纳入已合并的 All Rights Reserved 许可。Gaussian 输入校验、共享 PBS 节点准入与预留核算修复由后端提供。详见 [v4.8.1 变更](CHANGELOG.md#v481)。
+**v4.8.2 是 ag 4.8.2 的配套前端。** 网页功能沿用 v4.8.1。临时研究副本的离线振动模式导出和具名 PBS 入口的本地预留审计均在后端命令行执行。[v4.8.2 变更](CHANGELOG.md#v482)
 
-2026-10-31 的 v4.8.0 开发机部署与验收记录见 [v4.8.0 已发布](#v480-已发布)。各机器的 v4.8.1 升级另行验收。
+2026-10-31 的 v4.8.0 开发机部署与验收记录见 [v4.8.0 已发布](#v480-已发布)。各机器的 v4.8.2 升级另行验收。
 
 ## 历史发布记录（v4.7.0）
 
@@ -27,7 +27,7 @@ has no calculation-package, SSH, scheduler, database, or archive dependency.
 
 Requires Python 3.11–3.13, Node.js and pnpm matching `web/package.json`.
 For a release installation, use the complete frontend and backend source checkouts at the matching
-`v4.8.1` tags after both are published. [Frontend tag](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.1) · [Backend tag](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.1)
+`v4.8.2` tags. [Frontend release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.2) · [Backend release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.2)
 
 ```sh
 python3 -m venv .venv
@@ -73,13 +73,12 @@ replace that checkout; rebuild the web assets from the approved source revision.
 `--ag` 省略时从 PATH 查找，HTTP 请求不能指定可执行文件。
 启动执行 `ag --version`，失败则拒绝开启；此检查不验证精确版本或集群能力。
 操作模式允许通过 ag 刷新远程状态、取回结果、基于已有输入新建 Attempt、提交及取消。
-提交/取消仍须人亲手点击 Mac 系统确认框，前端不直接连接 SSH 或调用调度器，
-也不提供重提 UNKNOWN、覆盖旧 Attempt 或绕过确认的接口。
+从网页发起提交或取消时，ag 要求操作者在 Mac 系统对话框确认。网页调用的固定命令只传 Attempt 编号与 `--json`。直接使用后端 CLI 手动提交时，负责人也可按 ag 规则显式指定批准记录或长期规则。
+前端不直接连接 SSH 或调用调度器，也不提供重提 UNKNOWN、覆盖旧 Attempt 或绕过确认的接口。
 
 服务器监控的唯一数据来源是 **ag monitor 快照**，不是浏览器直接查询服务器：
 
-- 旧单集群配置：在独立终端运行 `ag monitor --watch 30`，生成
-  `<STUDIES_ROOT>/.ag-monitor/latest.json`，前端每 30 秒读取该固定文件。
+- 旧单集群配置的快照为 `<STUDIES_ROOT>/.ag-monitor/latest.json`。例如，独立运行 `ag monitor --watch 30` 可按 30 秒间隔采样。浏览器通常每 30 秒读取本机快照。
 - ag 4.0.0 多集群配置：快照位于
   `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`。
 - 前端不会启动采样器；缺失、过期和采样失败均需按界面提示解释，不能视为服务器空闲。
@@ -89,9 +88,9 @@ replace that checkout; rebuild the web assets from the approved source revision.
 
 ## 标准部署与可选只读模式
 
-部署 v4.8.1 时，按配套运维文档备份、更新、核对服务并准备回退。先完成开发机验收，再按获准窗口部署研究用计算机。[后端 v4.8.1 运维与配对](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.1/docs/OPERATIONS.md#v481-pair)
+部署 v4.8.2 时，按配套运维文档备份、更新、核对服务并准备回退。先完成开发机验收，再按获准窗口部署研究用计算机。[后端 v4.8.2 运维与配对](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.2/docs/OPERATIONS.md#v482-pair)
 
-两台电脑都采用一个操作模式前端（8773）+ 一个独立监控服务（`ag monitor --watch 30`）。
+每台机器运行一个操作模式前端（8773）和一个独立监控服务。采样周期按该机器的监控服务配置核对。
 前端 LaunchAgent 样例见 [local.autogaussian.frontend.plist.example](docs/ops/launchd/local.autogaussian.frontend.plist.example)。
 将 Python、前端检出、study 根目录、ag 可执行文件和日志目录的占位符替换成本机值，
 先在临时副本上运行 `plutil -lint`；本任务不加载服务，也不修改现有服务。
@@ -99,7 +98,7 @@ replace that checkout; rebuild the web assets from the approved source revision.
 
 ### 可选只读启动
 
-1. 获准部署 v4.8.1 时，待前后端同号发行后核对两个发布 tag 的完整提交，再按上面的安装步骤从源码构建并完成[版本核对](#版本核对)。
+1. 获准部署 v4.8.2 时，核对前后端同号发布 tag 的完整提交，再按上面的安装步骤从源码构建并完成[版本核对](#版本核对)。
 2. 将下列占位符换成本机前端目录和已有 study 根目录。使用不含符号链接的规范路径。
 3. 启动后打开终端显示的本机 URL，确认右上角为 **只读**。此启动方式不调用 ag。
 
@@ -376,7 +375,7 @@ CSV 每个状态/物种/构象一行，保留单位、条件、警告、来源�
 
 ## 放宽输入提醒（T197）
 
-4.8.1 前端仅展示已经保存的标记，不提供生成或放宽输入开关。
+前端仅展示已经保存的标记，不提供生成或放宽输入开关。
 配套后端能力与启用约束见后端发布说明；下文分支生成物联调保留为历史离线证据，
 不能代替具体 study 的动作授权、方法核验或科学验收。
 
@@ -460,6 +459,8 @@ Attempt 页“解析振动位移”读取所选 Gaussian log，选择模式后�
 在三维结构中依次点两个原子，面板显示参考距离、正负位移后的距离和变化；
 审阅模式还显示当前动画帧距离。可维护多个原子对，选择保存在 URL 查询参数中。
 模式整体正负号任意，有限振幅距离变化不等于线性导数。
+
+在临时研究副本上使用后端 `ag mode-review --offline` 时，报告写入独立本机目录。要查看这次导出，请打开命令返回的 `offline_review` 目录。
 
 面板读取 `analyses/` 及下一层目录中该 Attempt 的 `ag mode-review` JSON 报告，
 展示原始频率序号、坐标方向和 log SHA-256。只有同一 log、模式和方向的报告
@@ -793,9 +794,9 @@ no API responses are mocked in these integration tests.
 
 ## Release status
 
-### v4.8.1 配对
+### v4.8.2 配对
 
-安装时选择两仓各自的 `v4.8.1` 发布提交，按冻结锁文件从前端源码重建网页，再核对本机实际加载的前后端版本。[版本核对](#版本核对) · [配套后端运维说明](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.1/docs/OPERATIONS.md#v481-pair)
+安装时选择两仓各自的 `v4.8.2` 发布提交，按冻结锁文件从前端源码重建网页，再核对本机实际加载的前后端版本。[版本核对](#版本核对) · [配套后端运维说明](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.2/docs/OPERATIONS.md#v482-pair)
 
 ### v4.8.0 已发布
 
@@ -915,7 +916,7 @@ establish the current deployed version or acceptance status of either machine.
 ### 版本核对
 
 在对应隔离安装或获准部署的 Python 环境核对包元数据、实际导入模块与网页包，
-三处版本均应为 `4.8.1`。同时核对 `pyproject.toml` 的版本，以及配套后端执行 `ag --version` 时输出的 `4.8.1`。
+三处版本均应为 `4.8.2`。同时核对 `pyproject.toml` 的版本，以及配套后端执行 `ag --version` 时输出的 `4.8.2`。
 模块路径必须指向本次选定安装或源码，版本字符串本身不能证明运行服务已经升级。
 
 ```sh
@@ -934,6 +935,7 @@ establish the current deployed version or acceptance status of either machine.
 
 ## 版本历史
 
+- **v4.8.2** 配套 ag 4.8.2，前端功能沿用 v4.8.1，离线模式导出和 PBS 预留审计的用法见后端文档。[发布说明](CHANGELOG.md#v482)
 - **v4.8.1** 配套 ag 4.8.1，纳入前端许可与 v4.8.0 发布状态文档。[发布说明](CHANGELOG.md#v481)
 - **v4.8.0（2026-10-31 已发布）**：T192–T197、T210 自主取消/改投未启用提示、T217C 后端链路判定与快照年龄；配套 ag 4.8.0，开发机部署及实际核验已完成，研究机本轮未操作。[发布说明](CHANGELOG.md#v480)
 - **v4.7.1（未单独发布，内容并入 4.8.0）**：T208/T209 的发布准备及当时验证记录保留为历史。[历史准备说明](CHANGELOG.md#v471)
@@ -1123,7 +1125,7 @@ queue／unknown 均可本地准备，以及精确内存导致仅某一比例不�
 
 ## 自主运行状态与手动操作保护（T196）
 
-**4.8.1 前端仍提示“自主取消／改投未启用”。** 本节描述保存记录的展示与人工操作保护；
+**前端提示“自主取消／改投未启用”。** 本节描述保存记录的展示与人工操作保护；
 无自主目录时只显示“未启用 / 此 Study 没有自主运行目录”，不展示虚构计划、轮次、计数或日志。
 下文 T186/T187 冻结分支的消费、取消、改投联调记录仅说明历史离线兼容范围，
 不构成本版取消/改投启用证据，也不授权具体 study 的自主计算。

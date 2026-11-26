@@ -48,7 +48,7 @@ function savedStatus(): AutonomyStatus {
         sha256: sha,
         created_at: now - 7200,
         versions: {
-          ag_version: "4.8.1",
+          ag_version: "4.8.2",
           git_commit: "b".repeat(40),
           dirty: false,
           rdkit: "synthetic",

@@ -1,5 +1,10 @@
 # Changelog
 
+## v4.8.2
+
+- Study Viewer 配套 ag 4.8.2。自前端 v4.8.1 起，网页和 API 功能相同。本次同步 Python 包、运行时、网页包、合成计划及安装文档中的版本。[安装与版本核对](README.md#版本核对)
+- 使用后端 `ag mode-review` 的 `--offline` 选项，可将临时研究副本的振动模式报告、位移坐标与来源登记导出到独立的本机目录。后端 `ag autonomy audit-reservations --cluster <入口名> --json` 可只读定位具名 PBS 入口的预留核算证据缺口。两项功能均从后端命令行使用。[后端命令说明](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.2/ag/README.md#临时验收和-pbs-预留排查)
+
 ## v4.8.1
 
 - 前端配套 ag 4.8.1。Python 包、运行时、网页包和合成演示中的配套版本同步为 4.8.1。Gaussian 输入校验、共享 PBS 节点准入与预留核算修复由配套后端提供。[后端 v4.8.1 发布说明](https://github.com/anakine800-tech/Auto-Gaussian/blob/v4.8.1/CHANGELOG.md#v481)

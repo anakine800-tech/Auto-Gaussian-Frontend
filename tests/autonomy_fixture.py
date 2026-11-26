@@ -20,7 +20,7 @@ def create_autonomy(study, phase='running', *, lease='active', now=None):
     folder.mkdir(exist_ok=True)
     (folder / 'store.lock').write_text('Synthetic local mutex\n')
     totals = dict(attempt=1, remedy=0, cancel=0, reroute=0)
-    versions = dict(ag_version='4.8.1', git_commit='a' * 40, dirty=False,
+    versions = dict(ag_version='4.8.2', git_commit='a' * 40, dirty=False,
                     rdkit='2026.03.3', goodvibes='3.3.0')
     body = dict(id='plan-demo', created_at=now - 10000, versions=versions,
                 spec=dict(goal='合成只读演示', comparison_groups=['合成对照一', '合成对照二'],
